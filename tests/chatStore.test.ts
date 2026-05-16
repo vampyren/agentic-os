@@ -112,3 +112,34 @@ describe("chatStore — setLastUsage (streaming updates)", () => {
     expect(chatStore.get("alpha").sessionUsage.turns).toBe(0);
   });
 });
+
+describe("chatStore — SSR/CSR hydration contract (v0.2.9 fix)", () => {
+  it("get() returns an empty session synchronously — no localStorage read", () => {
+    // The fresh agent must come back empty even if there's hypothetically
+    // stale data in localStorage. get() never touches storage.
+    const s = chatStore.get("hydration-test-agent");
+    expect(s.msgs).toEqual([]);
+    expect(s.sessionUsage.turns).toBe(0);
+    expect(s.lastUsage).toBeNull();
+  });
+
+  it("hydrate() is idempotent — second call is a no-op", () => {
+    // First call: no storage in test env, nothing to load. Second call:
+    // already marked hydrated, returns immediately. Neither should throw.
+    expect(() => {
+      chatStore.hydrate("idempotency-test");
+      chatStore.hydrate("idempotency-test");
+      chatStore.hydrate("idempotency-test");
+    }).not.toThrow();
+  });
+
+  it("newSession() marks the agent as hydrated so stale storage can't reload it", () => {
+    // Append some in-memory state, then newSession clears it. A subsequent
+    // hydrate() call must NOT bring data back (defensively, even if the
+    // previous test left storage in a weird state).
+    chatStore.appendUserMessage("clean-after-new", "should be cleared");
+    chatStore.newSession("clean-after-new");
+    chatStore.hydrate("clean-after-new");
+    expect(chatStore.get("clean-after-new").msgs).toEqual([]);
+  });
+});

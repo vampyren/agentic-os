@@ -50,15 +50,55 @@ interface Listener {
 class ChatStore {
   private sessions = new Map<string, ChatSession>();
   private listeners: Listener[] = [];
+  // Track which agents have already attempted a localStorage load this
+  // session so hydrate() is idempotent + safe to call from useEffect.
+  private hydrated = new Set<string>();
 
-  /** Return the session for an agent, creating an empty one if needed. */
+  /**
+   * Return the in-memory session for an agent, creating an empty one if
+   * needed. **Does not read from localStorage** — that would break SSR
+   * hydration because the server has no `window`, so server-render returns
+   * empty while client-render returns persisted data → mismatch.
+   *
+   * Call `hydrate(agent)` after mount (from a useEffect) to load any
+   * persisted state from localStorage.
+   */
   get(agent: string): ChatSession {
     let s = this.sessions.get(agent);
     if (!s) {
-      s = this.loadFromStorage(agent) ?? emptySession();
+      s = emptySession();
       this.sessions.set(agent, s);
     }
     return s;
+  }
+
+  /**
+   * Load any persisted state from localStorage for this agent into the
+   * in-memory store. Idempotent — second + subsequent calls for the same
+   * agent are no-ops within the same browser-tab lifetime. Triggers a
+   * subscribe notification if state was actually loaded so React components
+   * subscribed via useChatSession re-render with the restored data.
+   *
+   * Safe to call from a useEffect — runs only on the client (window check
+   * inside loadFromStorage).
+   */
+  hydrate(agent: string): void {
+    if (this.hydrated.has(agent)) return;
+    this.hydrated.add(agent);
+    const loaded = this.loadFromStorage(agent);
+    if (!loaded) return;
+    // Replace the in-memory session in-place so the React reference
+    // (returned by get()) keeps a stable identity within the same tick.
+    const existing = this.sessions.get(agent);
+    if (existing) {
+      existing.msgs = loaded.msgs;
+      existing.sessionUsage = loaded.sessionUsage;
+      existing.lastUsage = loaded.lastUsage;
+      existing.rev++;
+    } else {
+      this.sessions.set(agent, loaded);
+    }
+    this.notify(agent);
   }
 
   subscribe(agent: string, cb: () => void): () => void {
@@ -122,6 +162,9 @@ class ChatStore {
   /** Start a fresh conversation for one agent. Clears storage too. */
   newSession(agent: string): void {
     this.sessions.set(agent, emptySession());
+    // Mark hydrated so a stale localStorage payload can't repopulate the
+    // just-cleared session on a subsequent hydrate() call this tab.
+    this.hydrated.add(agent);
     this.clearStorage(agent);
     this.notify(agent);
   }

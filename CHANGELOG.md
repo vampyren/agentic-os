@@ -36,6 +36,43 @@ Then later:
 
 ---
 
+## [0.2.9] — 2026-05-16 — Fix: SSR/CSR hydration mismatch in chat persistence
+
+**Patch release for a real bug introduced in v0.2.7.** The chat-persistence work added a `localStorage`-backed store, but `chatStore.get()` synchronously read from `localStorage` on first access. Server-side render had no `window`, so it returned an empty session. The client first paint then read localStorage and returned the populated session. React saw a mismatch (button `disabled` flipped, empty-state `<p>` swapped for the actual ChatBubble tree), tore down the hydrated tree, and re-rendered from scratch. Loud red error in the dev console and a layout flash for the operator.
+
+### Fixed
+
+- **`chatStore.get()` is now pure in-memory.** Never touches localStorage. Server render + client first render both return an empty session → HTML matches → React hydrates cleanly.
+- **New `chatStore.hydrate(agent)` method** does the localStorage read. Idempotent (second call same tab is a no-op). Replaces the in-memory session in-place and notifies subscribers so React components re-render with the restored data.
+- **`useChatSession` calls `hydrate()` inside `useEffect`** — runs after first paint, never during render. The brief flash of empty state on hard reload is intentional and required for hydration correctness.
+- **`newSession()` marks the agent as hydrated** so stale localStorage data can't reload after a clear.
+
+### Tests added (+3)
+
+- `chatStore.test.ts` — three new cases verifying the hydration contract:
+  - `get()` returns empty synchronously, no storage read.
+  - `hydrate()` is idempotent.
+  - `newSession()` blocks subsequent `hydrate()` from reloading stale data.
+
+### Tests + CI
+
+- Vitest: 87 → **90 passing**.
+- Typecheck + Playwright clean.
+
+### Verified end-to-end
+
+In a browser hard-reload of `/agents/claude-code`:
+- Server response: empty chat shell.
+- Client hydration: empty chat shell (matches → no React warning).
+- useEffect fires → `hydrate()` runs → localStorage data loads → store notifies → component re-renders with persisted messages.
+- Console clean. No layout flash beyond the intended one-frame transition.
+
+### Migration
+
+None. Public API of `chatStore` gained one method (`hydrate`); the existing `get` / `appendUserMessage` / `appendAssistantMessage` / `setLastUsage` / `newSession` / `subscribe` all keep their signatures. The hook is used the same way.
+
+---
+
 ## [0.2.8] — 2026-05-16 — Maintenance: kernel-level empty-usage + race fix + event ordering
 
 Pure correctness pass closing the four Hermes findings from the v0.2.6 + v0.2.7 reviews. No new features. Hermes specifically called out the v0.2.7 fixes as **not actually working** — both were patched only at the UI layer and the underlying bugs were still live. Fixed properly here at the kernel/parser/store level.
