@@ -22,13 +22,56 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-Queued for 0.2.3 (feature pass deferred from 0.2.2 to let the security gate land alone):
+Queued for 0.2.4 (feature pass — security gate now fully closed in 0.2.3):
 - **Context-window fill bar** in the AgentRoom tokens card (Claude `[1m]` → "used / 1M" progress bar; same per-model max). Replaces today's in/out bar that gets visually swamped by cache hits.
-- **Hermes usage** via `hermes insights --json` / `hermes sessions stats` — Hermes does track per-session tokens; we just don't surface it yet.
-- **Hash-based chat filenames** as an option so the audit log's `vault.write` path doesn't leak short prompts via filename slug. Operator chooses slug vs. hash in config.
+- **Hermes usage** via `hermes insights --json` / `hermes sessions stats`.
 - "Send last prompt to agent X" action in the command palette.
 - Voice input on the journal page.
 - Vault search results inside the command palette.
+
+---
+
+## [0.2.3] — 2026-05-16 — Security patch: chat filenames no longer leak prompts
+
+Closes the residual leak documented (but not fixed) in v0.2.2: chat filenames recorded in `vault.write` audit entries were derived from the slugified prompt prefix. A prompt like "what is my password" landed in audit as a filename containing `-what-is-my-password.md`.
+
+### Security — fixed
+
+- **Chat filenames are now hash-based, not slug-based.** Format changed from `YYYY-MM-DD-HHMM-{agent}-{slug}.md` to `YYYY-MM-DD-HHMM-{agent}-{promptSha8}.md` where `promptSha8` is the first 8 hex chars of SHA-256(prompt). Filename contains **zero prompt-derived characters**.
+- The H1 title and chat body inside the markdown remain human-readable — only the filename (which leaves the operator's vault and lands in `vault.write` audit entries) is hashed.
+- Other note kinds (goals, journal, summaries, reviews, drafts) **keep slugified filenames**. Those titles are operator-authored — not prompt content. No leak there.
+- New `filenameSeed?: string` field on `WriteDraftInput`. For chat kind, this is the source for the hash (full prompt is now passed from the run endpoint rather than the truncated 60-char title).
+
+### Test — added
+
+`tests/audit-pipeline-security.test.ts` — 4 full-pipeline regression tests:
+1. Chat written with a nonce in title + body + filename-seed: filename matches `^\d{4}-\d{2}-\d{2}-\d{4}-claude-code-[0-9a-f]{8}\.md$`. Nonce in the file body (operator's chat content, expected) but **not anywhere in the audit log**. Assertion is deep: raw-string scan AND recursive walk of every parsed entry's string fields.
+2. `auditAgentInvoke` direct call with a nonce-bearing prompt: nonce never reaches `argsRedacted` via `renderArgsForAudit`.
+3. Full simulated round-trip (`agent.invoke` + `vault.write`): nonce absent from both entry types, with sanity assertions that entries were actually written (no vacuous test).
+4. Non-chat kinds (goals etc.) still use slugified filenames as expected.
+
+### Docs
+
+- `docs/SECURITY.md` — Audit log section rewritten. Removed the "known residual" caveat. Documents the two-layer guarantee: `renderArgsForAudit` for argv + hash filenames for `vault.write` paths.
+- `docs/VAULT-CONTRACT.md` — folder layout example updated; added privacy invariant explaining why chat filenames differ from other kinds.
+
+### Verified end-to-end against the operator's vault
+
+```
+POST /api/agents/claude-code/run "v023-smoke-XYZQ7-must-not-leak — just reply OK"
+→ saved → 00_Inbox/agentic-os/chats/2026-05-16-1331-claude-code-ad022b45.md
+                                                          ^^^^^^^^ hash, not slug
+→ grep "v023-smoke-XYZQ7" ~/.agentic-os/audit/2026-05-16.jsonl   →  0 matches
+→ grep "v023-smoke-XYZQ7" <the saved file>                       →  PRESENT (chat body)
+```
+
+### Migration
+
+None required. Old slug-named chats in `00_Inbox/agentic-os/chats/` stay as they are (filenames; nothing depends on the format). New chats from v0.2.3 onward use the hash format.
+
+### What's next
+
+Security gate fully closed. v0.2.4 is the feature pass that was originally queued for 0.2.3.
 
 ---
 
