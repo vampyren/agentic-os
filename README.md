@@ -32,7 +32,7 @@ See [`docs/decisions/ADR-0006-rebuild-not-fork-of-julian-v01.md`](docs/decisions
 4. **Markdown is source of truth, SQLite is the index.** Your `.md` files in Obsidian stay canonical and human-readable. A local SQLite FTS5 index (and later sqlite-vec for semantic recall) lives in `~/.agentic-os/index.db` for fast search.
 5. **Inbox-first vault contract.** Agents write drafts freely to `00_Inbox/agentic-os/...`. Promotion to permanent folders is gated through the dashboard. Honors the existing `Hermes Obsidian Approved Write Workflow` decision in your vault.
 6. **Localhost by default.** Phase 1 binds 127.0.0.1, no auth. LAN/remote modes ship later with proper auth.
-7. **Ship in phases.** See [`docs/ROADMAP.md`](docs/ROADMAP.md). Phase 1 = working single-user Mission Control. Phase 2 = MCP + scheduler + deep Obsidian. Phase 3 = remote access + plugin marketplace pattern.
+7. **Ship in phases.** See [`docs/ROADMAP.md`](docs/ROADMAP.md). Phase 1 splits into 1A (kernel skeleton + intentionally ugly UI), 1B (operator UX + SELF layer + FTS5 index), 1C (scheduler + missions). Phase 2 splits into 2A (HTTP-transport agents), 2B (promotion UI + semantic recall), 2C (MCP). Phase 3 = remote access + plugin marketplace pattern + opt-in Claude Agent SDK transport.
 
 ## Repository layout
 
@@ -57,7 +57,7 @@ source-julian/             Julian Goldie's v0.1 zip + web page snapshot, kept fo
 - **`source-julian/web/`** — Snapshot of the AIPB classroom page that introduced the concept ("GOLDIE Mission Stack").
 - **`source-julian/chatgpt_Prompts.docx`** — ChatGPT's distillation of Julian's 8 build prompts.
 
-## Quickstart (will exist after Phase 1)
+## Quickstart (will exist after Phase 1B; Phase 1A uses manual config — see [`docs/INSTALL.md`](docs/INSTALL.md))
 
 ```bash
 # placeholder — not implemented yet

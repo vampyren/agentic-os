@@ -22,6 +22,8 @@ Phased delivery. Each phase has explicit exit criteria. We don't start the next 
 
 Split into three slices so each is small enough to review end-to-end. See ADR-0007 for the rationale.
 
+> **Phase sequencing — no interleaving.** Do not start 1B until all 1A exit criteria pass and the operator explicitly signs off. Same for 1B → 1C. The split exists specifically to keep each slice's blast radius small; jumping ahead defeats the purpose. If a 1B-shaped need surfaces during 1A work, file it as a 1B issue and continue with 1A.
+
 ### Phase 1A — Kernel skeleton (the minimum viable spine)
 
 **Goal:** Prove the abstractions work end-to-end with one real agent. Ugly UI is fine. No persistence beyond markdown + JSONL audit log.
