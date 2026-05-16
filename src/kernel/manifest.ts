@@ -32,6 +32,14 @@ const healthProbeSchema = z.object({
   intervalSec: z.number().int().positive().optional(),
 });
 
+// Optional post-run usage extractor. After the main agent call succeeds,
+// the transport runs the named parser to fetch usage from a side channel
+// (e.g. Hermes's SQLite store). Fail-soft: extractor errors never affect
+// the main call's success.
+const postRunUsageSchema = z.object({
+  parser: z.enum(["hermes-session-export"]),
+});
+
 const manifestSchema = z.discriminatedUnion("transport", [
   z.object({
     name: z.string().regex(/^[a-z0-9][a-z0-9-]{0,63}$/, "name must be kebab-case slug"),
@@ -44,6 +52,7 @@ const manifestSchema = z.discriminatedUnion("transport", [
       streamingChat: z.boolean().optional(),
     }).optional(),
     healthProbe: healthProbeSchema.optional(),
+    postRunUsage: postRunUsageSchema.optional(),
   }),
   z.object({
     name: z.string().regex(/^[a-z0-9][a-z0-9-]{0,63}$/, "name must be kebab-case slug"),
@@ -56,6 +65,7 @@ const manifestSchema = z.discriminatedUnion("transport", [
       streamingChat: z.boolean().optional(),
     }).optional(),
     healthProbe: healthProbeSchema.optional(),
+    postRunUsage: postRunUsageSchema.optional(),
   }),
 ]);
 

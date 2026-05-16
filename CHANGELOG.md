@@ -22,11 +22,72 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-Queued (one focused release per item, smallest first per Hermes review's "bounded UI work" rule):
-- **Hermes usage card** — pull per-session token + cost stats from `hermes sessions stats` / `hermes insights --json` so the Hermes AgentRoom shows the same kind of metrics Claude already does. Will likely introduce an optional `postRunUsage` hook on the subprocess transport.
+Queued for v0.2.7 — UI inspiration pass (operator dropped 35 screenshots showing Julian's Agentic OS aesthetic):
+- Per-agent action rail: `Status / Sessions / Skills / Plugins / Kanban / Doctor / Insights` for Hermes (mirrors Julian's pattern). Surface what each agent CLI already exposes instead of reinventing.
+- Polished chat bubbles with agent avatars (Claude page in screenshot 162527).
+- Memory page improvements: tabs (Local conversations / Obsidian vault), filter chips, right-pane preview (screenshot 163509).
+
+Then v0.2.8+:
 - "Send last prompt to agent X" action in the command palette.
 - Voice input on the journal page (chat box already has it).
 - Vault search results inside the command palette.
+
+---
+
+## [0.2.6] — 2026-05-16 — Feature: Hermes usage card + polished context bar + review carry-overs
+
+Three things in one focused release: Hermes finally shows its own usage stats (sourced from `hermes sessions export` — uses Hermes's own data, doesn't reinvent), the context-window bar got a visual polish, and three low-priority items from Hermes's review of v0.2.5 are closed.
+
+### Added — Hermes usage card
+
+The Tokens card in `/agents/hermes` now populates after every chat. Previously empty because `hermes -z` doesn't emit usage in stdout. Solution: introduce an **optional `postRunUsage` hook** on agent manifests. For Hermes:
+
+1. After a successful `hermes -z` call, run `hermes sessions list --source cli --limit 1` to get the most recent CLI session id (single-operator system; very low race risk).
+2. Run `hermes sessions export --session-id <id> -` which returns a single JSON object with `model`, `input_tokens`, `output_tokens`, `cache_read_tokens`, `cache_write_tokens`, `actual_cost_usd` / `estimated_cost_usd`, `message_count`, `tool_call_count`.
+3. Map to the standard `AgentUsage` shape and emit a normal `usage` event. The existing card renders it identically to Claude's.
+
+**Fail-soft by design**: any error in the extractor (Hermes not installed, command schema changed, parse fail, timeout) silently yields no usage event. The operator already got their chat reply — bonus telemetry isn't worth marking the call as failed. Per Hermes review's recommendation.
+
+### Added — `postRunUsage` field on agent manifests
+
+- New optional `postRunUsage: { parser: "hermes-session-export" }` on subprocess + streamJson manifest schemas. Currently one parser; future agents (OpenRouter via http transport, others) get their own parser names.
+- Zod-validated. A manifest with an unknown parser fails at startup with a clear error.
+- Documented in the manifest schema. `agents/builtin/hermes.yaml` uses it.
+
+### Changed — ContextBar polish
+
+The bar is now **3× thicker** (h-1.5 → h-2.5), has a header with a big colored percentage (`14%` in agent accent), and a compact legend chip row showing `context Xk · out Yk`. Transitions animate width changes smoothly when streaming usage updates land. Same data — much easier to read at a glance.
+
+### Fixed — review carry-overs (Hermes v0.2.5)
+
+- **`docs/INSTALL.md`** was stuck at `v0.2.4`. Updated to current version. Added to the release-hygiene test (was previously conditional and got missed).
+- **`ContextBar` render gate** previously required `inputTokens || outputTokens || cacheReadInputTokens`. A usage event with only `cacheCreationInputTokens` would have hidden the bar. Now includes all four.
+- **`resolveModel()` provider-prefix normalization** — `openai/gpt-5.5` now resolves the same as `gpt-5.5`. Same for `anthropic/claude-opus-4-7[1m]`, `ollama/qwen3-coder:30b`, etc. Hermes uses provider-qualified model strings, so this is required for the new usage card.
+- **`docs/RELEASE-CHECKLIST.md`** §2: moved INSTALL.md from "conditional" to "every release", added README + CHANGELOG to the same list, and the hygiene test now covers all six surfaces.
+
+### Tests added (+12, total 71)
+
+- `tests/models.test.ts` — 2 new cases for provider-prefix normalization.
+- `tests/postRunUsage.test.ts` — 9 new cases covering the Hermes parser:
+  - Session-id parsing from list output (single row, cron-prefixed, multi-row newest-wins, empty).
+  - JSON-to-`AgentUsage` mapping (full sample, prefers actual cost over estimated, falls back when actual is null, ignores non-numeric, returns `{}` for empty input).
+- `tests/release-hygiene.test.ts` — 1 new case for INSTALL.md version line.
+
+### Verified end-to-end
+
+```
+POST /api/agents/hermes/run "what is 2+2"
+→ token: "2 + 2 = 4"
+→ done
+→ saved → 00_Inbox/agentic-os/chats/2026-05-16-1700-hermes-{hash}.md
+→ usage: { model: "gpt-5.5", inputTokens: 14691, outputTokens: 9, totalCostUsd: 0.07 }   ← NEW
+```
+
+The Hermes AgentRoom now shows the same Tokens card Claude does, with model, in/out token counts, cost, and the polished fill bar.
+
+### Migration
+
+None for operators. For anyone with custom manifests: `postRunUsage` is optional; existing manifests work unchanged. The only currently-supported `parser` value is `"hermes-session-export"`.
 
 ---
 

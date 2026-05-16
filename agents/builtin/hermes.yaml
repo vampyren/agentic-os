@@ -20,3 +20,10 @@ healthProbe:
   command: ["hermes", "--version"]
   timeoutMs: 3000
   intervalSec: 300
+
+# After each hermes -z call, query the most recent CLI session via
+# `hermes sessions export --session-id <id> -` to extract real per-session
+# token counts + model + cost. Fail-soft: any error in the extractor is
+# silently ignored — the operator already got their response.
+postRunUsage:
+  parser: hermes-session-export

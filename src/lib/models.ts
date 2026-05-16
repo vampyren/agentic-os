@@ -57,24 +57,38 @@ const DEFAULT_CONTEXT = 200_000;
 
 /**
  * Resolve a model string to its context-window size (in tokens) and family.
- * Handles Anthropic's `[1m]` suffix that indicates the 1M-context variant.
+ * Handles:
+ *   - Provider-prefixed IDs: "openai/gpt-5.5", "anthropic/claude-opus-4-7" —
+ *     the prefix before the first `/` is stripped before lookup.
+ *   - Anthropic-style annotations: "claude-opus-4-7[1m]" — overrides the
+ *     base model's default with the annotated context.
+ *
+ * Hermes / OpenRouter / Ollama all use provider-prefixed strings, so this
+ * normalization matters for the Hermes usage card and Phase 2A's http
+ * transport.
  */
 export function resolveModel(modelString: string): ModelInfo {
   if (!modelString) return { contextTokens: DEFAULT_CONTEXT };
 
+  // Strip provider prefix if present (e.g. "openai/gpt-5.5" → "gpt-5.5").
+  // We only strip a single segment — model IDs themselves don't contain '/'.
+  const normalized = modelString.includes("/")
+    ? modelString.split("/").slice(1).join("/")
+    : modelString;
+
   // Anthropic's [1m] / [200k] / etc. annotation overrides whatever the base
   // model would have been. Example: "claude-opus-4-7[1m]".
-  const annotation = modelString.match(/\[(\d+)([km])\]/i);
+  const annotation = normalized.match(/\[(\d+)([km])\]/i);
   if (annotation) {
     const num = Number(annotation[1]);
     const unit = (annotation[2] ?? "").toLowerCase();
     const multiplier = unit === "m" ? 1_000_000 : 1_000;
-    const base = stripAnnotation(modelString);
+    const base = stripAnnotation(normalized);
     const baseInfo = lookupBase(base);
     return { contextTokens: num * multiplier, family: baseInfo.family };
   }
 
-  return lookupBase(modelString);
+  return lookupBase(normalized);
 }
 
 function stripAnnotation(s: string): string {

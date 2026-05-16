@@ -355,7 +355,10 @@ export default function AgentRoom({ name }: { name: string }) {
               )}
             </h3>
 
-            {usage && (usage.inputTokens || usage.outputTokens || usage.cacheReadInputTokens) && (
+            {usage && (
+              usage.inputTokens || usage.outputTokens ||
+              usage.cacheReadInputTokens || usage.cacheCreationInputTokens
+            ) && (
               <>
                 <ContextBar usage={usage} accent={accent} />
                 <dl className="space-y-2 text-[12px] mt-3">
@@ -472,29 +475,59 @@ function ContextBar({
     breakdown.outputTokens         ? `out: ${formatK(breakdown.outputTokens)}` : "",
   ].filter(Boolean).join(" · ");
 
+  const pctText = fillPct >= 10 ? Math.round(fillPct).toString()
+    : fillPct >= 1 ? fillPct.toFixed(1)
+    : fillPct.toFixed(2);
+
   return (
-    <div className="flex flex-col gap-1.5">
+    <div className="flex flex-col gap-2" title={tip}>
+      {/* Header line: "USED / MAX" left, percentage right (big). */}
+      <div className="flex items-baseline justify-between gap-3">
+        <div className="text-[12px] text-[var(--fg-dim)] tabular-nums">
+          <span className="text-[var(--fg)] font-medium">{formatK(breakdown.usedTotal)}</span>
+          <span className="text-[var(--fg-dimmer)] mx-1">/</span>
+          <span>{formatK(max)}</span>
+        </div>
+        <div className="text-[14px] font-medium tabular-nums" style={{ color: accent }}>
+          {pctText}<span className="text-[10px] text-[var(--fg-dimmer)] ml-0.5">%</span>
+        </div>
+      </div>
+
+      {/* The bar itself — thicker, rounded, two segments with a subtle gap. */}
       <div
-        className="w-full h-1.5 rounded-full overflow-hidden flex"
-        style={{ background: "var(--bg-elevated-hot)" }}
-        title={tip}
+        className="w-full h-2.5 rounded-full overflow-hidden flex"
+        style={{
+          background: "rgba(255,255,255,0.06)",
+          boxShadow: "inset 0 0 0 1px rgba(255,255,255,0.04)",
+        }}
       >
         <div
           style={{
             width: `${contextShareOfFill}%`,
-            background: "color-mix(in srgb, var(--fg-dim) 70%, transparent)",
+            background: "color-mix(in srgb, var(--fg-dim) 60%, transparent)",
+            transition: "width 240ms ease-out",
           }}
         />
         <div
           style={{
             width: `${outputShareOfFill}%`,
             background: accent,
+            boxShadow: `0 0 8px -2px ${accent}`,
+            transition: "width 240ms ease-out",
           }}
         />
       </div>
-      <div className="flex items-baseline justify-between text-[10px] text-[var(--fg-dimmer)] tabular-nums">
-        <span>{formatK(breakdown.usedTotal)} / {formatK(max)}</span>
-        <span>{fillPct >= 1 ? fillPct.toFixed(1) : fillPct.toFixed(2)}%</span>
+
+      {/* Tiny legend so the two segments are explained without a tooltip. */}
+      <div className="flex items-center gap-3 text-[10px] text-[var(--fg-dimmer)] uppercase tracking-widest">
+        <span className="flex items-center gap-1.5">
+          <span className="inline-block w-1.5 h-1.5 rounded-sm" style={{ background: "color-mix(in srgb, var(--fg-dim) 60%, transparent)" }} />
+          context {formatK(breakdown.contextTotal)}
+        </span>
+        <span className="flex items-center gap-1.5">
+          <span className="inline-block w-1.5 h-1.5 rounded-sm" style={{ background: accent }} />
+          out {formatK(breakdown.outputTokens)}
+        </span>
       </div>
     </div>
   );

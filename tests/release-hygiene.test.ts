@@ -59,4 +59,15 @@ describe("release hygiene — version consistency", () => {
     const heading = new RegExp(`^##\\s+\\[${pkg.version.replace(/\./g, "\\.")}\\]`, "m");
     expect(cl, "CHANGELOG must have a `## [X.Y.Z]` heading for the current version").toMatch(heading);
   });
+
+  it("docs/INSTALL.md current-version line matches package.json", async () => {
+    // Lesson from Hermes review of v0.2.5: INSTALL.md was stuck on v0.2.4
+    // because the previous release checklist marked it as conditional. It
+    // isn't — the "Current shipped version" line needs bumping every release.
+    const pkg = await readJson<Pkg>("package.json");
+    const install = await fs.readFile(path.join(REPO_ROOT, "docs/INSTALL.md"), "utf8");
+    const re = new RegExp(`Current shipped version:\\s*\\*\\*v${pkg.version.replace(/\./g, "\\.")}\\*\\*`);
+    expect(install, "INSTALL.md must declare `Current shipped version: **vX.Y.Z**` matching package.json")
+      .toMatch(re);
+  });
 });

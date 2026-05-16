@@ -24,6 +24,10 @@ export interface HealthProbeConfig {
   intervalSec?: number;                 // default 300 (used in Phase 1B's probe loop)
 }
 
+export interface PostRunUsageConfig {
+  parser: "hermes-session-export";
+}
+
 export interface AgentManifest {
   name: string;
   displayName: string;
@@ -32,6 +36,7 @@ export interface AgentManifest {
   transportConfig: SubprocessTransportConfig | StreamJsonTransportConfig;
   capabilities?: { chat?: boolean; streamingChat?: boolean };
   healthProbe?: HealthProbeConfig;
+  postRunUsage?: PostRunUsageConfig;
 }
 
 export interface HealthReport {

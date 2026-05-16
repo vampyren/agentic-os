@@ -33,6 +33,18 @@ describe("resolveModel — exact + family + annotation", () => {
   it("empty / missing model string handled gracefully", () => {
     expect(resolveModel("").contextTokens).toBe(200_000);
   });
+
+  it("strips provider prefix before lookup (Hermes/OpenRouter style)", () => {
+    expect(resolveModel("openai/gpt-5.5").contextTokens).toBe(272_000);
+    expect(resolveModel("anthropic/claude-opus-4-7[1m]").contextTokens).toBe(1_000_000);
+    expect(resolveModel("anthropic/claude-sonnet-4-6").contextTokens).toBe(200_000);
+    expect(resolveModel("ollama/qwen3.6-35b-a3b").contextTokens).toBe(32_000);
+  });
+
+  it("provider-prefixed model resolves the same family as bare", () => {
+    expect(resolveModel("openai/gpt-5.5").family).toBe(resolveModel("gpt-5.5").family);
+    expect(resolveModel("anthropic/claude-opus-4-7").family).toBe(resolveModel("claude-opus-4-7").family);
+  });
 });
 
 describe("contextBreakdown", () => {

@@ -45,17 +45,19 @@ grep -rn -E "\"version\":|v[0-9]+\.[0-9]+\.[0-9]+" \
   . | grep -v node_modules | grep -v .next | grep -v package-lock.json
 ```
 
-Known places that need bumping every release:
+Known places that need bumping **every release** (the hygiene test enforces all of these):
 
 - [ ] `package.json` → `"version": "X.Y.Z"`
 - [ ] `package-lock.json` — after editing `package.json`, run `npm install --package-lock-only` to update the lock's root + `packages[""]` version. (Lesson from Hermes review of v0.2.3: package-lock root was still `0.1.0`.)
 - [ ] `src/components/Sidebar.tsx` → version badge `vX.Y.Z`
-- [ ] **`npm test` will fail** if you forget any of the above — `tests/release-hygiene.test.ts` enforces consistency across package.json / package-lock.json / sidebar / README / CHANGELOG.
+- [ ] `README.md` → "Status: vX.Y.Z — ..." line
+- [ ] `CHANGELOG.md` → `## [X.Y.Z]` heading
+- [ ] `docs/INSTALL.md` → "Current shipped version: **vX.Y.Z**" line (lesson from Hermes review of v0.2.5: was previously conditional and got missed)
+- [ ] **`npm test` will fail** if you forget any of the above — `tests/release-hygiene.test.ts` enforces consistency across all six surfaces.
 
 Conditional (only if a phase/feature surface changed):
 
-- [ ] `README.md` → "Status: vX.Y.Z — Phase ___ shipped"
-- [ ] Any inline `vX.Y.Z` references in `docs/*.md` that point at a now-superseded version (search and judge)
+- [ ] Any inline `vX.Y.Z` references in other `docs/*.md` that point at a now-superseded version (search and judge)
 
 Comments that quote a historical version (e.g. `// Phase 1B note: in v0.2.0 commit 1...`) are fine — they're history, not current state.
 

@@ -18,6 +18,7 @@ import {
   sha8,
 } from "./audit";
 import { startHealthLoop } from "./health";
+import { runPostRunUsage } from "./postRunUsage";
 import type {
   AgentEvent,
   AgentManifest,
@@ -203,6 +204,20 @@ class Registry {
         transport: manifest.transport,
       });
     }
+
+    // Post-run usage extractor (Hermes etc.) — fail-soft: any error here
+    // must NOT mark the agent call as failed. The operator already got
+    // their response; usage is bonus telemetry.
+    if (!errored && manifest.postRunUsage) {
+      try {
+        const usage = await runPostRunUsage(manifest.postRunUsage.parser);
+        if (usage) {
+          bus.emit({ source: name, kind: "agent.usage", payload: usage });
+          yield { kind: "usage", usage };
+        }
+      } catch { /* fail-soft */ }
+    }
+
     bus.emit({
       source: name,
       kind: "agent.invoke.complete",
