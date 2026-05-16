@@ -15,14 +15,21 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import os from "node:os";
 
-const AUDIT_DIR = path.join(os.homedir(), ".agentic-os", "audit");
+// Audit log location. Operator default is ~/.agentic-os/audit/. Tests (and
+// any future need to redirect) can override via env var so they don't
+// pollute the operator's real log. Evaluated lazily so tests can set the
+// env var after import.
+function auditDir(): string {
+  return process.env["AGENTIC_OS_AUDIT_DIR"]
+    ?? path.join(os.homedir(), ".agentic-os", "audit");
+}
 
 function todayUtc(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
 async function ensureDir(): Promise<void> {
-  await fs.mkdir(AUDIT_DIR, { recursive: true });
+  await fs.mkdir(auditDir(), { recursive: true });
 }
 
 export interface AuditEnvelope {
@@ -40,7 +47,7 @@ async function writeLine(record: { kind: string; [k: string]: unknown }): Promis
     ...record,
   };
   const line = JSON.stringify(envelope) + "\n";
-  const file = path.join(AUDIT_DIR, `${todayUtc()}.jsonl`);
+  const file = path.join(auditDir(), `${todayUtc()}.jsonl`);
   await fs.appendFile(file, line, "utf8");
 }
 
@@ -121,4 +128,4 @@ export async function auditVaultWrite(input: {
   });
 }
 
-export const AUDIT_TEST_HELPERS = { AUDIT_DIR, todayUtc };
+export const AUDIT_TEST_HELPERS = { auditDir, todayUtc };

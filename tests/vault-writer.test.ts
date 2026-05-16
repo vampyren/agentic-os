@@ -1,13 +1,28 @@
 // Vault writer: inbox-first contract, collision-safe naming, atomic write,
 // path-traversal protection.
 
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, beforeAll, afterAll } from "vitest";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import { writeDraft, __TEST__ } from "../src/vault/writer";
 
 let vaultRoot: string;
+let auditDir: string;
+const prevAuditEnv = process.env["AGENTIC_OS_AUDIT_DIR"];
+
+beforeAll(async () => {
+  // Redirect the JSONL audit log to a throwaway tmp dir so writer tests
+  // never pollute the operator's ~/.agentic-os/audit/.
+  auditDir = await fs.mkdtemp(path.join(os.tmpdir(), "agentic-audit-"));
+  process.env["AGENTIC_OS_AUDIT_DIR"] = auditDir;
+});
+
+afterAll(async () => {
+  if (prevAuditEnv === undefined) delete process.env["AGENTIC_OS_AUDIT_DIR"];
+  else process.env["AGENTIC_OS_AUDIT_DIR"] = prevAuditEnv;
+  await fs.rm(auditDir, { recursive: true, force: true });
+});
 
 beforeEach(async () => {
   vaultRoot = await fs.mkdtemp(path.join(os.tmpdir(), "agentic-vault-"));

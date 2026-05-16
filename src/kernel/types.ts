@@ -41,9 +41,21 @@ export interface HealthReport {
   checkedAt: number;
 }
 
+// Usage stats returned by some transports (Claude Code stream-json definitely;
+// HTTP cloud providers in Phase 2A). Hermes subprocess has no per-call usage.
+export interface AgentUsage {
+  model?: string;
+  inputTokens?: number;
+  outputTokens?: number;
+  cacheReadInputTokens?: number;
+  cacheCreationInputTokens?: number;
+  totalCostUsd?: number;
+}
+
 // Events produced by a single agent stream() call.
 export type AgentEvent =
   | { kind: "token"; text: string }
+  | { kind: "usage"; usage: AgentUsage }
   | { kind: "error"; message: string }
   | { kind: "done"; durationMs: number; exitCode?: number | null };
 

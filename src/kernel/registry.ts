@@ -153,6 +153,8 @@ class Registry {
         if (evt.kind === "token") {
           bytesOut += evt.text.length;
           bus.emit({ source: name, kind: "agent.token", payload: { chars: evt.text.length } });
+        } else if (evt.kind === "usage") {
+          bus.emit({ source: name, kind: "agent.usage", payload: evt.usage });
         } else if (evt.kind === "error") {
           errored = true;
           errorMessage = evt.message;

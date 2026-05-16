@@ -4,6 +4,8 @@ import { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Send, Square } from "lucide-react";
 import Pill, { type PillTone } from "./Pill";
+import Markdown from "./Markdown";
+import VoiceButton from "./VoiceButton";
 import { accentFor } from "@/lib/accent";
 
 interface Agent {
@@ -25,6 +27,20 @@ interface Msg {
   text: string;
   ts: number;
   savedPath?: string;
+  usage?: Usage;
+}
+
+interface Usage {
+  model?: string;
+  inputTokens?: number;
+  outputTokens?: number;
+  cacheReadInputTokens?: number;
+  cacheCreationInputTokens?: number;
+  totalCostUsd?: number;
+}
+
+interface SessionUsage extends Usage {
+  turns: number;
 }
 
 export default function AgentRoom({ name }: { name: string }) {
@@ -35,9 +51,12 @@ export default function AgentRoom({ name }: { name: string }) {
   const [msgs, setMsgs] = useState<Msg[]>([]);
   const [streaming, setStreaming] = useState(false);
   const [partial, setPartial] = useState("");
+  const [usage, setUsage] = useState<Usage | null>(null);
+  const [sessionUsage, setSessionUsage] = useState<SessionUsage>({ turns: 0 });
   const [error, setError] = useState<string | null>(null);
   const ctrlRef = useRef<AbortController | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const promptRef = useRef<HTMLTextAreaElement | null>(null);
 
   // Load manifest + vitals.
   useEffect(() => {
@@ -82,6 +101,7 @@ export default function AgentRoom({ name }: { name: string }) {
     ctrlRef.current = ctrl;
     let acc = "";
     let savedPath: string | undefined;
+    let lastUsage: Usage | undefined;
 
     try {
       const r = await fetch(`/api/agents/${encodeURIComponent(name)}/run`, {
@@ -108,6 +128,7 @@ export default function AgentRoom({ name }: { name: string }) {
           try {
             const e = JSON.parse(line);
             if (e.kind === "token") { acc += e.text; setPartial(acc); }
+            else if (e.kind === "usage") { lastUsage = { ...(lastUsage ?? {}), ...e.usage }; setUsage(lastUsage ?? null); }
             else if (e.kind === "saved") savedPath = e.path;
             else if (e.kind === "error") setError(e.message);
           } catch { /* skip */ }
@@ -118,12 +139,26 @@ export default function AgentRoom({ name }: { name: string }) {
     } finally {
       setMsgs((m) => [
         ...m,
-        { role: "assistant", text: acc || "(no output)", ts: Date.now(), savedPath },
+        { role: "assistant", text: acc || "(no output)", ts: Date.now(), savedPath, usage: lastUsage },
       ]);
       setPartial("");
       setStreaming(false);
       ctrlRef.current = null;
+      // Accumulate session totals.
+      if (lastUsage) accumulateSession(lastUsage);
     }
+  }
+
+  function accumulateSession(u: Usage) {
+    setSessionUsage((prev) => ({
+      model: u.model ?? prev.model,
+      turns: prev.turns + 1,
+      inputTokens: (prev.inputTokens ?? 0) + (u.inputTokens ?? 0),
+      outputTokens: (prev.outputTokens ?? 0) + (u.outputTokens ?? 0),
+      cacheReadInputTokens: (prev.cacheReadInputTokens ?? 0) + (u.cacheReadInputTokens ?? 0),
+      cacheCreationInputTokens: (prev.cacheCreationInputTokens ?? 0) + (u.cacheCreationInputTokens ?? 0),
+      totalCostUsd: (prev.totalCostUsd ?? 0) + (u.totalCostUsd ?? 0),
+    }));
   }
 
   function stop() {
@@ -189,10 +224,24 @@ export default function AgentRoom({ name }: { name: string }) {
                 <div className="text-[10px] tracking-widest uppercase mb-1 opacity-60">
                   {m.role === "user" ? "you" : name}
                 </div>
-                <div className="whitespace-pre-wrap font-mono text-[12.5px]">{m.text}</div>
-                {m.savedPath && (
-                  <div className="text-[10px] text-[var(--fg-dimmer)] mt-2">
-                    saved → <code>{m.savedPath}</code>
+                {m.role === "assistant" ? (
+                  <Markdown>{m.text}</Markdown>
+                ) : (
+                  <div className="whitespace-pre-wrap text-[13px]">{m.text}</div>
+                )}
+                {(m.savedPath || m.usage) && (
+                  <div className="text-[10px] text-[var(--fg-dimmer)] mt-2 flex items-center gap-3 flex-wrap">
+                    {m.savedPath && (
+                      <span>saved → <code>{m.savedPath}</code></span>
+                    )}
+                    {m.usage && (m.usage.inputTokens || m.usage.outputTokens) && (
+                      <span>
+                        {m.usage.inputTokens ? `in ${formatK(m.usage.inputTokens)}` : ""}
+                        {m.usage.inputTokens && m.usage.outputTokens ? " · " : ""}
+                        {m.usage.outputTokens ? `out ${formatK(m.usage.outputTokens)}` : ""}
+                        {m.usage.totalCostUsd ? ` · $${m.usage.totalCostUsd.toFixed(4)}` : ""}
+                      </span>
+                    )}
                   </div>
                 )}
               </motion.div>
@@ -207,9 +256,11 @@ export default function AgentRoom({ name }: { name: string }) {
                   {name}
                   <span className="tick live" style={{ color: accent }} />
                 </div>
-                <div className="whitespace-pre-wrap font-mono text-[12.5px]">
-                  {partial || "thinking…"}
-                </div>
+                {partial ? (
+                  <Markdown>{partial}</Markdown>
+                ) : (
+                  <div className="text-[12.5px] text-[var(--fg-dim)]">thinking…</div>
+                )}
               </motion.div>
             )}
           </AnimatePresence>
@@ -223,6 +274,7 @@ export default function AgentRoom({ name }: { name: string }) {
 
         <div className="border-t border-[var(--border)] p-3 flex gap-2 items-end">
           <textarea
+            ref={promptRef}
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
             onKeyDown={(e) => {
@@ -230,9 +282,17 @@ export default function AgentRoom({ name }: { name: string }) {
               if (e.key === "Escape" && streaming) stop();
             }}
             rows={2}
-            placeholder="Type a prompt…   ⌘+Enter to send · Esc to stop"
+            placeholder="Type a prompt…   ⌘+Enter to send · Esc to stop · mic for voice"
             className="flex-1 bg-transparent text-[13px] resize-none px-3 py-2"
             disabled={streaming}
+          />
+          <VoiceButton
+            disabled={streaming}
+            onTranscript={(chunk, isFinal) => {
+              if (isFinal) {
+                setPrompt((cur) => (cur ? cur + " " + chunk : chunk).trim());
+              }
+            }}
           />
           {streaming ? (
             <button onClick={stop} className="text-rose-300 border-rose-500/40">
@@ -282,6 +342,63 @@ export default function AgentRoom({ name }: { name: string }) {
           )}
         </div>
 
+        {/* Tokens / cost card — only shown when the transport reports usage. */}
+        {(usage || sessionUsage.turns > 0) && (
+          <div className="panel p-5">
+            <h3 className="text-[10px] uppercase tracking-widest text-[var(--fg-dimmer)] mb-3 flex items-baseline justify-between">
+              <span>Tokens</span>
+              {usage?.model && (
+                <span className="text-[10px] normal-case tracking-normal text-[var(--fg-dim)]">
+                  {usage.model}
+                </span>
+              )}
+            </h3>
+
+            {usage && (usage.inputTokens || usage.outputTokens) && (
+              <>
+                <UsageBar
+                  inputTokens={usage.inputTokens ?? 0}
+                  outputTokens={usage.outputTokens ?? 0}
+                  accent={accent}
+                />
+                <dl className="space-y-2 text-[12px] mt-3">
+                  {usage.inputTokens !== undefined && (
+                    <Row label="last in">{formatK(usage.inputTokens)}</Row>
+                  )}
+                  {usage.outputTokens !== undefined && (
+                    <Row label="last out">{formatK(usage.outputTokens)}</Row>
+                  )}
+                  {usage.cacheReadInputTokens !== undefined && usage.cacheReadInputTokens > 0 && (
+                    <Row label="cache hit">{formatK(usage.cacheReadInputTokens)}</Row>
+                  )}
+                  {usage.totalCostUsd !== undefined && (
+                    <Row label="last cost">${usage.totalCostUsd.toFixed(4)}</Row>
+                  )}
+                </dl>
+              </>
+            )}
+
+            {sessionUsage.turns > 0 && (
+              <div className="mt-3 pt-3 border-t border-[var(--border)]">
+                <div className="text-[10px] uppercase tracking-widest text-[var(--fg-dimmer)] mb-2">
+                  Session ({sessionUsage.turns} {sessionUsage.turns === 1 ? "turn" : "turns"})
+                </div>
+                <dl className="space-y-1.5 text-[12px]">
+                  {sessionUsage.inputTokens !== undefined && sessionUsage.inputTokens > 0 && (
+                    <Row label="in">{formatK(sessionUsage.inputTokens)}</Row>
+                  )}
+                  {sessionUsage.outputTokens !== undefined && sessionUsage.outputTokens > 0 && (
+                    <Row label="out">{formatK(sessionUsage.outputTokens)}</Row>
+                  )}
+                  {sessionUsage.totalCostUsd !== undefined && sessionUsage.totalCostUsd > 0 && (
+                    <Row label="cost">${sessionUsage.totalCostUsd.toFixed(4)}</Row>
+                  )}
+                </dl>
+              </div>
+            )}
+          </div>
+        )}
+
         {agent?.description && (
           <div className="panel p-5">
             <h3 className="text-[10px] uppercase tracking-widest text-[var(--fg-dimmer)] mb-2">
@@ -304,6 +421,41 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
         {label}
       </dt>
       <dd className="text-right">{children}</dd>
+    </div>
+  );
+}
+
+function formatK(n: number): string {
+  if (n < 1000) return n.toString();
+  return (n / 1000).toFixed(n < 10_000 ? 1 : 0) + "k";
+}
+
+/** Slim horizontal bar: input chunk + output chunk, sized to share of total. */
+function UsageBar({
+  inputTokens,
+  outputTokens,
+  accent,
+}: { inputTokens: number; outputTokens: number; accent: string }) {
+  const total = Math.max(1, inputTokens + outputTokens);
+  const inPct = (inputTokens / total) * 100;
+  return (
+    <div
+      className="w-full h-1.5 rounded-full overflow-hidden flex"
+      style={{ background: "var(--bg-elevated-hot)" }}
+      title={`in: ${formatK(inputTokens)} · out: ${formatK(outputTokens)}`}
+    >
+      <div
+        style={{
+          width: `${inPct}%`,
+          background: "color-mix(in srgb, var(--fg-dim) 80%, transparent)",
+        }}
+      />
+      <div
+        style={{
+          width: `${100 - inPct}%`,
+          background: accent,
+        }}
+      />
     </div>
   );
 }

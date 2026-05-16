@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import Sidebar from "./Sidebar";
 import TopBar from "./TopBar";
+import CommandPalette from "./CommandPalette";
 
 export default function Shell({ children }: { children: ReactNode }) {
   return (
@@ -12,6 +13,7 @@ export default function Shell({ children }: { children: ReactNode }) {
           {children}
         </div>
       </main>
+      <CommandPalette />
     </div>
   );
 }

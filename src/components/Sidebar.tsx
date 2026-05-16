@@ -42,7 +42,7 @@ export default function Sidebar() {
         <div className="flex flex-col leading-tight">
           <span className="text-[15px] font-semibold tracking-tight">Agentic OS</span>
           <span className="text-[10px] uppercase tracking-widest text-[var(--fg-dimmer)]">
-            v0.2.0 · phase 1B
+            v0.2.1 · ⌘K
           </span>
         </div>
       </Link>

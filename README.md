@@ -54,16 +54,23 @@ src/                       Phase 1A application code
 tests/                     vitest unit tests
 ```
 
-## Quickstart (will exist after Phase 1B; Phase 1A uses manual config — see [`docs/INSTALL.md`](docs/INSTALL.md))
+## Quickstart
 
 ```bash
-# placeholder — not implemented yet
 git clone git@github.com:vampyren/agentic-os.git
 cd agentic-os
 npm install
-npm run setup        # detects installed agents, writes ~/.agentic-os/config.yaml
+npm run setup        # interactive wizard: detects installed agents, writes ~/.agentic-os/config.yaml
 npm run dev          # opens http://127.0.0.1:3000
 ```
+
+Then in the dashboard:
+- Pick **Claude Code** or **Hermes** from the agent picker
+- Type a prompt, send (or hit ⌘+Enter)
+- Watch the response stream in with markdown rendering, token counts in the right rail, and the chat auto-saved to your Obsidian inbox
+- Press **⌘+K** anywhere for the command palette
+
+Latest release: see [`CHANGELOG.md`](CHANGELOG.md) and the [GitHub releases page](https://github.com/vampyren/agentic-os/releases).
 
 ## License
 

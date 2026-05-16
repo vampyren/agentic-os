@@ -22,11 +22,59 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-Queued for 0.2.1:
-- Command palette (cmdk) with ⌘+K navigation and "send last prompt to agent X" actions.
-- Voice input via Web Speech API on chat/journal text areas.
-- Markdown rendering of agent responses (react-markdown + rehype-highlight already in deps, not yet wired).
-- `AGENTIC_OS_AUDIT_DIR` env override so unit tests don't write to the operator audit log (carried from 0.1.x).
+Queued for 0.2.2:
+- "Send last prompt to agent X" action inside the command palette (palette currently navigates only).
+- Voice input on the journal page (currently only the agent chat box has the mic).
+- Vault search results in the command palette as a third group.
+
+---
+
+## [0.2.1] — 2026-05-16 — Polish: markdown chat, tokens card, voice input, command palette
+
+Quality-of-life pass over Phase 1B. The dashboard now feels like an actual product to use day-to-day.
+
+### Added
+
+- **Markdown rendering of agent responses** — react-markdown + remark-gfm + rehype-highlight (github-dark theme). Code blocks get syntax highlighting; tables, lists, blockquotes all styled for the dark theme. User messages remain plain text. Streaming partials render markdown live.
+- **Tokens card in the AgentRoom side rail** — shows model, input/output tokens with a slim horizontal bar, cache-hit count, and per-message cost in USD. A "Session" sub-section accumulates totals across all messages in the room. Only renders for transports that report usage (Claude Code today; HTTP agents in v0.4.0). Hermes shows nothing — its subprocess output doesn't include usage and we don't fake it.
+- **Per-message stats footer** — each assistant message gets a small `in / out / $cost` line under the body alongside the saved-to-vault path.
+- **Voice input on chat** — mic button next to the prompt textarea using the browser's Web Speech API. Click to start, click to stop. Final transcripts get appended to the textarea. Firefox shows the button disabled with a tooltip (no Web Speech API there).
+- **Command palette (⌘K / Ctrl+K)** — global modal overlay (cmdk). Two sections: Navigate (all pages) and Open agent room (every registered agent, live-fetched from `/api/agents` each time the palette opens). Fuzzy search, ↑↓ to navigate, ↵ to select, Esc to close.
+
+### Changed — kernel
+
+- `AgentEvent` gained a `usage` variant carrying `model`, `inputTokens`, `outputTokens`, `cacheReadInputTokens`, `cacheCreationInputTokens`, `totalCostUsd`.
+- `streamJson` transport parses Claude Code's `system.init`, `assistant.message.usage`, and `result.usage`/`result.total_cost_usd` events and emits a `usage` event for each.
+- Registry's stream() forwards `usage` events to callers, audit log, and bus (`agent.usage` kind).
+
+### Changed — audit log
+
+- `AGENTIC_OS_AUDIT_DIR` env override now respected. `audit.ts` evaluates the path lazily on each write so tests (and future use cases) can redirect at runtime.
+- `tests/vault-writer.test.ts` redirects the audit log to a throwaway tmpdir in `beforeAll`, restoring the previous env in `afterAll`. Unit tests no longer pollute the operator's `~/.agentic-os/audit/`.
+
+### Changed — UI
+
+- Sidebar version badge: `v0.2.1 · ⌘K` (was `v0.2.0 · phase 1B`).
+- README quickstart now lists the real install steps (it ships) and mentions `⌘+K`.
+
+### Tests + CI
+
+- Vitest still 19/19, typecheck clean.
+- Playwright still 5/5 on CI.
+- No new tests in this release — all changes are UI polish or new event kinds piped through existing code paths. The new functionality is verified by manual smoke (Claude usage events confirmed flowing end-to-end with real cost and token numbers from a live call).
+
+### Verified
+
+`POST /api/agents/claude-code/run "Reply with the single word READY."`
+yields the NDJSON event stream:
+```
+{"kind":"usage","usage":{"model":"claude-opus-4-7"}}
+{"kind":"token","text":"READ"}
+{"kind":"token","text":"Y"}
+{"kind":"usage","usage":{"totalCostUsd":0.0598,"inputTokens":6,"outputTokens":6,"cacheReadInputTokens":17922,"cacheCreationInputTokens":8029}}
+{"kind":"done","durationMs":1891,"exitCode":0}
+{"kind":"saved","path":"00_Inbox/agentic-os/chats/...md","bytes":220}
+```
 
 ---
 

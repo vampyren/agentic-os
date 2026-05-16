@@ -2,16 +2,52 @@
 // --include-partial-messages, parse NDJSON line by line, yield typed token
 // events as deltas arrive. Falls back to a single token from the final
 // `assistant` or `result` event if no incremental deltas were emitted.
+// Also extracts usage stats (model, token counts, cost) from result/assistant
+// events and emits them as `usage` events.
 
 import { safeSpawn, renderArgs } from "../spawn";
 import type {
   AgentEvent,
   AgentManifest,
+  AgentUsage,
   HealthReport,
   StreamJsonTransportConfig,
   StreamOpts,
   Transport,
 } from "../types";
+
+/**
+ * Pull usage stats out of a Claude Code stream-json event. Returns undefined
+ * if nothing useful is present. Multiple events may carry usage during a
+ * single call; we emit each and the UI keeps the most-recent.
+ */
+function extractUsage(e: Record<string, unknown>): AgentUsage | undefined {
+  const out: AgentUsage = {};
+  let any = false;
+
+  const model = e["model"];
+  if (typeof model === "string") { out.model = model; any = true; }
+
+  const cost = e["total_cost_usd"];
+  if (typeof cost === "number") { out.totalCostUsd = cost; any = true; }
+
+  // Find usage either at top level (result event) or inside message (assistant
+  // event).
+  const candidates: unknown[] = [
+    e["usage"],
+    (e["message"] as Record<string, unknown> | undefined)?.["usage"],
+  ];
+  for (const u of candidates) {
+    if (typeof u !== "object" || u === null) continue;
+    const r = u as Record<string, unknown>;
+    if (typeof r["input_tokens"] === "number") { out.inputTokens = r["input_tokens"] as number; any = true; }
+    if (typeof r["output_tokens"] === "number") { out.outputTokens = r["output_tokens"] as number; any = true; }
+    if (typeof r["cache_read_input_tokens"] === "number") { out.cacheReadInputTokens = r["cache_read_input_tokens"] as number; any = true; }
+    if (typeof r["cache_creation_input_tokens"] === "number") { out.cacheCreationInputTokens = r["cache_creation_input_tokens"] as number; any = true; }
+  }
+
+  return any ? out : undefined;
+}
 
 export function createStreamJsonTransport(manifest: AgentManifest): Transport {
   if (manifest.transport !== "streamJson") {
@@ -139,16 +175,32 @@ export function createStreamJsonTransport(manifest: AgentManifest): Transport {
           return;
         }
 
-        // Final result event.
+        // Final result event. Carries cumulative usage + cost in the
+        // "result" / "system" final messages.
         if (e["type"] === "result") {
           const r = e["result"];
           if (typeof r === "string" && r.length > 0) {
             if (!fallbackText) fallbackText = r;
           }
+          const usage = extractUsage(e);
+          if (usage) push({ kind: "usage", usage });
           return;
         }
 
-        // system/init and user/tool_result are ignored in Phase 1A.
+        // Per-message usage on assistant turns (claude-code stream-json
+        // includes message.usage on most assistant chunks; we take the last
+        // one). Also extract model from system init for display.
+        if (e["type"] === "assistant") {
+          const usage = extractUsage(e);
+          if (usage) push({ kind: "usage", usage });
+          return;
+        }
+
+        if (e["type"] === "system" && e["subtype"] === "init") {
+          const model = typeof e["model"] === "string" ? e["model"] : undefined;
+          if (model) push({ kind: "usage", usage: { model } });
+          return;
+        }
       };
 
       child.stdout?.on("data", (b: Buffer) => {
