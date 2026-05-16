@@ -54,22 +54,50 @@ The action panels in the UI call CLI verbs like `openclaw doctor` or `hermes sta
 
 ## Secrets
 
+**Lookup priority (strict, no fallback to defaults):**
+
+1. Environment variable (matching the manifest's `env:` mapping).
+2. `~/.agentic-os/secrets.yaml`.
+3. If neither resolves: **refuse to start the agent and surface a `missing-secret` error in the UI.** Never silently degrade.
+
+**Hard rules — never violated, anywhere:**
+
 - API keys live at `~/.agentic-os/secrets.yaml`. Permissions are forced to `0600` on first read; if the file is world- or group-readable, the kernel logs a warning and refuses to load it.
 - Secrets are looked up by dotted path from a manifest's `secrets:` block (e.g., `openrouter.apiKey` resolves to `secrets.openrouter.apiKey`).
-- Secrets are **never logged**. The kernel scrubs known secret values from stdout/stderr capture before writing to the audit log.
-- Secrets are **never** sent to the browser. The frontend only sees a redacted `{ hasKey: true }` flag per agent.
+- **Never logged.** The kernel scrubs known secret values from stdout/stderr capture before writing to the audit log.
+- **Never sent to the browser.** The frontend only sees a redacted `{ hasKey: true }` flag per agent.
+- **Never in audit log.** Request headers carrying `Authorization` or `x-api-key` are stripped before logging; bodies are summarized (`length` + `sha256[:8]`), not stored.
+- **Never in error messages shown to the user.** Stack traces from `http` transports are sanitized before bus emission.
 - Config files at `~/.agentic-os/` are not, and must not be, committed to the repo. The default `.gitignore` excludes them.
 
 ## Audit log
 
-`~/.agentic-os/audit.log` is append-only and records:
+Append-only, one file per UTC day, JSONL format:
 
-- Every agent invocation: timestamp, agent name, transport, sanitized prompt (first 200 chars), exit code, duration.
-- Every vault write: timestamp, agent (or `operator`), file path, action (`create` / `append` / `promote`).
-- Every secrets read: timestamp, key path, requesting agent.
-- Every `/api/run` invocation: timestamp, agent, verb, exit code.
+```
+~/.agentic-os/audit/YYYY-MM-DD.jsonl
+```
 
-Rotation: daily, kept for 30 days, then deleted. The operator can disable rotation by setting `audit.retentionDays: 0` (keeps forever).
+Each line is a single JSON object. Example records:
+
+```json
+{"ts":"2026-05-16T10:12:00.123Z","kind":"agent.invoke","agent":"claude-code","transport":"streamJson","command":"claude","argsRedacted":["-p","[PROMPT_REDACTED]","--output-format=stream-json"],"promptSha256":"a1b2c3d4","promptChars":312,"status":"success","exitCode":0,"durationMs":12345}
+{"ts":"2026-05-16T10:12:13.456Z","kind":"vault.write","agent":"claude-code","path":"00_Inbox/agentic-os/chats/2026-05-16-claude-code-1012-mcp-research.md","action":"create","bytes":4821}
+{"ts":"2026-05-16T10:12:13.789Z","kind":"agent.invoke.error","agent":"openrouter-sonnet","transport":"http","status":"missing-secret","secret":"openrouter.apiKey"}
+```
+
+**Kinds:** `agent.invoke`, `agent.invoke.error`, `vault.write`, `vault.promote`, `secrets.read`, `verb.run`, `mission.run`, `system.boot`, `system.shutdown`.
+
+**Redaction rules:**
+
+- Prompts: stored as `promptSha256` + `promptChars` only. The raw prompt is **never** in the audit log.
+- Args: any value matching a known secret env-var name or HTTP header pattern is replaced with `[REDACTED]`.
+- Vault paths: stored verbatim. They're not secrets.
+- HTTP bodies: never logged. Only `status`, `durationMs`, `bytesIn`, `bytesOut`.
+
+**Rotation:** one file per day, kept for 30 days, then deleted. The operator can disable rotation with `audit.retentionDays: 0` (keeps forever) or change it.
+
+**Why JSONL not plain text:** the audit log becomes searchable with one-liners (`jq 'select(.kind == "vault.write")' audit/2026-05-16.jsonl`), and the Phase 1B SQLite index can ingest it directly to power a dashboard activity view.
 
 ## What an attacker with local user access can do
 

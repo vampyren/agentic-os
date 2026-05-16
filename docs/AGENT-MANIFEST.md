@@ -41,9 +41,10 @@ transportConfig:
 # OPTIONAL — health probe
 healthProbe:
   type: command | http | tcp
+  intervalSec: 300              # how often to re-probe; default 300 (5 minutes)
+  timeoutMs: 3000               # default 3000; hard ceiling 10000
   # for command:
   command: [binary, arg1, arg2]
-  timeoutMs: 6000
   parse:                        # optional stdout parser to populate vitals
     versionRegex: "v(\\d+\\.\\d+\\.\\d+)"
     statusRegex: "(live|degraded|offline)"
@@ -244,6 +245,36 @@ healthProbe:
 - `name` is the unique slug used in URLs (`/agents/openrouter-sonnet`) and event sources. Stable, lowercase, hyphens.
 - `displayName` is for humans, can change freely.
 - Don't reuse a `name` across two providers of the same model — disambiguate (e.g., `claude-code` vs `openrouter-sonnet`).
+
+## Health probes — keep them cheap
+
+The kernel runs every agent's health probe on its declared `intervalSec`. A misconfigured probe wastes CPU and (for HTTP agents) bills real money. Rules:
+
+**Allowed probe operations:**
+
+- `<binary> --version` (cheap; just prints a string).
+- `<binary> --help` (also cheap).
+- `<binary> health` / `<binary> status` (only if the agent documents this as a no-op status check).
+- HTTP GET against an agent's documented health endpoint (`/api/tags`, `/v1/auth/key`, etc.).
+- TCP connect-and-close to confirm a port is listening.
+
+**Forbidden in a health probe:**
+
+- Sending an actual chat prompt to a model. Probes are not prompts.
+- Calling a billed inference endpoint that charges per request.
+- Long-running diagnostics (`openclaw doctor` is for the operator to run manually, not for a 60s loop).
+- Any command whose typical wall time exceeds `timeoutMs` — the kernel will kill it and mark the agent degraded based on the timeout, not actual health.
+
+**Default cadences (override per-manifest):**
+
+| Agent kind | `intervalSec` default | Why |
+|---|---|---|
+| Local CLI on the same machine | 300 (5 min) | Process state changes slowly; faster polling wastes CPU. |
+| Local HTTP (Ollama, OpenClaw gateway) | 300 | Same. |
+| Cloud HTTP (OpenRouter, OpenAI, Anthropic API) | 900 (15 min) | API uptime is high; probing costs tokens or rate-limit budget. |
+| Critical operator-facing agent (Claude Code default) | 120 (2 min) | Slight extra cost is worth fast failure detection. |
+
+If a manifest doesn't declare `healthProbe`, the agent has no probe and is shown as `unknown` in the UI until invoked. That's a valid state.
 
 ## Forward compatibility
 

@@ -49,7 +49,32 @@ This is a direct extension of the existing `Hermes Obsidian Approved Write Workf
     └── 2026-05-16-research-output.md   (free-form agent drafts)
 ```
 
-Files are named `YYYY-MM-DD-{slug}.md` so they sort chronologically and never collide.
+Files are named `YYYY-MM-DD-{slug}.md` so they sort chronologically.
+
+### Collision-safe naming
+
+Two writes in the same day with the same slug **must not** overwrite. The writer:
+
+1. Computes the candidate path: `YYYY-MM-DD-{slug}.md`.
+2. If it exists, tries `YYYY-MM-DD-{slug}-02.md`, `YYYY-MM-DD-{slug}-03.md`, ... up to `-99`.
+3. If `-99` is taken (won't happen in practice), the write fails with a clear error in the audit log and the UI.
+
+For chats specifically, the slug includes `HHMM-{agent}-{first-3-prompt-words}` to make accidental collision near-impossible:
+
+```
+2026-05-16-1430-claude-code-research-mcp-servers.md
+```
+
+### Atomic write
+
+Every vault write follows this sequence:
+
+1. Compute final path (with collision resolution above).
+2. Write content to a sibling `.tmp` file (`<final>.tmp`) in the same directory.
+3. `fsync` the `.tmp` file (best-effort; OS-dependent).
+4. `rename()` `.tmp` → final path.
+
+Same-directory rename is atomic on POSIX filesystems. This means a crashed write never leaves Obsidian seeing a half-written `.md` file with truncated frontmatter — it sees either nothing or the complete note. The `.tmp` files are cleaned up on next start if any survived a crash.
 
 ## Frontmatter convention
 

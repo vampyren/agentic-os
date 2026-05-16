@@ -42,3 +42,6 @@ Each option and why it was rejected.
 | 0004 | SQLite FTS5 index, markdown stays source of truth | Accepted |
 | 0005 | Vault inbox-first contract for agent writes | Accepted |
 | 0006 | Rebuild on new architecture instead of forking Julian's v0.1 | Accepted |
+| 0007 | Phase 1 narrow MVP, split into 1A / 1B / 1C | Accepted |
+| 0008 | Internal naming discipline: "kernel" and "registry," not "OS" | Accepted |
+| 0009 | JSONL audit log, one file per day | Accepted |
