@@ -203,6 +203,118 @@ export async function writeDraft(input: WriteDraftInput): Promise<WriteDraftResu
   return { path: rel, absolutePath: finalPath, bytes };
 }
 
+// ─── Journal append (one file per day, multiple timestamped sections) ────────
+
+export interface AppendJournalInput {
+  vaultRoot: string;
+  agent: string;                        // usually "operator" for journal
+  text: string;
+  tags?: string[];
+}
+
+/**
+ * Append a timestamped section to today's journal file. If today's file
+ * doesn't exist yet, creates it with frontmatter + heading + the first
+ * section. Atomic per operation.
+ */
+export async function appendJournalEntry(input: AppendJournalInput): Promise<WriteDraftResult> {
+  const today = todayIso();
+  const targetDir = path.join(input.vaultRoot, "00_Inbox", "agentic-os", "journal");
+  await fs.mkdir(targetDir, { recursive: true });
+  const finalPath = path.join(targetDir, `${today}.md`);
+  assertInsideInbox(finalPath, input.vaultRoot);
+
+  const time = new Date().toISOString().slice(11, 16);
+  const entrySection = `\n### ${time}\n\n${input.text.trim()}\n`;
+
+  let exists = false;
+  try { await fs.access(finalPath); exists = true; } catch { /* new file */ }
+
+  let content: string;
+  if (exists) {
+    const old = await fs.readFile(finalPath, "utf8");
+    content = old.replace(/\n*$/, "") + entrySection + "\n";
+  } else {
+    const fm: Frontmatter = {
+      type: "journal",
+      status: "draft",
+      source: [input.agent],
+      agent: input.agent,
+      tags: approvedOnly(input.tags ?? []),
+      aliases: [],
+      created: today,
+    };
+    content = buildMarkdown({ fm, title: `Journal — ${today}`, body: entrySection.trimStart() });
+  }
+
+  await atomicWrite(finalPath, content);
+  const rel = path.relative(input.vaultRoot, finalPath);
+  const bytes = Buffer.byteLength(content, "utf8");
+
+  await auditVaultWrite({
+    agent: input.agent,
+    path: rel,
+    action: exists ? "append" : "create",
+    bytes,
+  });
+  bus.emit({
+    source: "vault",
+    kind: "vault.write",
+    payload: { agent: input.agent, path: rel, bytes, action: exists ? "append" : "create" },
+  });
+
+  return { path: rel, absolutePath: finalPath, bytes };
+}
+
+// ─── Frontmatter patch (used by goal status toggle) ──────────────────────────
+
+export interface UpdateFrontmatterInput {
+  vaultRoot: string;
+  relPath: string;                      // must already exist under 00_Inbox/agentic-os/
+  agent: string;
+  patch: Record<string, unknown>;
+}
+
+/**
+ * Update a note's frontmatter fields atomically. Body untouched. Only
+ * permitted for notes under 00_Inbox/agentic-os/ — the inbox-first contract
+ * forbids the OS modifying anything elsewhere.
+ */
+export async function updateFrontmatter(input: UpdateFrontmatterInput): Promise<WriteDraftResult> {
+  const abs = path.resolve(input.vaultRoot, input.relPath);
+  assertInsideInbox(abs, input.vaultRoot);
+  if (!/\.md$/i.test(abs)) throw new Error(`not a markdown file: ${input.relPath}`);
+
+  const raw = await fs.readFile(abs, "utf8");
+  // Find existing frontmatter block.
+  const fmMatch = raw.match(/^---\n([\s\S]*?)\n---\n/);
+  let body: string;
+  let fm: Record<string, unknown>;
+  if (fmMatch) {
+    try { fm = YAML.parse(fmMatch[1] ?? "") as Record<string, unknown>; }
+    catch { throw new Error(`existing frontmatter is invalid YAML in ${input.relPath}`); }
+    body = raw.slice(fmMatch[0].length);
+  } else {
+    fm = {};
+    body = raw;
+  }
+
+  const merged = { ...fm, ...input.patch };
+  const newContent = `---\n${YAML.stringify(merged, { lineWidth: 0 }).trimEnd()}\n---\n${body}`;
+  await atomicWrite(abs, newContent);
+
+  const rel = path.relative(input.vaultRoot, abs);
+  const bytes = Buffer.byteLength(newContent, "utf8");
+
+  await auditVaultWrite({ agent: input.agent, path: rel, action: "append", bytes });
+  bus.emit({
+    source: "vault",
+    kind: "vault.update",
+    payload: { agent: input.agent, path: rel, bytes, patch: Object.keys(input.patch) },
+  });
+  return { path: rel, absolutePath: abs, bytes };
+}
+
 // Test-only export so unit tests can exercise the collision logic without a
 // full vault structure.
 export const __TEST__ = { assertInsideInbox, findFreePath, slugify, atomicWrite };
