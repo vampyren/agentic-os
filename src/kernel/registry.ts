@@ -15,6 +15,7 @@ import {
   auditAgentInvokeError,
   redactArgs,
 } from "./audit";
+import { startHealthLoop } from "./health";
 import type {
   AgentEvent,
   AgentManifest,
@@ -51,6 +52,15 @@ class Registry {
       kind: "system.registry.loaded",
       payload: { count: this.agents.size, names: [...this.agents.keys()] },
     });
+
+    // Kick off the per-manifest health probe loop. The loop survives
+    // HMR via globalThis state in health.ts.
+    startHealthLoop(
+      [...this.agents.values()].map((a) => ({
+        manifest: a.manifest,
+        probe: () => a.transport.health(),
+      })),
+    );
   }
 
   private makeTransport(m: AgentManifest): Transport {
