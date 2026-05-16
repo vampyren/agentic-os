@@ -43,16 +43,23 @@ test.describe("Mission Control dashboard", () => {
   test("goals page lets you add a goal and see it appear", async ({ page }) => {
     await page.goto("/goals");
     const input = page.getByPlaceholder("What's the goal?");
-    await input.fill("e2e smoke test goal");
+    // Use a unique title per run so we never collide with leftover state.
+    const title = `e2e smoke goal ${Date.now()}`;
+    await input.fill(title);
     await page.getByRole("button", { name: /Add/ }).click();
-    await expect(page.getByText("e2e smoke test goal")).toBeVisible();
+    // Input clears on successful POST + reload — wait for that signal first.
+    await expect(input).toHaveValue("", { timeout: 10_000 });
+    // Then assert the goal is in the list.
+    await expect(page.getByText(title)).toBeVisible({ timeout: 10_000 });
   });
 
   test("journal page lets you log an entry", async ({ page }) => {
     await page.goto("/journal");
     const ta = page.getByPlaceholder(/What's on your mind/i);
-    await ta.fill("e2e smoke journal entry");
+    const entry = `e2e smoke journal entry ${Date.now()}`;
+    await ta.fill(entry);
     await page.getByRole("button", { name: /^Log/ }).click();
-    await expect(page.getByText("e2e smoke journal entry")).toBeVisible();
+    await expect(ta).toHaveValue("", { timeout: 10_000 });
+    await expect(page.getByText(entry)).toBeVisible({ timeout: 10_000 });
   });
 });
