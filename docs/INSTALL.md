@@ -1,6 +1,6 @@
 # Install
 
-Current shipped version: **v0.2.2** — see [`CHANGELOG.md`](../CHANGELOG.md).
+Current shipped version: **v0.2.4** — see [`CHANGELOG.md`](../CHANGELOG.md).
 
 ## Prerequisites
 
@@ -91,7 +91,7 @@ LAN-bind mode + bearer token auth lands in Phase 3.
 - `~/.agentic-os/config.yaml` — your config (you wrote it, you can edit it).
 - `~/.agentic-os/audit/YYYY-MM-DD.jsonl` — append-only JSONL audit log, one file per UTC day, kept 30 days by default.
 - `~/.agentic-os/index.db` (+ `.db-wal`, `.db-shm`) — SQLite FTS5 vault index. Derived state; delete to rebuild on next boot.
-- `<vault>/00_Inbox/agentic-os/chats/YYYY-MM-DD-{slug}.md` — every chat lands here per the inbox-first vault contract.
+- `<vault>/00_Inbox/agentic-os/chats/YYYY-MM-DD-HHMM-{agent}-{promptSha8}.md` — every chat lands here per the inbox-first vault contract. The filename's hash suffix is the first 8 hex chars of SHA-256(prompt); the filename never contains prompt-derived characters (see `docs/SECURITY.md`).
 - `<vault>/00_Inbox/agentic-os/goals/...` — one file per goal.
 - `<vault>/00_Inbox/agentic-os/journal/YYYY-MM-DD.md` — one file per day.
 

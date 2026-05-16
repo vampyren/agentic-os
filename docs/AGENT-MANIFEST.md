@@ -76,7 +76,7 @@ mcpServers:
 
 ## Transport types
 
-> **Loader status as of v0.2.2:** only `subprocess` and `streamJson` are accepted by the manifest loader (`src/kernel/manifest.ts`). The others below (`http`, `mcp`, `sdk`) are documented as spec — they ship in later phases. A manifest declaring one of the not-yet-shipped transports fails validation at startup today with a Zod error.
+> **Loader status (current):** only `subprocess` and `streamJson` are accepted by the manifest loader (`src/kernel/manifest.ts`). The others below (`http`, `mcp`, `sdk`) are documented as spec — they ship in later phases. A manifest declaring one of the not-yet-shipped transports fails validation at startup today with a Zod error. See `docs/ROADMAP.md` for which phase wires each transport.
 >
 > | Transport | Loader status | Lands in |
 > |---|---|---|

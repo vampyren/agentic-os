@@ -13,7 +13,9 @@ import {
   auditAgentInvoke,
   auditAgentInvokeComplete,
   auditAgentInvokeError,
+  classifyAgentError,
   redactArgs,
+  sha8,
 } from "./audit";
 import { startHealthLoop } from "./health";
 import type {
@@ -119,7 +121,13 @@ class Registry {
     if (!a) {
       const message = `unknown agent: ${name}`;
       bus.emit({ source: "system", kind: "agent.invoke.error", payload: { agent: name, message } });
-      await auditAgentInvokeError({ agent: name, message });
+      // No raw message in audit; this is a routing failure with no prompt
+      // content, but use the same neutral schema as runtime errors.
+      await auditAgentInvokeError({
+        agent: name,
+        errorClass: "transport-error",
+        stderrChars: message.length,
+      });
       yield { kind: "error", message };
       yield { kind: "done", durationMs: 0, exitCode: -1 };
       return;
@@ -179,7 +187,21 @@ class Registry {
     }
 
     if (errored) {
-      await auditAgentInvokeError({ agent: name, message: errorMessage.slice(0, 500) });
+      // Never pass the raw stderr/error message to the audit log. Classify
+      // into a neutral bucket, record length + sha8 for correlation/debug,
+      // and the transport name. The full message stays on the bus (which is
+      // in-memory) and goes to the UI — but never to JSONL. Per ADR-0009 /
+      // SECURITY.md: raw prompt content can appear in stderr (some agent
+      // CLIs echo the prompt on error), so the audit path must not trust
+      // stderr text.
+      await auditAgentInvokeError({
+        agent: name,
+        errorClass: classifyAgentError({ message: errorMessage, exitCode }),
+        exitCode,
+        stderrSha8: errorMessage ? sha8(errorMessage) : undefined,
+        stderrChars: errorMessage.length,
+        transport: manifest.transport,
+      });
     }
     bus.emit({
       source: name,

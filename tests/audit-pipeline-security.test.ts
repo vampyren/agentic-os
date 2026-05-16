@@ -10,6 +10,7 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach } from
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import os from "node:os";
+import { createHash } from "node:crypto";
 import { writeDraft } from "../src/vault/writer";
 import { auditAgentInvoke, AUDIT_TEST_HELPERS } from "../src/kernel/audit";
 import { renderArgsForAudit } from "../src/kernel/spawn";
@@ -97,6 +98,22 @@ describe("audit pipeline — no prompt leakage anywhere in the JSONL", () => {
     expect(path.basename(result.path)).toMatch(/^\d{4}-\d{2}-\d{2}-\d{4}-claude-code-[0-9a-f]{8}\.md$/);
     expect(path.basename(result.path)).not.toContain("regression");
     expect(path.basename(result.path).toLowerCase()).not.toContain("nonce");
+
+    // SEC-002 strengthening (Hermes review of v0.2.3): assert the EXACT
+    // hash — proves the full prompt is the seed, not the truncated title.
+    const expectedHash = createHash("sha256").update(fullPrompt).digest("hex").slice(0, 8);
+    expect(path.basename(result.path)).toMatch(new RegExp(`-${expectedHash}\\.md$`));
+    // And prove it would NOT match a hash of just the title (which is
+    // truncated to 60 chars) — that's the bug we're guarding against.
+    const titleHash = createHash("sha256").update(fullPrompt.slice(0, 60)).digest("hex").slice(0, 8);
+    if (titleHash !== expectedHash) {
+      // Sanity: titleHash differs from fullPromptHash, so the regex above
+      // would have failed had we used the title only. We don't strictly
+      // assert here because for very short prompts title === fullPrompt and
+      // both hashes are identical — but for the long fullPrompt in this
+      // test, they should differ.
+      expect(expectedHash).not.toBe(titleHash);
+    }
 
     // The audit log must not contain the nonce ANYWHERE.
     const audit = await readTodayAuditAsString();

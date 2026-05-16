@@ -80,15 +80,18 @@ Append-only, one file per UTC day, JSONL format:
 ~/.agentic-os/audit/YYYY-MM-DD.jsonl
 ```
 
-Each line is a single JSON object. Example records:
+Each line is a single JSON object. Example records (real shape from `src/kernel/audit.ts` as of v0.2.4):
 
 ```json
-{"ts":"2026-05-16T10:12:00.123Z","kind":"agent.invoke","agent":"claude-code","transport":"streamJson","command":"claude","argsRedacted":["-p","[PROMPT_REDACTED]","--output-format=stream-json"],"promptSha256":"a1b2c3d4","promptChars":312,"status":"success","exitCode":0,"durationMs":12345}
-{"ts":"2026-05-16T10:12:13.456Z","kind":"vault.write","agent":"claude-code","path":"00_Inbox/agentic-os/chats/2026-05-16-claude-code-1012-mcp-research.md","action":"create","bytes":4821}
-{"ts":"2026-05-16T10:12:13.789Z","kind":"agent.invoke.error","agent":"openrouter-sonnet","transport":"http","status":"missing-secret","secret":"openrouter.apiKey"}
+{"ts":"2026-05-16T10:12:00.123Z","id":"...","kind":"agent.invoke","agent":"claude-code","transport":"streamJson","bin":"claude","argsRedacted":["-p","--output-format=stream-json","--include-partial-messages","--verbose","[PROMPT_REDACTED]"],"promptSha256":"a1b2c3d4","promptChars":312}
+{"ts":"2026-05-16T10:12:12.500Z","id":"...","kind":"agent.invoke.complete","agent":"claude-code","durationMs":12345,"exitCode":0,"bytesOut":1024,"status":"success"}
+{"ts":"2026-05-16T10:12:13.456Z","id":"...","kind":"vault.write","agent":"claude-code","path":"00_Inbox/agentic-os/chats/2026-05-16-1012-claude-code-a1b2c3d4.md","action":"create","bytes":4821}
+{"ts":"2026-05-16T10:12:14.789Z","id":"...","kind":"agent.invoke.error","agent":"some-agent","errorClass":"non-zero-exit","exitCode":7,"stderrSha8":"deadbeef","stderrChars":142,"transport":"subprocess"}
 ```
 
-**Kinds:** `agent.invoke`, `agent.invoke.error`, `vault.write`, `vault.promote`, `secrets.read`, `verb.run`, `mission.run`, `system.boot`, `system.shutdown`.
+**Kinds (current set):** `agent.invoke`, `agent.invoke.complete`, `agent.invoke.error`, `vault.write`, `vault.update`. Future kinds reserved: `vault.promote`, `secrets.read`, `verb.run`, `mission.run`, `system.boot`, `system.shutdown`.
+
+**Note on `agent.invoke.error`:** never carries a raw `message` field. Per the SEC-001 fix in v0.2.4, only neutral metadata is recorded — `errorClass` (one of `non-zero-exit` / `spawn-failed` / `timeout` / `killed` / `transport-error` / `unknown`), `exitCode`, `stderrSha8` (8-char correlation hash), `stderrChars` (length), and `transport`. The raw stderr/error text stays on the in-memory bus for live UI display but never reaches JSONL. This guards against agent CLIs that echo the prompt to stderr.
 
 **Redaction rules:**
 

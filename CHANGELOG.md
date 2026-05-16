@@ -22,12 +22,74 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-Queued for 0.2.4 (feature pass — security gate now fully closed in 0.2.3):
+Queued for 0.2.5 (feature pass — Hermes review of v0.2.3 surfaced one more security item which became 0.2.4; gate now fully closed):
 - **Context-window fill bar** in the AgentRoom tokens card (Claude `[1m]` → "used / 1M" progress bar; same per-model max). Replaces today's in/out bar that gets visually swamped by cache hits.
 - **Hermes usage** via `hermes insights --json` / `hermes sessions stats`.
 - "Send last prompt to agent X" action in the command palette.
 - Voice input on the journal page.
 - Vault search results inside the command palette.
+
+---
+
+## [0.2.4] — 2026-05-16 — Security patch: audit stderr redaction + release hygiene
+
+Closes SEC-001 from Hermes's review of v0.2.3: `agent.invoke.error` entries could carry raw transport stderr text verbatim. If an agent CLI echoes the prompt, argv, or secret-bearing text to stderr on failure (Claude does this on certain error paths), that text leaks into the audit JSONL — breaking the documented invariant "raw prompts never appear anywhere in the audit log".
+
+### Security — fixed
+
+- **`auditAgentInvokeError` signature is now redaction-by-construction.** Removed the `message: string` field that previously held raw stderr. New fields: `errorClass` (neutral enum), `exitCode`, `stderrSha8` (8-char correlation hash, not content), `stderrChars` (length only), `transport`. Caller cannot accidentally pass raw text.
+- **`classifyAgentError(message, exitCode)` in `src/kernel/audit.ts`** — buckets a raw error into one of `non-zero-exit` / `spawn-failed` / `timeout` / `killed` / `transport-error` / `unknown`. Returns a value from a fixed enum, never a string derived from the input.
+- **`src/kernel/registry.ts`** — both error sites (transport-emitted error event AND routing failure for unknown agent) now classify+hash before audit. The verbose error message stays on the in-memory bus for live UI display; never reaches JSONL.
+
+### Test added — SEC-001 regression
+
+`tests/audit-stderr-security.test.ts` (3 cases):
+1. **Real subprocess emits a nonce on stderr** (`/bin/sh -c "echo NONCE >&2; exit 7"`). Run through the actual `subprocess` transport. Assert: transport's `evt.message` captures the nonce (sanity), AND the audit JSONL — written via the new neutral signature — contains the nonce **nowhere**. Deep walk through every parsed entry's every string field.
+2. **`classifyAgentError` bucket coverage** — explicit cases for each enum value.
+3. **`classifyAgentError` defense-in-depth** — feeding a crafted prompt-like message returns only enum values, never a string containing the input.
+
+### Test strengthened — SEC-002 exact hash
+
+`tests/audit-pipeline-security.test.ts` — the chat-filename regression now asserts the **exact** hash, not just a hex shape:
+```
+expect(path.basename(result.path)).toMatch(new RegExp(`-${sha256(fullPrompt).slice(0,8)}\\.md$`));
+```
+Plus a sanity check that the title-only hash would have been different — proves the full prompt is the hash seed, not the truncated 60-char title.
+
+### Test added — release hygiene (REL-001 regression)
+
+`tests/release-hygiene.test.ts` (5 cases) — CI-enforced version consistency:
+- `package.json.version` === `package-lock.json.version` === `package-lock.json.packages[""].version`
+- Sidebar badge `vX.Y.Z · ⌘K` matches `package.json.version`
+- README "Status: vX.Y.Z" matches
+- CHANGELOG has a `## [X.Y.Z]` heading for the current version
+
+This would have caught v0.2.2 → v0.2.3's sidebar drift AND v0.2.3 → v0.2.4's package-lock drift. CI runs it on every push; any version-bump that forgets a file fails the build before tag.
+
+### Release hygiene — fixed
+
+- **`package-lock.json`** was stuck at `0.1.0` since the initial scaffold; regenerated with `npm install --package-lock-only` so root + `packages[""]` both reflect `0.2.4`.
+- **`docs/RELEASE-CHECKLIST.md` §2** updated to list `package-lock.json` as a place that needs bumping every release, with the exact command + a pointer to the new hygiene test.
+
+### Docs swept
+
+Per Hermes review's DOC-001 / DOC-002 / DOC-003:
+
+- **`docs/INSTALL.md`** — `v0.2.2` → `v0.2.4`; `chats/YYYY-MM-DD-{slug}.md` → `chats/YYYY-MM-DD-HHMM-{agent}-{promptSha8}.md`.
+- **`docs/SECURITY.md`** — JSONL example records updated to match the actual shape from `src/kernel/audit.ts` (includes `id`, omits invented `command`/`status` fields, adds `agent.invoke.complete` + new `agent.invoke.error` shape). Chat filename example uses hash. Added explicit "Note on `agent.invoke.error`" paragraph explaining the SEC-001 fix.
+- **`docs/ARCHITECTURE.md`** — `draftInbox` description corrected: chats use hash filename, non-chats use slug.
+- **`docs/AGENT-MANIFEST.md`** — "Loader status as of v0.2.2" → "Loader status (current)".
+- **`README.md`** — Status line, plus `src/` description no longer says "Phase 1A application code".
+
+### Tests + CI
+
+- Vitest: 43 → **51 tests passing**. New files: `audit-stderr-security.test.ts` (3), `release-hygiene.test.ts` (5). Strengthened: `audit-pipeline-security.test.ts` (+1 inside an existing case).
+- Typecheck clean.
+- Playwright unchanged (5/5).
+
+### Migration from 0.2.3
+
+None required for operators. For anyone forking and writing custom transports / kernel code: `auditAgentInvokeError`'s signature is now stricter — pass `errorClass` + `stderrSha8` + `stderrChars` + `transport`, not `message`. Use `classifyAgentError({ message, exitCode })` to get the class from raw input.
 
 ---
 

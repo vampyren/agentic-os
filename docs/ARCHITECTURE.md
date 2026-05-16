@@ -218,7 +218,7 @@ Markdown is canonical. SQLite is derived.
 - Exposes `searchFts(q)`, `recent(n)`, `byTag(tag)`, `byFrontmatter(key, value)`.
 
 **Writer (`vault/writer.ts`) — inbox-first contract:**
-- `draftInbox({ kind, title, frontmatter, body })` writes to `00_Inbox/agentic-os/YYYY-MM-DD-{slug}.md`. No approval needed (matches your existing `Hermes Obsidian Approved Write Workflow` decision).
+- `draftInbox({ kind, title, frontmatter, body })` writes to `00_Inbox/agentic-os/<kind>/...`. Chat kind uses `YYYY-MM-DD-HHMM-{agent}-{promptSha8}.md` (hash-based filename — no prompt-derived characters land in the filename, see `docs/VAULT-CONTRACT.md`). Non-chat kinds use `YYYY-MM-DD-{slug}.md` from operator-authored titles. No approval needed for inbox writes (matches your existing `Hermes Obsidian Approved Write Workflow` decision).
 - `promote(notePath, destFolder)` is the only path that touches anything outside the inbox, and it requires explicit confirmation from the dashboard UI.
 - Frontmatter follows your existing template convention: `type`, `status`, `source`, `tags` (broad domains only), `aliases`, `created`. Plus one OS-specific field: `agent: <agent-name>` so we can filter "all notes Claude drafted last week."
 - Never writes to `60_Attachments/` (your `.gitignore` excludes it from version control; agents shouldn't dump there).

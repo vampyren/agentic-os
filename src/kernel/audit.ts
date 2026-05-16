@@ -102,14 +102,54 @@ export async function auditAgentInvokeComplete(input: {
   });
 }
 
+export type AgentErrorClass =
+  | "non-zero-exit"
+  | "spawn-failed"
+  | "timeout"
+  | "killed"
+  | "transport-error"
+  | "unknown";
+
+/**
+ * Classify a raw error message + exit code into a neutral category. The
+ * classifier never returns prompt-derived strings; the message is only
+ * inspected for known error keywords. Used by the registry before writing
+ * to the audit log so raw stderr/error text never leaks into JSONL.
+ */
+export function classifyAgentError(input: {
+  message: string;
+  exitCode: number | null;
+}): AgentErrorClass {
+  const m = (input.message ?? "").toLowerCase();
+  if (m.includes("enoent") || m.includes(" not found") || m.includes("spawn ")) return "spawn-failed";
+  if (m.includes("timeout") || m.includes("timed out")) return "timeout";
+  if (input.exitCode === null) return "killed";
+  if (typeof input.exitCode === "number" && input.exitCode !== 0) return "non-zero-exit";
+  if ((input.message ?? "").length > 0) return "transport-error";
+  return "unknown";
+}
+
+/**
+ * Audit the failure of an agent invocation. **Never** accepts a raw
+ * stderr / error message — that text could contain the prompt, secrets,
+ * or other operator content. Caller must pre-classify and pre-hash.
+ */
 export async function auditAgentInvokeError(input: {
   agent: string;
-  message: string;
+  errorClass: AgentErrorClass;
+  exitCode?: number | null;
+  stderrSha8?: string;            // sha8 of the original stderr for correlation
+  stderrChars?: number;           // length only, not content
+  transport?: string;             // manifest's transport name
 }): Promise<void> {
   await writeLine({
     kind: "agent.invoke.error",
     agent: input.agent,
-    message: input.message,
+    errorClass: input.errorClass,
+    ...(input.exitCode !== undefined ? { exitCode: input.exitCode } : {}),
+    ...(input.stderrSha8 ? { stderrSha8: input.stderrSha8 } : {}),
+    ...(input.stderrChars !== undefined ? { stderrChars: input.stderrChars } : {}),
+    ...(input.transport ? { transport: input.transport } : {}),
   });
 }
 

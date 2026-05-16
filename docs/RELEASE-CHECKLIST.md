@@ -48,7 +48,9 @@ grep -rn -E "\"version\":|v[0-9]+\.[0-9]+\.[0-9]+" \
 Known places that need bumping every release:
 
 - [ ] `package.json` → `"version": "X.Y.Z"`
+- [ ] `package-lock.json` — after editing `package.json`, run `npm install --package-lock-only` to update the lock's root + `packages[""]` version. (Lesson from Hermes review of v0.2.3: package-lock root was still `0.1.0`.)
 - [ ] `src/components/Sidebar.tsx` → version badge `vX.Y.Z`
+- [ ] **`npm test` will fail** if you forget any of the above — `tests/release-hygiene.test.ts` enforces consistency across package.json / package-lock.json / sidebar / README / CHANGELOG.
 
 Conditional (only if a phase/feature surface changed):
 

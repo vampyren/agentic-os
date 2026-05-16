@@ -2,7 +2,7 @@
 
 A local-first mission control for your AI agents. Single dashboard. Pluggable brains. Your knowledge stays in your vault.
 
-> **Status: v0.2.3 — security patch (chat filename hash).** Runnable. Two built-in agents (Claude Code, Hermes) work end-to-end. Mission Control UI, vault inbox-first writes, SQLite FTS5 search, setup wizard, JSONL audit log with full prompt redaction. See [`CHANGELOG.md`](CHANGELOG.md) for version history.
+> **Status: v0.2.4 — security patch (audit stderr redaction).** Runnable. Two built-in agents (Claude Code, Hermes) work end-to-end. Mission Control UI, vault inbox-first writes, SQLite FTS5 search, setup wizard, JSONL audit log with full prompt redaction (argv, filenames, AND stderr). See [`CHANGELOG.md`](CHANGELOG.md) for version history.
 
 ---
 
@@ -50,8 +50,9 @@ docs/
   INSTALL.md               prereqs + first-run steps
   decisions/               ADRs
 agents/builtin/            shipped agent manifests (claude-code, hermes)
-src/                       Phase 1A application code
-tests/                     vitest unit tests
+src/                       application code (kernel + UI)
+tests/                     vitest unit + security tests
+e2e/                       Playwright smoke tests
 ```
 
 ## Quickstart
