@@ -20,9 +20,9 @@ What it is **not**: a cloud SaaS, a chatbot wrapper, or a fork of any closed sou
 
 ## Why this exists
 
-Julian Goldie's `agentic-os v0.1` (kept under `source-julian/` for reference) showed the shape — a Mission Control with Claude / OpenClaw / Hermes panels and Obsidian writes. It's a strong demo and the UI aesthetic is worth keeping. But the architecture won't take a fourth agent, MCP, a scheduler, embeddings, or proper workflows without a re-pour. This project is that re-pour, with the same look-and-feel but a kernel that scales.
+The conceptual model — Mission Control with multiple AI agents in panels, Obsidian as the second brain — was inspired by an AIPB-members-only build by Julian Goldie. That demo showed the shape; the architecture here is a clean re-pour designed to scale to N agents, MCP, a scheduler, embeddings, and real workflows.
 
-See [`docs/decisions/ADR-0006-rebuild-not-fork-of-julian-v01.md`](docs/decisions/ADR-0006-rebuild-not-fork-of-julian-v01.md) for the full rationale.
+The reference build itself is **not redistributed here** (AIPB members-only license). See [`docs/decisions/ADR-0006-rebuild-not-fork-of-julian-v01.md`](docs/decisions/ADR-0006-rebuild-not-fork-of-julian-v01.md) for the rebuild rationale.
 
 ## Design pillars
 
@@ -39,23 +39,20 @@ See [`docs/decisions/ADR-0006-rebuild-not-fork-of-julian-v01.md`](docs/decisions
 ```
 README.md                  this file
 LICENSE                    MIT
+CHANGELOG.md               Keep-a-Changelog format; phase → version mapping
 CONTRIBUTING.md
 docs/
   ARCHITECTURE.md          layers, transports, event bus, knowledge layer
   ROADMAP.md               phase 0/1/2/3 with exit criteria
   AGENT-MANIFEST.md        how to add a brain (declarative schema + example)
-  VAULT-CONTRACT.md        Obsidian integration rules (phase-2 scope, documented now)
-  SECURITY.md              localhost defaults, auth boundary, audit log plan
-  INSTALL.md               prereqs + first-run steps (placeholder until code lands)
+  VAULT-CONTRACT.md        Obsidian integration rules
+  SECURITY.md              localhost defaults, auth boundary, audit log
+  INSTALL.md               prereqs + first-run steps
   decisions/               ADRs
-source-julian/             Julian Goldie's v0.1 zip + web page snapshot, kept for reference
+agents/builtin/            shipped agent manifests (claude-code, hermes)
+src/                       Phase 1A application code
+tests/                     vitest unit tests
 ```
-
-## Sources
-
-- **`source-julian/agentic-os-v0.1.zip`** — Julian Goldie's reference build. Audited; see ADR-0006.
-- **`source-julian/web/`** — Snapshot of the AIPB classroom page that introduced the concept ("GOLDIE Mission Stack").
-- **`source-julian/chatgpt_Prompts.docx`** — ChatGPT's distillation of Julian's 8 build prompts.
 
 ## Quickstart (will exist after Phase 1B; Phase 1A uses manual config — see [`docs/INSTALL.md`](docs/INSTALL.md))
 

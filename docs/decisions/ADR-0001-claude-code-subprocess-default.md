@@ -47,4 +47,4 @@ The kernel exposes Claude Code through a manifest at `agents/builtin/claude-code
 ## References
 
 - Claude Agent SDK overview: https://docs.claude.com/en/docs/agent-sdk/overview
-- Julian's v0.1 ClaudePanel proves the stream-json parser works end-to-end (`source-julian/agentic-os-v0.1.zip` → `src/components/ClaudePanel.tsx`).
+- Prior art: the AIPB-members-only `agentic-os v0.1` build uses the same stream-json subprocess approach end-to-end and proves the pattern works at this scale.

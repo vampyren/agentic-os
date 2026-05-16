@@ -8,7 +8,6 @@ Phased delivery. Each phase has explicit exit criteria. We don't start the next 
 
 - This documentation set (README, ARCHITECTURE, ADRs, this roadmap, vault contract, security, install placeholder).
 - Repository on GitHub with MIT license.
-- `source-julian/` kept as reference, not as a fork base.
 
 **Exit criteria**
 

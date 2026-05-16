@@ -35,12 +35,10 @@ Thumbs.db
 tmp/
 .cache/
 
-# Source materials we keep but don't want re-zipped accidentally
-source-julian/web/page.html
-source-julian/web/page-data.json
-source-julian/web/screenshot-full.png
-source-julian/web/agentic-os-v0.1.zip
-# (duplicate of source-julian/agentic-os-v0.1.zip at the top level)
+# source-julian/ holds AIPB members-only reference material (Julian Goldie's
+# agentic-os v0.1 zip + the classroom page snapshot). NOT for redistribution.
+# Kept locally for design reference only. Never committed.
+source-julian/
 
 # Claude Code per-user workspace settings (project-shared settings.json may be committed)
 .claude/settings.local.json
