@@ -1,0 +1,16 @@
+# Example Agentic OS config. Copy this file to ~/.agentic-os/config.yaml
+# and edit the vault.root path to point at your Obsidian vault.
+#
+# Env overrides:
+#   AGENTIC_OS_CONFIG  alternate config file path
+#   AGENTIC_OS_VAULT   override vault.root
+
+vault:
+  # Absolute path to your Obsidian vault root.
+  root: /home/spawn/Documents/Obsidian/Rex-Knowledge
+
+agents:
+  # Optional: which agent the dashboard selects by default. Must match a
+  # `name:` field from a manifest in agents/builtin/*.yaml or
+  # ~/.agentic-os/agents/*.yaml. If omitted, the first loaded agent is used.
+  default: claude-code

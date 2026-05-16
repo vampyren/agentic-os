@@ -1,0 +1,23 @@
+name: claude-code
+displayName: "Claude Code"
+description: "Anthropic's Claude via the local Claude Code CLI. Streams tokens via stream-json."
+
+transport: streamJson
+transportConfig:
+  bin: claude
+  args:
+    - "-p"
+    - "--output-format=stream-json"
+    - "--include-partial-messages"
+    - "--verbose"
+    - "{prompt}"
+
+capabilities:
+  chat: true
+  streamingChat: true
+
+healthProbe:
+  type: command
+  command: ["claude", "--version"]
+  timeoutMs: 3000
+  intervalSec: 300

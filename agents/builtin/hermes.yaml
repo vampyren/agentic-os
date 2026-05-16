@@ -1,0 +1,22 @@
+name: hermes
+displayName: "Hermes Agent"
+description: "Nous Research Hermes Agent in one-shot mode (hermes -z PROMPT)."
+
+transport: subprocess
+transportConfig:
+  bin: hermes
+  args:
+    - "-z"
+    - "{prompt}"
+  timeoutMs: 120000
+  env:
+    NO_COLOR: "1"
+
+capabilities:
+  chat: true
+
+healthProbe:
+  type: command
+  command: ["hermes", "--version"]
+  timeoutMs: 3000
+  intervalSec: 300
