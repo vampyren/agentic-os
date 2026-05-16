@@ -22,15 +22,64 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-Queued for v0.2.7 — UI inspiration pass (operator dropped 35 screenshots showing Julian's Agentic OS aesthetic):
-- Per-agent action rail: `Status / Sessions / Skills / Plugins / Kanban / Doctor / Insights` for Hermes (mirrors Julian's pattern). Surface what each agent CLI already exposes instead of reinventing.
-- Polished chat bubbles with agent avatars (Claude page in screenshot 162527).
+**v0.2.8 — non-visual maintenance pass** (Hermes review of v0.2.6 findings, deferred per Hermes's own recommendation to keep v0.2.7 UI-only):
+- Tighten `postRunUsage` event ordering: emit `usage` BEFORE `done`, or rename to a "telemetry-after-done" contract. Today's order works for the current AgentRoom consumer but would break any client that treats `done` as terminal.
+- Empty-usage suppression: `hermesSessionJsonToUsage({})` returns `{}` (truthy), so registry can emit `usage: {}` and increment session-turn counters with no real data. Parser should return `undefined` unless ≥1 usage field is present; registry should guard too. (Partial defense already in v0.2.7 — AgentRoom now tracks `usageSeen` and only attaches non-empty usage to the saved message.)
+- Add registry integration tests around fail-soft, ordering, empty-usage suppression.
+- Document the Hermes "latest CLI session" race (single-operator edge case).
+
+**v0.2.9 — UI continued:**
+- Per-agent action rail: `Status / Sessions / Skills / Plugins / Kanban / Doctor / Insights` for Hermes (mirrors Julian's pattern, screenshot 164202).
 - Memory page improvements: tabs (Local conversations / Obsidian vault), filter chips, right-pane preview (screenshot 163509).
 
-Then v0.2.8+:
+Then later:
 - "Send last prompt to agent X" action in the command palette.
-- Voice input on the journal page (chat box already has it).
+- Voice input on the journal page.
 - Vault search results inside the command palette.
+
+---
+
+## [0.2.7] — 2026-05-16 — Feature: chat persistence + polished chat bubbles
+
+Closes a real UX bug: switching between agents reset the chat. Now per-agent chat history survives navigation and page reloads, with explicit "New session" / "Clear" controls. Plus a chat-surface visual polish inspired by Julian's screenshots — bubbles with agent-tinted avatars instead of flat cards.
+
+### Added — chat persistence
+
+- **`src/lib/chatStore.ts`** — module-level singleton `Map<agentName, ChatSession>` lives in browser memory across React lifecycles. Each session has `msgs`, `sessionUsage`, `lastUsage`, plus a `rev` counter for subscription notifications.
+- **`src/lib/useChatSession.ts`** — React hook that subscribes a component to one agent's session and re-renders on mutation. Replaces `useState`-only state in `AgentRoom`.
+- **localStorage backup** — `localStorage[agentic-os.chat.<name>]` mirrors every committed message. Page reload restores the session. Wiped only by "New session" / "Clear".
+- **"New session" button** in the AgentRoom header — clears that agent's history (vault notes untouched), aborts any in-flight stream, refocuses the prompt textarea. Disabled when the session is already empty.
+
+### Added — polished chat bubbles
+
+- **`<ChatBubble>` component** — rounded bubbles (tail on the speaker's side), user messages right-aligned with accent tint, assistant messages left-aligned. Per-message footer carries saved-path + tokens/cost in tabular nums, padded clear of the bubble itself.
+- **`<Avatar>` component** — small circular badge using the first letter of the agent name (or "you"), tinted with the agent's accent color and a soft glow. No image assets needed.
+- **Empty-state copy** updated to mention `New session` + chat persistence explicitly.
+- **Streaming partial** now also uses the avatar + bubble layout — consistent with finalized messages.
+
+### Improved — partial Hermes v0.2.6 review carry-over
+
+- AgentRoom tracks `usageSeen` and only attaches `usage` to the committed assistant message when ≥1 real usage event arrived during the stream. Avoids bumping session-turn counters with empty `{}` usage, addressing part of Hermes's Low/Medium finding. The deeper fix (in the registry + parser) lands in v0.2.8.
+
+### Tests added (+9, total 80)
+
+- **`tests/chatStore.test.ts`** (9 cases): empty state, per-agent isolation, cumulative usage rollup, no-usage messages don't increment turns, `newSession` clears only one agent, subscribers notified on append/clear, subscribers unsubscribed don't fire, agent-specific notification, `setLastUsage` merges streaming updates, doesn't touch sessionUsage.
+- **`e2e/dashboard.spec.ts`** +2 cases: inject a marker message via `chatStore` → nav away → nav back → marker still visible. Then click "New session" → marker disappears.
+
+### What was *not* included
+
+Per Hermes's recommendation, v0.2.7 stayed UI-focused. The four findings from Hermes's v0.2.6 review (event ordering, registry-level empty-usage suppression, integration tests, race documentation) are bundled into **v0.2.8 maintenance pass**.
+
+### Tests + CI
+
+- Vitest: 71 → **80 passing**.
+- Typecheck clean.
+- Playwright: 5 → 7 cases.
+- Hygiene gate green across all 6 version surfaces.
+
+### Migration
+
+None. The browser-side chat store is invisible to operators except for the new behavior (chat persists). Existing vault notes unchanged. No kernel/security paths touched.
 
 ---
 

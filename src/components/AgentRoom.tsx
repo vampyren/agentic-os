@@ -2,12 +2,14 @@
 
 import { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Send, Square } from "lucide-react";
+import { Send, Square, Sparkles, RotateCcw } from "lucide-react";
 import Pill, { type PillTone } from "./Pill";
 import Markdown from "./Markdown";
 import VoiceButton from "./VoiceButton";
 import { accentFor } from "@/lib/accent";
 import { resolveModel, contextBreakdown } from "@/lib/models";
+import { chatStore } from "@/lib/chatStore";
+import { useChatSession } from "@/lib/useChatSession";
 
 interface Agent {
   name: string;
@@ -23,37 +25,25 @@ interface Vitals {
   checkedAt?: number;
 }
 
-interface Msg {
-  role: "user" | "assistant";
-  text: string;
-  ts: number;
-  savedPath?: string;
-  usage?: Usage;
-}
-
-interface Usage {
-  model?: string;
-  inputTokens?: number;
-  outputTokens?: number;
-  cacheReadInputTokens?: number;
-  cacheCreationInputTokens?: number;
-  totalCostUsd?: number;
-}
-
-interface SessionUsage extends Usage {
-  turns: number;
-}
+// Local aliases — actual types live in chatStore.ts / types.ts.
+type Usage = NonNullable<ReturnType<typeof chatStore.get>["lastUsage"]>;
+type SessionUsage = ReturnType<typeof chatStore.get>["sessionUsage"];
 
 export default function AgentRoom({ name }: { name: string }) {
   const accent = accentFor(name);
+  // Per-agent chat history lives in chatStore so it survives navigation
+  // between /agents/<a> and /agents/<b>, and across page reloads. The
+  // hook re-renders us when the store mutates.
+  const session = useChatSession(name);
+  const msgs = session.msgs;
+  const usage = session.lastUsage;
+  const sessionUsage = session.sessionUsage;
+
   const [agent, setAgent] = useState<Agent | null>(null);
   const [vitals, setVitals] = useState<Vitals | null>(null);
   const [prompt, setPrompt] = useState("");
-  const [msgs, setMsgs] = useState<Msg[]>([]);
   const [streaming, setStreaming] = useState(false);
   const [partial, setPartial] = useState("");
-  const [usage, setUsage] = useState<Usage | null>(null);
-  const [sessionUsage, setSessionUsage] = useState<SessionUsage>({ turns: 0 });
   const [error, setError] = useState<string | null>(null);
   const ctrlRef = useRef<AbortController | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -91,8 +81,7 @@ export default function AgentRoom({ name }: { name: string }) {
   async function send() {
     const trimmed = prompt.trim();
     if (!trimmed || streaming) return;
-    const userMsg: Msg = { role: "user", text: trimmed, ts: Date.now() };
-    setMsgs((m) => [...m, userMsg]);
+    chatStore.appendUserMessage(name, trimmed);
     setPrompt("");
     setPartial("");
     setError(null);
@@ -102,7 +91,8 @@ export default function AgentRoom({ name }: { name: string }) {
     ctrlRef.current = ctrl;
     let acc = "";
     let savedPath: string | undefined;
-    let lastUsage: Usage | undefined;
+    let lastUsage: Usage = {};
+    let usageSeen = false;
 
     try {
       const r = await fetch(`/api/agents/${encodeURIComponent(name)}/run`, {
@@ -129,7 +119,11 @@ export default function AgentRoom({ name }: { name: string }) {
           try {
             const e = JSON.parse(line);
             if (e.kind === "token") { acc += e.text; setPartial(acc); }
-            else if (e.kind === "usage") { lastUsage = { ...(lastUsage ?? {}), ...e.usage }; setUsage(lastUsage ?? null); }
+            else if (e.kind === "usage") {
+              lastUsage = { ...lastUsage, ...e.usage };
+              usageSeen = true;
+              chatStore.setLastUsage(name, lastUsage);
+            }
             else if (e.kind === "saved") savedPath = e.path;
             else if (e.kind === "error") setError(e.message);
           } catch { /* skip */ }
@@ -138,33 +132,33 @@ export default function AgentRoom({ name }: { name: string }) {
     } catch (e) {
       if (!ctrl.signal.aborted) setError(String(e));
     } finally {
-      setMsgs((m) => [
-        ...m,
-        { role: "assistant", text: acc || "(no output)", ts: Date.now(), savedPath, usage: lastUsage },
-      ]);
+      chatStore.appendAssistantMessage(name, {
+        role: "assistant",
+        text: acc || "(no output)",
+        ts: Date.now(),
+        savedPath,
+        // Only attach usage if the transport actually reported any. Avoids
+        // bumping session-turn counters with all-zero data (one of Hermes
+        // review's v0.2.6 follow-up items).
+        usage: usageSeen ? lastUsage : undefined,
+      });
       setPartial("");
       setStreaming(false);
       ctrlRef.current = null;
-      // Accumulate session totals.
-      if (lastUsage) accumulateSession(lastUsage);
     }
-  }
-
-  function accumulateSession(u: Usage) {
-    setSessionUsage((prev) => ({
-      model: u.model ?? prev.model,
-      turns: prev.turns + 1,
-      inputTokens: (prev.inputTokens ?? 0) + (u.inputTokens ?? 0),
-      outputTokens: (prev.outputTokens ?? 0) + (u.outputTokens ?? 0),
-      cacheReadInputTokens: (prev.cacheReadInputTokens ?? 0) + (u.cacheReadInputTokens ?? 0),
-      cacheCreationInputTokens: (prev.cacheCreationInputTokens ?? 0) + (u.cacheCreationInputTokens ?? 0),
-      totalCostUsd: (prev.totalCostUsd ?? 0) + (u.totalCostUsd ?? 0),
-    }));
   }
 
   function stop() {
     ctrlRef.current?.abort();
     setStreaming(false);
+  }
+
+  function newSession() {
+    if (streaming) stop();
+    chatStore.newSession(name);
+    setPartial("");
+    setError(null);
+    promptRef.current?.focus();
   }
 
   return (
@@ -186,82 +180,80 @@ export default function AgentRoom({ name }: { name: string }) {
               </div>
             </div>
           </div>
-          {vitals && (
-            <Pill tone={vitals.status} pulse={vitals.status === "live"}>
-              {vitals.status}
-            </Pill>
-          )}
+          <div className="flex items-center gap-2">
+            {vitals && (
+              <Pill tone={vitals.status} pulse={vitals.status === "live"}>
+                {vitals.status}
+              </Pill>
+            )}
+            <button
+              onClick={newSession}
+              title="New session — clears this agent's chat history (vault notes are untouched)"
+              className="!px-2 !py-1.5 text-[11px] text-[var(--fg-dim)] hover:text-[var(--fg)]"
+              disabled={msgs.length === 0 && !streaming}
+            >
+              <span className="flex items-center gap-1.5">
+                <RotateCcw size={12} />
+                New session
+              </span>
+            </button>
+          </div>
         </header>
 
-        <div ref={scrollRef} className="scroll flex-1 min-h-0 overflow-y-auto p-5 space-y-3">
+        <div ref={scrollRef} className="scroll flex-1 min-h-0 overflow-y-auto p-5 space-y-4">
           <AnimatePresence initial={false}>
             {msgs.length === 0 && !streaming && (
               <motion.div
                 initial={{ opacity: 0 }} animate={{ opacity: 1 }}
-                className="text-[var(--fg-dim)] text-[13px] leading-relaxed"
+                className="text-[var(--fg-dim)] text-[13px] leading-relaxed pt-2"
               >
-                <p className="text-[var(--fg)] text-[14px] mb-2">Channel open.</p>
+                <p className="text-[var(--fg)] text-[14px] mb-2 flex items-center gap-2">
+                  <Sparkles size={14} style={{ color: accent }} />
+                  Channel open.
+                </p>
                 <p>
                   Send a prompt to <code>{name}</code>. Tokens stream in real
-                  time, the chat is auto-saved to your Obsidian inbox under
-                  <code> 00_Inbox/agentic-os/chats/</code>.
+                  time. The chat is auto-saved to your Obsidian inbox at
+                  <code> 00_Inbox/agentic-os/chats/</code>, and the conversation
+                  here persists across navigation — click <em>New session</em>
+                  to start fresh.
                 </p>
               </motion.div>
             )}
             {msgs.map((m, i) => (
-              <motion.div
+              <ChatBubble
                 key={i}
-                initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }}
-                className="rounded-xl px-4 py-3 text-[13px] leading-relaxed border"
-                style={{
-                  background: m.role === "user"
-                    ? `color-mix(in srgb, ${accent} 8%, transparent)`
-                    : "var(--bg-elevated)",
-                  borderColor: m.role === "user"
-                    ? `color-mix(in srgb, ${accent} 25%, var(--border))`
-                    : "var(--border)",
-                }}
-              >
-                <div className="text-[10px] tracking-widest uppercase mb-1 opacity-60">
-                  {m.role === "user" ? "you" : name}
-                </div>
-                {m.role === "assistant" ? (
-                  <Markdown>{m.text}</Markdown>
-                ) : (
-                  <div className="whitespace-pre-wrap text-[13px]">{m.text}</div>
-                )}
-                {(m.savedPath || m.usage) && (
-                  <div className="text-[10px] text-[var(--fg-dimmer)] mt-2 flex items-center gap-3 flex-wrap">
-                    {m.savedPath && (
-                      <span>saved → <code>{m.savedPath}</code></span>
-                    )}
-                    {m.usage && (m.usage.inputTokens || m.usage.outputTokens) && (
-                      <span>
-                        {m.usage.inputTokens ? `in ${formatK(m.usage.inputTokens)}` : ""}
-                        {m.usage.inputTokens && m.usage.outputTokens ? " · " : ""}
-                        {m.usage.outputTokens ? `out ${formatK(m.usage.outputTokens)}` : ""}
-                        {m.usage.totalCostUsd ? ` · $${m.usage.totalCostUsd.toFixed(4)}` : ""}
-                      </span>
-                    )}
-                  </div>
-                )}
-              </motion.div>
+                msg={m}
+                agentName={name}
+                accent={accent}
+              />
             ))}
             {streaming && (
               <motion.div
                 key="partial"
-                initial={{ opacity: 0 }} animate={{ opacity: 1 }}
-                className="rounded-xl px-4 py-3 text-[13px] leading-relaxed border bg-[var(--bg-elevated)] border-[var(--border)]"
+                initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }}
+                className="flex gap-3 max-w-full"
               >
-                <div className="text-[10px] tracking-widest uppercase mb-1 opacity-60 flex items-center gap-2">
-                  {name}
-                  <span className="tick live" style={{ color: accent }} />
+                <Avatar name={name} accent={accent} side="assistant" />
+                <div className="flex flex-col gap-1 min-w-0 flex-1">
+                  <div className="text-[10px] tracking-widest uppercase text-[var(--fg-dimmer)] flex items-center gap-2">
+                    {name}
+                    <span className="tick live" style={{ color: accent }} />
+                  </div>
+                  <div
+                    className="rounded-2xl rounded-tl-sm px-4 py-3 text-[13px] leading-relaxed border"
+                    style={{
+                      background: "var(--bg-elevated)",
+                      borderColor: "var(--border)",
+                    }}
+                  >
+                    {partial ? (
+                      <Markdown>{partial}</Markdown>
+                    ) : (
+                      <div className="text-[12.5px] text-[var(--fg-dim)] italic">thinking…</div>
+                    )}
+                  </div>
                 </div>
-                {partial ? (
-                  <Markdown>{partial}</Markdown>
-                ) : (
-                  <div className="text-[12.5px] text-[var(--fg-dim)]">thinking…</div>
-                )}
               </motion.div>
             )}
           </AnimatePresence>
@@ -428,6 +420,115 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
 function formatK(n: number): string {
   if (n < 1000) return n.toString();
   return (n / 1000).toFixed(n < 10_000 ? 1 : 0) + "k";
+}
+
+/**
+ * One chat message rendered as a bubble with an avatar circle on the side.
+ * User messages right-aligned with accent tint; assistant messages left-
+ * aligned with neutral surface. Footer carries saved-path + per-message
+ * usage stats.
+ */
+function ChatBubble({
+  msg,
+  agentName,
+  accent,
+}: {
+  msg: { role: "user" | "assistant"; text: string; ts: number; savedPath?: string; usage?: Usage };
+  agentName: string;
+  accent: string;
+}) {
+  const isUser = msg.role === "user";
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 6 }}
+      animate={{ opacity: 1, y: 0 }}
+      className={`flex gap-3 max-w-full ${isUser ? "flex-row-reverse" : ""}`}
+    >
+      <Avatar name={isUser ? "you" : agentName} accent={isUser ? "var(--fg-dim)" : accent} side={isUser ? "user" : "assistant"} />
+      <div className={`flex flex-col gap-1 min-w-0 max-w-[88%] ${isUser ? "items-end" : "items-start"}`}>
+        <div className="text-[10px] tracking-widest uppercase text-[var(--fg-dimmer)] flex items-center gap-2">
+          <span>{isUser ? "you" : agentName}</span>
+          <span className="opacity-60">
+            {new Date(msg.ts).toLocaleTimeString("en-GB", { hour12: false, hour: "2-digit", minute: "2-digit" })}
+          </span>
+        </div>
+        <div
+          className={`px-4 py-3 text-[13px] leading-relaxed border ${
+            isUser ? "rounded-2xl rounded-tr-sm" : "rounded-2xl rounded-tl-sm"
+          }`}
+          style={
+            isUser
+              ? {
+                  background: `color-mix(in srgb, ${accent} 10%, transparent)`,
+                  borderColor: `color-mix(in srgb, ${accent} 28%, var(--border))`,
+                }
+              : {
+                  background: "var(--bg-elevated)",
+                  borderColor: "var(--border)",
+                }
+          }
+        >
+          {isUser ? (
+            <div className="whitespace-pre-wrap">{msg.text}</div>
+          ) : (
+            <Markdown>{msg.text}</Markdown>
+          )}
+        </div>
+        {(msg.savedPath || msg.usage) && (
+          <div className="text-[10px] text-[var(--fg-dimmer)] flex items-center gap-2 flex-wrap px-1">
+            {msg.savedPath && (
+              <span title={msg.savedPath}>saved → <code>{msg.savedPath.split("/").pop()}</code></span>
+            )}
+            {msg.usage && (msg.usage.inputTokens || msg.usage.outputTokens) && (
+              <span className="tabular-nums">
+                {msg.usage.inputTokens ? `in ${formatK(msg.usage.inputTokens)}` : ""}
+                {msg.usage.inputTokens && msg.usage.outputTokens ? " · " : ""}
+                {msg.usage.outputTokens ? `out ${formatK(msg.usage.outputTokens)}` : ""}
+                {msg.usage.totalCostUsd ? ` · $${msg.usage.totalCostUsd.toFixed(4)}` : ""}
+              </span>
+            )}
+          </div>
+        )}
+      </div>
+    </motion.div>
+  );
+}
+
+/**
+ * Small circular avatar derived from the agent name's first letter, tinted
+ * with the agent's accent color. Operator-side ("you") uses a neutral dim
+ * tone. Keeps the chat surface scannable without per-agent image assets.
+ */
+function Avatar({
+  name,
+  accent,
+  side,
+}: {
+  name: string;
+  accent: string;
+  side: "user" | "assistant";
+}) {
+  const letter = (name || "?").trim()[0]?.toUpperCase() ?? "?";
+  return (
+    <div
+      className="shrink-0 w-8 h-8 rounded-full flex items-center justify-center text-[12px] font-semibold select-none"
+      style={{
+        background: side === "assistant"
+          ? `color-mix(in srgb, ${accent} 18%, transparent)`
+          : "rgba(255,255,255,0.06)",
+        color: side === "assistant" ? accent : "var(--fg-dim)",
+        border: `1px solid ${side === "assistant"
+          ? `color-mix(in srgb, ${accent} 35%, transparent)`
+          : "var(--border)"}`,
+        boxShadow: side === "assistant"
+          ? `0 0 12px -4px ${accent}`
+          : undefined,
+      }}
+      aria-hidden
+    >
+      {letter}
+    </div>
+  );
 }
 
 /**

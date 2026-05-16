@@ -62,4 +62,41 @@ test.describe("Mission Control dashboard", () => {
     await expect(ta).toHaveValue("", { timeout: 10_000 });
     await expect(page.getByText(entry)).toBeVisible({ timeout: 10_000 });
   });
+
+  test("chat persistence — manually inject a message via the chat store and verify it survives navigation", async ({ page }) => {
+    // We can't drive a real agent without a CLI on the CI runner. Instead
+    // we exercise the persistence layer directly: inject a message into the
+    // browser-side chatStore for agent "claude-code", navigate away and
+    // back, and assert the message is still rendered. This proves the
+    // store survives unmount of AgentRoom (the v0.2.7 regression that
+    // motivated this release).
+    await page.goto("/agents/claude-code");
+    const marker = `e2e-persistence-${Date.now()}`;
+    // Reach into the store via the globalThis singleton.
+    await page.evaluate((m) => {
+      const w = window as unknown as { __agenticChatStore?: { appendUserMessage: (a: string, t: string) => void } };
+      w.__agenticChatStore?.appendUserMessage("claude-code", m);
+    }, marker);
+    await expect(page.getByText(marker)).toBeVisible();
+
+    // Navigate to a different agent and back.
+    await page.goto("/agents/hermes");
+    await page.goto("/agents/claude-code");
+
+    // Message must still be there.
+    await expect(page.getByText(marker)).toBeVisible({ timeout: 5_000 });
+  });
+
+  test("chat persistence — New session button clears the agent's history", async ({ page }) => {
+    await page.goto("/agents/claude-code");
+    const marker = `e2e-clear-${Date.now()}`;
+    await page.evaluate((m) => {
+      const w = window as unknown as { __agenticChatStore?: { appendUserMessage: (a: string, t: string) => void } };
+      w.__agenticChatStore?.appendUserMessage("claude-code", m);
+    }, marker);
+    await expect(page.getByText(marker)).toBeVisible();
+
+    await page.getByRole("button", { name: /New session/i }).click();
+    await expect(page.getByText(marker)).not.toBeVisible({ timeout: 5_000 });
+  });
 });
