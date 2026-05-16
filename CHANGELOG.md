@@ -22,10 +22,71 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-Queued for 0.2.2:
-- "Send last prompt to agent X" action inside the command palette (palette currently navigates only).
-- Voice input on the journal page (currently only the agent chat box has the mic).
-- Vault search results in the command palette as a third group.
+Queued for 0.2.3 (feature pass deferred from 0.2.2 to let the security gate land alone):
+- **Context-window fill bar** in the AgentRoom tokens card (Claude `[1m]` → "used / 1M" progress bar; same per-model max). Replaces today's in/out bar that gets visually swamped by cache hits.
+- **Hermes usage** via `hermes insights --json` / `hermes sessions stats` — Hermes does track per-session tokens; we just don't surface it yet.
+- **Hash-based chat filenames** as an option so the audit log's `vault.write` path doesn't leak short prompts via filename slug. Operator chooses slug vs. hash in config.
+- "Send last prompt to agent X" action in the command palette.
+- Voice input on the journal page.
+- Vault search results inside the command palette.
+
+---
+
+## [0.2.2] — 2026-05-16 — Security gate + correctness fixes
+
+Pure security + docs + correctness pass; no new user-facing features. Closes the two must-fix items from an external review:
+
+1. **Audit log was leaking raw prompts** via the `argsRedacted` field. The registry rendered `{prompt}` to the real prompt string, then passed those rendered args to `redactArgs()`, which only matched secret-shaped values — a prompt like "fix the bug in auth.py" passed through unredacted.
+2. **Spawned agent CLIs inherited the entire parent environment**, including any API keys / tokens the operator had exported (`OPENAI_API_KEY`, `GITHUB_TOKEN`, `ANTHROPIC_API_KEY`, etc.). SECURITY.md claimed otherwise; the code contradicted the doc.
+
+Both fixed, both with unit tests that would have caught the original bugs.
+
+### Security — fixed
+
+- **`renderArgsForAudit()` in `src/kernel/spawn.ts`** — companion to `renderArgs()`. Substitutes `{prompt}` with the literal `[PROMPT_REDACTED]` placeholder. Registry uses this when building the audit-version of argv. The real prompt is passed to the transport via `opts.prompt`, never via argv that lands in the audit log.
+- **`buildChildEnv()` + `ENV_ALLOWLIST` in `src/kernel/spawn.ts`** — replaces the previous `...process.env` spread. Strict allowlist of base env vars (PATH, HOME, USER, SHELL, TERM, LANG, LC_*, TZ, TMPDIR, XDG_*, NODE_PATH, plus any `AGENTIC_OS_*`). Manifest-declared `env:` blocks add to that on top. `NO_COLOR=1` / `FORCE_COLOR=0` forced.
+- **Tests:**
+  - `tests/audit-security.test.ts` — nonce test: pass a unique string as the prompt, assert it never appears in the JSONL file.
+  - `tests/spawn-security.test.ts` — env allowlist tests: fake `OPENAI_API_KEY` is filtered out; `PATH`/`HOME` are kept; `AGENTIC_OS_*` is forwarded; manifest extras win; `renderArgsForAudit` produces the redacted placeholder.
+
+### Security — known residual + planned fix
+
+- The `vault.write` audit entry records the full file path. Chat filenames include the slugified prompt prefix (lowercased, dashes, max 40 chars). For most prompts uninteresting (operator owns both the audit log and the vault), but short prompts can be partly reconstructed from the chat filename in audit. Documented in SECURITY.md. Planned fix in v0.2.3: optional hash-based filenames.
+
+### Bug — fixed
+
+- **`streamJson` transport had unreachable code.** Both the `assistant.message.usage` handler and the assistant-content handler matched the same event type — the first branch returned early so the usage extraction never ran. Merged usage extraction into the first branch; dropped the dead second branch. Confirmed live: a Claude call now emits **three** `usage` events (system.init → assistant.message.usage → result.usage cumulative) where 0.2.1 only emitted two.
+- **`extractUsage()` exported** from the transport for unit testing.
+- **`tests/streamjson-usage.test.ts`** — 5 fixture tests covering system.init / assistant.message.usage / result.usage / non-usage events / partial-shape tolerance.
+
+### Correctness — fixed
+
+- **VoiceButton unmount cleanup.** `useEffect` cleanup now calls `recRef.current?.abort()` and nulls the event handlers on unmount, so navigating away mid-recording properly releases the microphone instead of leaving a dangling SpeechRecognition session.
+- **VoiceButton error surfacing.** `onerror` now captures the actual error type (`not-allowed`, `network`, `service-not-allowed`, etc.) and exposes it via the button tooltip + an amber border. The previous version swallowed errors silently, which made debugging Brave's Web Speech limitations impossible.
+
+### Docs — fixed (stale items called out in review)
+
+- **README:** "Status: planning. No application code yet" → "Status: v0.2.2 — Phase 1B shipped" with a CHANGELOG link.
+- **INSTALL.md:** rewritten. `npm run setup` (which shipped in v0.2.0) is now the recommended quickstart. Manual config kept as alternative. Added browser compatibility table (mic = Chrome/Edge/Safari; Brave blocks; Firefox unsupported) + SSH port-forward instructions for accessing the dashboard from another machine.
+- **AGENT-MANIFEST.md:** added a "Loader status as of v0.2.2" note + table marking `http` / `mcp` / `sdk` as **not yet accepted by the validator** — a manifest using one fails at startup today. Schema documented now so it doesn't churn when transports land.
+- **SECURITY.md:** rewrote the Subprocess + Audit sections to match the new code. Subprocess section explains the env allowlist and what to do when a CLI breaks because of it. Audit section explains how prompts are kept out of the JSONL and acknowledges the residual chat-filename leak.
+
+### Tests + CI
+
+- Vitest: 19 → **39 tests passing**. 3 new test files (`audit-security`, `spawn-security`, `streamjson-usage`).
+- Playwright still 5/5.
+- Typecheck clean.
+
+### Verified end-to-end against the operator's machine
+
+```
+POST /api/agents/claude-code/run "audit-nonce-q9k2x7 just reply with OK"
+```
+Streams 3 usage events (was 2 in 0.2.1) — the dead-code merge now actually fires the per-turn usage path. Audit log contains `[PROMPT_REDACTED]` placeholders in `argsRedacted`. Hermes confirmed still working after the env allowlist change.
+
+### Migration from 0.2.1
+
+No migration required. If you had `OPENAI_API_KEY` or similar exported in your shell and a CLI was implicitly using it, that CLI now sees a clean env unless you declare the var in its manifest's `env:` block.
 
 ---
 
