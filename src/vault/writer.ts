@@ -12,6 +12,7 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import os from "node:os";
+import { createHash } from "node:crypto";
 import YAML from "yaml";
 import { auditVaultWrite } from "../kernel/audit";
 import { bus } from "../kernel/bus";
@@ -56,6 +57,15 @@ export interface WriteDraftInput {
   tags?: string[];
   aliases?: string[];
   session?: string;
+  /**
+   * For `kind: "chat"` only: full prompt used to derive the filename hash.
+   * Defaults to `title` if omitted. **Never appears verbatim in the
+   * filename** — only its first 8 SHA-256 hex chars do. Callers should pass
+   * the full prompt here so the audit log's vault.write path never leaks
+   * prompt-derived characters even via the slugified title.
+   * Ignored for non-chat kinds (those use operator-authored titles).
+   */
+  filenameSeed?: string;
 }
 
 export interface WriteDraftResult {
@@ -167,11 +177,20 @@ export async function writeDraft(input: WriteDraftInput): Promise<WriteDraftResu
 
   const today = todayIso();
   const time = hhmm();
-  const slugBase = slugify(input.title);
-  // chats get HHMM in the slug so two prompts a minute apart never collide.
-  const baseName = input.kind === "chat"
-    ? `${today}-${time}-${input.agent}-${slugBase}`
-    : `${today}-${slugBase}`;
+  // Chat filenames are deliberately non-leaky: derive the suffix from a hash
+  // of the prompt, not from a slugified prompt prefix. The H1 title and body
+  // inside the markdown remain human-readable — only the filename (which
+  // ends up in the vault.write audit entry's `path` field) is hashed.
+  // Other kinds (goals, journal, summaries, ...) use operator-authored
+  // titles that are not prompt content, so the slug stays.
+  let baseName: string;
+  if (input.kind === "chat") {
+    const seed = input.filenameSeed ?? input.title;
+    const promptSha8 = createHash("sha256").update(seed).digest("hex").slice(0, 8);
+    baseName = `${today}-${time}-${input.agent}-${promptSha8}`;
+  } else {
+    baseName = `${today}-${slugify(input.title)}`;
+  }
 
   const finalPath = await findFreePath(targetDir, baseName);
   assertInsideInbox(finalPath, input.vaultRoot);

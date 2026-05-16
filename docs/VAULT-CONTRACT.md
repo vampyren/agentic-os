@@ -35,12 +35,12 @@ This is a direct extension of the existing `Hermes Obsidian Approved Write Workf
 ```
 00_Inbox/agentic-os/
 ├── chats/
-│   ├── 2026-05-16-claude-1430-research-mcp-servers.md
-│   └── 2026-05-16-hermes-1015-find-competitor-pages.md
+│   ├── 2026-05-16-1430-claude-code-a1b2c3d4.md   (hash suffix, not slug)
+│   └── 2026-05-16-1015-hermes-9f0c2a4b.md
 ├── journal/
 │   └── 2026-05-16.md
 ├── goals/
-│   └── 2026-05-16-1430-shipping-agentic-os-phase-1.md  (one file per goal)
+│   └── 2026-05-16-ship-phase-1c-scheduler.md     (operator-authored title -> slug)
 ├── summaries/
 │   └── 2026-05-16.md     (from the daily-summary mission)
 ├── reviews/
@@ -49,21 +49,30 @@ This is a direct extension of the existing `Hermes Obsidian Approved Write Workf
     └── 2026-05-16-research-output.md   (free-form agent drafts)
 ```
 
-Files are named `YYYY-MM-DD-{slug}.md` so they sort chronologically.
+**Important — privacy invariant for chats:** chat filenames are
+`YYYY-MM-DD-HHMM-{agent}-{promptSha8}.md` where `promptSha8` is the first 8
+hex chars of SHA-256 over the prompt. The filename contains NO prompt-
+derived characters. The `vault.write` audit entry's `path` field — which
+includes this filename — therefore cannot be used to reconstruct the
+prompt. The H1 title and body inside the markdown remain human-readable.
+
+**Other kinds (goals, journal, summaries, reviews, drafts) keep slugified
+filenames** because the title is operator-authored — what the operator
+typed into the goals form, or the date itself for journal. That's not
+prompt content, so it's not a leak path.
+
+Files are named `YYYY-MM-DD-{slug}.md` (non-chat) or
+`YYYY-MM-DD-HHMM-{agent}-{promptSha8}.md` (chat) so they sort chronologically.
 
 ### Collision-safe naming
 
-Two writes in the same day with the same slug **must not** overwrite. The writer:
+Two writes in the same day with the same base name **must not** overwrite. The writer:
 
-1. Computes the candidate path: `YYYY-MM-DD-{slug}.md`.
-2. If it exists, tries `YYYY-MM-DD-{slug}-02.md`, `YYYY-MM-DD-{slug}-03.md`, ... up to `-99`.
+1. Computes the candidate path.
+2. If it exists, tries `<base>-02.md`, `<base>-03.md`, ... up to `-99`.
 3. If `-99` is taken (won't happen in practice), the write fails with a clear error in the audit log and the UI.
 
-For chats specifically, the slug includes `HHMM-{agent}-{first-3-prompt-words}` to make accidental collision near-impossible:
-
-```
-2026-05-16-1430-claude-code-research-mcp-servers.md
-```
+For chats, the base name is `YYYY-MM-DD-HHMM-{agent}-{promptSha8}` — same-minute, same-agent, identical-prompt collisions get `-02` etc. This is also a useful tell when the operator clicks Send twice on the same prompt by accident.
 
 ### Atomic write
 

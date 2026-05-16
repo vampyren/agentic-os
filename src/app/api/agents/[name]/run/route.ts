@@ -65,13 +65,18 @@ export async function POST(
           if (evt.kind === "token") fullText += evt.text;
           send(controller, evt);
         }
-        // Persist the chat to vault after the agent finishes.
+        // Persist the chat to vault after the agent finishes. Pass the full
+        // prompt as filenameSeed so the chat filename's hash suffix is
+        // computed over the entire prompt, not just the truncated title.
+        // (The title still becomes the H1 inside the file; only the
+        // filename is hashed for audit-log privacy.)
         try {
           const result = await writeDraft({
             vaultRoot: cfg.vault.root,
             agent: name,
             kind: "chat",
             title: prompt.slice(0, 60).replace(/\s+/g, " ").trim(),
+            filenameSeed: prompt,
             body:
               `## prompt\n\n${prompt}\n\n` +
               `## response\n\n${fullText.trim() || "(empty)"}\n`,
