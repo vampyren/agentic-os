@@ -60,33 +60,49 @@ describe("hermesSessionJsonToUsage", () => {
       messages: [],
     };
     const u = hermesSessionJsonToUsage(sample);
-    expect(u.model).toBe("gpt-5.5");
-    expect(u.inputTokens).toBe(14691);
-    expect(u.outputTokens).toBe(91);
-    expect(u.cacheReadInputTokens).toBe(0);
-    expect(u.cacheCreationInputTokens).toBe(0);
-    expect(u.totalCostUsd).toBe(0.12);
+    expect(u).toBeDefined();
+    expect(u!.model).toBe("gpt-5.5");
+    expect(u!.inputTokens).toBe(14691);
+    expect(u!.outputTokens).toBe(91);
+    expect(u!.cacheReadInputTokens).toBe(0);
+    expect(u!.cacheCreationInputTokens).toBe(0);
+    expect(u!.totalCostUsd).toBe(0.12);
   });
 
   it("prefers actual_cost_usd over estimated_cost_usd", () => {
     expect(
-      hermesSessionJsonToUsage({ actual_cost_usd: 0.5, estimated_cost_usd: 0.1 }).totalCostUsd,
+      hermesSessionJsonToUsage({ actual_cost_usd: 0.5, estimated_cost_usd: 0.1 })?.totalCostUsd,
     ).toBe(0.5);
   });
 
   it("falls back to estimated_cost_usd when actual is null/missing", () => {
     expect(
-      hermesSessionJsonToUsage({ actual_cost_usd: null, estimated_cost_usd: 0.07 }).totalCostUsd,
+      hermesSessionJsonToUsage({ actual_cost_usd: null, estimated_cost_usd: 0.07 })?.totalCostUsd,
     ).toBe(0.07);
   });
 
-  it("returns an empty object when no usage fields are present", () => {
-    expect(hermesSessionJsonToUsage({})).toEqual({});
+  // v0.2.8 (Hermes review): empty object input now returns undefined, not
+  // an empty AgentUsage — so registry/store guards don't bump turn counters
+  // with zero data.
+  it("returns undefined when no meaningful usage fields are present", () => {
+    expect(hermesSessionJsonToUsage({})).toBeUndefined();
+    expect(hermesSessionJsonToUsage({ messages: [], id: "x" })).toBeUndefined();
+  });
+
+  it("returns undefined when all numeric fields are zero AND no model", () => {
+    expect(
+      hermesSessionJsonToUsage({ input_tokens: 0, output_tokens: 0, actual_cost_usd: 0 }),
+    ).toBeUndefined();
+  });
+
+  it("returns model-only usage if model is present (model is meaningful)", () => {
+    const u = hermesSessionJsonToUsage({ model: "gpt-5.5" });
+    expect(u?.model).toBe("gpt-5.5");
   });
 
   it("ignores non-numeric token fields gracefully", () => {
     const u = hermesSessionJsonToUsage({ input_tokens: "nope" as unknown as number, model: "x" });
-    expect(u.model).toBe("x");
-    expect(u.inputTokens).toBeUndefined();
+    expect(u?.model).toBe("x");
+    expect(u?.inputTokens).toBeUndefined();
   });
 });

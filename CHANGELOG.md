@@ -22,13 +22,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-**v0.2.8 — non-visual maintenance pass** (Hermes review of v0.2.6 findings, deferred per Hermes's own recommendation to keep v0.2.7 UI-only):
-- Tighten `postRunUsage` event ordering: emit `usage` BEFORE `done`, or rename to a "telemetry-after-done" contract. Today's order works for the current AgentRoom consumer but would break any client that treats `done` as terminal.
-- Empty-usage suppression: `hermesSessionJsonToUsage({})` returns `{}` (truthy), so registry can emit `usage: {}` and increment session-turn counters with no real data. Parser should return `undefined` unless ≥1 usage field is present; registry should guard too. (Partial defense already in v0.2.7 — AgentRoom now tracks `usageSeen` and only attaches non-empty usage to the saved message.)
-- Add registry integration tests around fail-soft, ordering, empty-usage suppression.
-- Document the Hermes "latest CLI session" race (single-operator edge case).
-
-**v0.2.9 — UI continued:**
+**v0.2.9 — UI continued (operator request + screenshots):**
+- **Top-row agent picker** (operator request after v0.2.7) — change agents from a tabs/chips row in the AgentRoom header instead of nav-then-pick from the sidebar. Much more natural for the most-frequent action in the dashboard.
 - Per-agent action rail: `Status / Sessions / Skills / Plugins / Kanban / Doctor / Insights` for Hermes (mirrors Julian's pattern, screenshot 164202).
 - Memory page improvements: tabs (Local conversations / Obsidian vault), filter chips, right-pane preview (screenshot 163509).
 
@@ -36,6 +31,86 @@ Then later:
 - "Send last prompt to agent X" action in the command palette.
 - Voice input on the journal page.
 - Vault search results inside the command palette.
+- "Clear all chat cache" affordance (Hermes review of v0.2.7 — localStorage UX).
+- localStorage opt-out toggle (operator setting → in-memory only).
+
+---
+
+## [0.2.8] — 2026-05-16 — Maintenance: kernel-level empty-usage + race fix + event ordering
+
+Pure correctness pass closing the four Hermes findings from the v0.2.6 + v0.2.7 reviews. No new features. Hermes specifically called out the v0.2.7 fixes as **not actually working** — both were patched only at the UI layer and the underlying bugs were still live. Fixed properly here at the kernel/parser/store level.
+
+### Fixed — HIGH: New session during in-flight stream resurrects orphan messages
+
+**The bug:** v0.2.7's `newSession()` aborted the fetch and cleared the chatStore, but the original `send()` function's `finally` block still ran and unconditionally called `chatStore.appendAssistantMessage()`. The aborted fetch threw, jumped to `finally`, and wrote `"(no output)"` or a partial response into the freshly-cleared session. Clicking "New session" mid-stream actually left a ghost message behind.
+
+**The fix:** generation counter (`sendGenRef`) in `AgentRoom`. `send()` captures the generation at entry and checks `myGeneration === sendGenRef.current` in its `finally` before committing to the store. `newSession()` bumps the generation FIRST (before aborting), so any in-flight `send()`'s finally sees `stillCurrent === false` and skips the commit. The new session stays clean.
+
+### Fixed — MEDIUM: Empty `{}` usage events still bumped turn counters
+
+**The bug:** v0.2.7 claimed to track `usageSeen` and skip empty usage, but flipped `usageSeen = true` for ANY usage event including `usage: {}`. Then the assistant message got `usage: {}`, the store treated `{}` as truthy, and `sessionUsage.turns` incremented with zero data.
+
+**The fix:** real suppression at all four boundaries via a new `hasMeaningfulUsage()` helper in `src/kernel/types.ts`:
+1. **Parser** (`hermesSessionJsonToUsage`) — returns `undefined`, not `{}`, when no usage fields are meaningful.
+2. **Registry** — drops empty usage at the kernel boundary; `evt.kind === "usage"` with `!hasMeaningfulUsage(evt.usage)` is filtered before yield + bus emit.
+3. **chatStore.setLastUsage** — silent no-op on empty input.
+4. **chatStore.appendAssistantMessage** — strips empty usage from the persisted message AND skips the sessionUsage rollup.
+
+"Meaningful" = any of `inputTokens > 0`, `outputTokens > 0`, `cacheReadInputTokens > 0`, `cacheCreationInputTokens > 0`, `totalCostUsd !== 0`, or `typeof model === "string"`. Model-only events still count (the model name arrives early via Claude's `system.init` event and is genuinely useful).
+
+### Fixed — MEDIUM: postRunUsage emitted AFTER `done`
+
+**The bug:** `registry.stream()` yielded the transport's `done` event immediately, then ran `postRunUsage`, then yielded `usage`. Any consumer treating `done` as terminal (a future SDK, a CLI wrapper, a Python client) would close the stream before seeing the usage event.
+
+**The fix:** the registry now buffers the transport's `done` event in a `pendingDone` variable and yields it AFTER the postRunUsage extractor has run + emitted (or fail-softed). Canonical run order — documented in `docs/SECURITY.md` and the registry source — is now:
+1. `token | usage` (interleaved as transport emits)
+2. `error` (only on failure)
+3. `usage` (from postRunUsage, if any, only if meaningful)
+4. `done` ← terminal event
+5. `saved` (added by the run endpoint after stream completes)
+
+### Added — integration test for event ordering
+
+**`tests/registry-stream-order.test.ts`** (5 cases). New `__TEST__.newRegistry()` + `__TEST__.injectAgent()` helpers in `src/kernel/registry.ts` let tests construct an isolated Registry with a fake transport (no real Claude/Hermes needed in CI):
+- Token + done ordering (no postRunUsage).
+- Interleaved token + usage events preserve order; done is last.
+- Empty `{}` usage filtered at the kernel boundary; meaningful usage passes through.
+- Unknown agent name yields `error` then `done`.
+- Transport-emitted error: error yielded, done still terminal.
+
+### Hardened — localStorage shape validation
+
+**`chatStore.loadFromStorage`** previously trusted whatever was in `localStorage` as long as it parsed as JSON. Malformed payloads could produce odd UI state (Hermes review of v0.2.7). Now validates:
+- Top-level is an object.
+- `msgs` is an array; each element has `role` ∈ `{user, assistant}`, `text: string`, `ts: number`. Anything else is dropped.
+- `sessionUsage.turns` is a number (defaulted to 0); other numeric fields type-checked.
+- `lastUsage`, if present, must be an object.
+
+Not a security boundary (localStorage is operator-owned), but prevents bad UI states from a corrupted cache.
+
+### Docs
+
+- **`docs/SECURITY.md`** — new "Browser localStorage — per-agent chat history" section explaining the data scope, what's stored, and how to clear it (DevTools, `localStorage.clear()`, or the upcoming UI affordance).
+- **`docs/SECURITY.md`** — new "Aborts, races, and reloads — guaranteed behavior" table covering: New session mid-stream, agent switch mid-stream, page reload mid-stream, multi-tab simultaneity, aborted-stream audit shape.
+
+### Tests + CI
+
+- Vitest: 80 → **87 passing** (+5 integration ordering tests, +2 strengthened parser tests).
+- Typecheck clean.
+- Playwright: 7/7 unchanged.
+- Release hygiene gate green across all 6 surfaces.
+
+### Migration
+
+None for operators. For anyone with custom kernel code:
+- `hermesSessionJsonToUsage` return type changed from `AgentUsage` → `AgentUsage | undefined`.
+- New `hasMeaningfulUsage()` helper exported from `src/kernel/types`.
+- `__TEST__` export on registry lets tests inject fake agents (use for integration tests only).
+
+### Known limitations remaining
+
+- The Hermes "latest CLI session" race (acknowledged in v0.2.6 CHANGELOG) is unchanged — still single-operator-safe; a stronger correlation needs `--pass-session-id` plumbing through the subprocess transport. Queued for whenever a multi-CLI-user need arises.
+- localStorage opt-out is documented but not yet a UI setting — queued for v0.2.9+.
 
 ---
 

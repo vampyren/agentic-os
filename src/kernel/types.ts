@@ -57,6 +57,28 @@ export interface AgentUsage {
   totalCostUsd?: number;
 }
 
+/**
+ * Whether a usage object carries any signal worth surfacing. An empty object
+ * `{}` or `undefined` returns false — important because `{}` is truthy in JS
+ * and would otherwise pass naive `if (usage)` guards, bumping session-turn
+ * counters with no real numbers (Hermes review of v0.2.6).
+ *
+ * Model-only updates DO count as meaningful — the model name is useful even
+ * before any token counts arrive (e.g. the `system.init` event in Claude's
+ * stream-json fires the model before the first content delta).
+ */
+export function hasMeaningfulUsage(u: AgentUsage | undefined | null): boolean {
+  if (!u) return false;
+  return Boolean(
+    (u.inputTokens && u.inputTokens > 0) ||
+    (u.outputTokens && u.outputTokens > 0) ||
+    (u.cacheReadInputTokens && u.cacheReadInputTokens > 0) ||
+    (u.cacheCreationInputTokens && u.cacheCreationInputTokens > 0) ||
+    (typeof u.totalCostUsd === "number" && u.totalCostUsd >= 0 && u.totalCostUsd !== 0) ||
+    (typeof u.model === "string" && u.model.length > 0),
+  );
+}
+
 // Events produced by a single agent stream() call.
 export type AgentEvent =
   | { kind: "token"; text: string }

@@ -1,6 +1,6 @@
 # Install
 
-Current shipped version: **v0.2.7** — see [`CHANGELOG.md`](../CHANGELOG.md).
+Current shipped version: **v0.2.8** — see [`CHANGELOG.md`](../CHANGELOG.md).
 
 ## Prerequisites
 

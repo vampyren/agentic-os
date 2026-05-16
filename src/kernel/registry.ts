@@ -19,6 +19,7 @@ import {
 } from "./audit";
 import { startHealthLoop } from "./health";
 import { runPostRunUsage } from "./postRunUsage";
+import { hasMeaningfulUsage } from "./types";
 import type {
   AgentEvent,
   AgentManifest,
@@ -160,23 +161,40 @@ class Registry {
     let durationMs = 0;
     let errored = false;
     let errorMessage = "";
+    // Buffer the transport's done event so we can interleave postRunUsage
+    // BEFORE done. Canonical run order per docs/SECURITY.md & ADR-0009:
+    //   1. token | usage (interleaved as transport emits)
+    //   2. error (only on failure)
+    //   3. usage (postRunUsage, if any)
+    //   4. done                  ← terminal event
+    //   5. saved                 ← added by the run endpoint after stream ends
+    let pendingDone: AgentEvent | null = null;
 
     try {
       for await (const evt of transport.stream(opts)) {
         if (evt.kind === "token") {
           bytesOut += evt.text.length;
           bus.emit({ source: name, kind: "agent.token", payload: { chars: evt.text.length } });
+          yield evt;
         } else if (evt.kind === "usage") {
-          bus.emit({ source: name, kind: "agent.usage", payload: evt.usage });
+          // Drop empty usage at the kernel boundary so the UI never sees
+          // {} (Hermes review of v0.2.6 / v0.2.7).
+          if (hasMeaningfulUsage(evt.usage)) {
+            bus.emit({ source: name, kind: "agent.usage", payload: evt.usage });
+            yield evt;
+          }
         } else if (evt.kind === "error") {
           errored = true;
           errorMessage = evt.message;
           bus.emit({ source: name, kind: "agent.invoke.error", payload: { message: evt.message.slice(0, 200) } });
+          yield evt;
         } else if (evt.kind === "done") {
+          // Buffer — emit after postRunUsage so consumers treating `done`
+          // as terminal still get the usage event first.
           exitCode = evt.exitCode ?? null;
           durationMs = evt.durationMs;
+          pendingDone = evt;
         }
-        yield evt;
       }
     } catch (e) {
       const message = String(e);
@@ -184,7 +202,7 @@ class Registry {
       errorMessage = message;
       bus.emit({ source: name, kind: "agent.invoke.error", payload: { message: message.slice(0, 200) } });
       yield { kind: "error", message };
-      yield { kind: "done", durationMs: Date.now(), exitCode: -1 };
+      pendingDone = { kind: "done", durationMs: Date.now(), exitCode: -1 };
     }
 
     if (errored) {
@@ -211,12 +229,16 @@ class Registry {
     if (!errored && manifest.postRunUsage) {
       try {
         const usage = await runPostRunUsage(manifest.postRunUsage.parser);
-        if (usage) {
+        if (hasMeaningfulUsage(usage)) {
           bus.emit({ source: name, kind: "agent.usage", payload: usage });
-          yield { kind: "usage", usage };
+          yield { kind: "usage", usage: usage! };
         }
       } catch { /* fail-soft */ }
     }
+
+    // Emit the terminal `done` after every other event for this run.
+    if (pendingDone) yield pendingDone;
+    else yield { kind: "done", durationMs: 0, exitCode: -1 };
 
     bus.emit({
       source: name,
@@ -234,3 +256,20 @@ class Registry {
 
 const G = globalThis as unknown as { __agenticRegistry?: Registry };
 export const registry: Registry = G.__agenticRegistry ?? (G.__agenticRegistry = new Registry());
+
+// Test-only export. Lets tests construct an isolated Registry and inject a
+// fake agent (manifest + transport pair) without going through the YAML
+// manifest loader. Used by the event-ordering integration test in
+// tests/registry-stream-order.test.ts.
+export const __TEST__ = {
+  newRegistry: () => new Registry(),
+  injectAgent(reg: Registry, manifest: AgentManifest, transport: Transport): void {
+    // Reach past the private field — vitest sees the same JS object.
+    const r = reg as unknown as {
+      agents: Map<string, { manifest: AgentManifest; transport: Transport }>;
+      initPromise: Promise<void> | null;
+    };
+    r.agents.set(manifest.name, { manifest, transport });
+    r.initPromise = Promise.resolve();    // skip init lookup
+  },
+};

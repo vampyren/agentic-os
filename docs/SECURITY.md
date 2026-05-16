@@ -117,6 +117,38 @@ The contract Agentic OS does honor:
 - It will not write to the vault outside the inbox-first contract.
 - It will not bypass its own audit log.
 
+## Browser localStorage — per-agent chat history
+
+Since v0.2.7 the dashboard mirrors each agent's chat session to the browser's `localStorage` under keys `agentic-os.chat.<agent-name>`. Stored payload includes the full message text (operator prompts AND assistant responses), per-message usage stats, the saved vault path, and cumulative session usage.
+
+**Why it exists:** so the operator's active conversation survives a page reload. Without it, refreshing the browser would lose the in-flight conversation even though the chat is also being written to the Obsidian vault (vault is the canonical record; localStorage is the active-session cache).
+
+**Scope of the data:** any process running as the operator's user with browser-data read access can read it (same as cookies, IndexedDB, etc.). Not a new attack surface vs. the existing model — but worth flagging because it expands what "if someone has access to your machine" exposes:
+
+| Before v0.2.7 | After v0.2.7 (today) |
+|---|---|
+| Chat exists in vault (`00_Inbox/agentic-os/chats/...md`) | Same — vault unchanged |
+| Audit log holds `promptSha256` only (no raw prompts) | Same — audit unchanged |
+| In-flight conversation in browser memory, lost on reload | Same browser memory **plus** `localStorage` per agent |
+
+**Clearing the cache** (operator-side options):
+- Click the **New session** button in the AgentRoom header — clears that agent's history (chat + sessionUsage + lastUsage) and removes the localStorage key.
+- Browser DevTools → Application → Local Storage → delete all keys starting with `agentic-os.chat.`.
+- `localStorage.clear()` in the browser console — nukes everything for `127.0.0.1:3000`.
+- A "Clear all chat cache" affordance in the UI is queued for a future release.
+
+**Future: opt-out.** A `localStorage` opt-out (operator setting → in-memory only, lose-on-reload) is on the roadmap. Today it's always on; nothing gated.
+
+## Aborts, races, and reloads — guaranteed behavior
+
+| Scenario | Behavior |
+|---|---|
+| Operator clicks **New session** during a streaming response | The fetch is aborted (SIGTERM to subprocess via AbortController), the chat history is cleared. A generation counter prevents the aborted run's `finally` block from writing "(no output)" or partial output back to the cleared session. (v0.2.8 fix — Hermes review of v0.2.7.) |
+| Operator navigates to a different agent during a streaming response | Same fetch abort path. Switching back to the original agent shows the chat as it was at abort time (last completed message; the in-flight one is dropped). |
+| Page reload during a streaming response | The fetch dies with the page. Last committed message is restored from localStorage on reload. The in-flight partial response is lost; the operator can re-send. The kernel/subprocess on the server side keeps running until it naturally exits (the cancel signal arrives via the closed HTTP body). |
+| Two browser tabs open to the same agent | Both subscribe to the same `chatStore` singleton (within a tab) but separate tabs have separate stores. Send-from-tab-A doesn't appear in tab-B. Both tabs DO read/write the same localStorage on commit, so reloading either tab eventually converges. Multi-tab simultaneity isn't a supported workflow yet. |
+| Kernel-side audit on aborted streams | The aborted run still writes `agent.invoke.complete` with the actual exit/duration (or `agent.invoke.error` with `errorClass: "killed"` if the signal terminated the subprocess). |
+
 ## Reporting
 
 Until this project has any meaningful user base, security reports come via GitHub issues (`vampyren/agentic-os`) tagged `security`. After a real release, this section will be updated with a private-disclosure path.

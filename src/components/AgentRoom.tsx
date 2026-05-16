@@ -48,6 +48,13 @@ export default function AgentRoom({ name }: { name: string }) {
   const ctrlRef = useRef<AbortController | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const promptRef = useRef<HTMLTextAreaElement | null>(null);
+  // Generation counter that newSession bumps. send() captures the current
+  // generation on entry and skips its finally-block commit if the value
+  // has changed by then — i.e. the operator clicked New session (or
+  // navigated, or fired a fresh send) while this run was still in flight.
+  // Without this guard, the aborted run's finally would resurrect an
+  // assistant message in the cleared chat (Hermes review of v0.2.7).
+  const sendGenRef = useRef(0);
 
   // Load manifest + vitals.
   useEffect(() => {
@@ -89,6 +96,10 @@ export default function AgentRoom({ name }: { name: string }) {
 
     const ctrl = new AbortController();
     ctrlRef.current = ctrl;
+    // Capture the generation at run start. newSession() bumps the counter,
+    // so on finally we can detect whether we're still the in-flight run for
+    // this room.
+    const myGeneration = ++sendGenRef.current;
     let acc = "";
     let savedPath: string | undefined;
     let lastUsage: Usage = {};
@@ -132,19 +143,29 @@ export default function AgentRoom({ name }: { name: string }) {
     } catch (e) {
       if (!ctrl.signal.aborted) setError(String(e));
     } finally {
-      chatStore.appendAssistantMessage(name, {
-        role: "assistant",
-        text: acc || "(no output)",
-        ts: Date.now(),
-        savedPath,
-        // Only attach usage if the transport actually reported any. Avoids
-        // bumping session-turn counters with all-zero data (one of Hermes
-        // review's v0.2.6 follow-up items).
-        usage: usageSeen ? lastUsage : undefined,
-      });
-      setPartial("");
-      setStreaming(false);
-      ctrlRef.current = null;
+      // Race guard: don't commit if the operator clicked New session (or
+      // started another send) while this run was still in flight. Without
+      // this guard, an aborted send's finally would write "(no output)" or
+      // a partial response into the cleared session. (Hermes review of
+      // v0.2.7.)
+      const stillCurrent = myGeneration === sendGenRef.current;
+      if (stillCurrent) {
+        chatStore.appendAssistantMessage(name, {
+          role: "assistant",
+          text: acc || "(no output)",
+          ts: Date.now(),
+          savedPath,
+          // Only attach usage if the transport actually reported meaningful
+          // values. AgentRoom guards as a defense-in-depth on top of the
+          // kernel/parser/store guards (v0.2.8).
+          usage: usageSeen ? lastUsage : undefined,
+        });
+        setPartial("");
+        setStreaming(false);
+        ctrlRef.current = null;
+      }
+      // If !stillCurrent, the new run (or newSession) already owns the
+      // streaming/UI state — leave it alone.
     }
   }
 
@@ -154,7 +175,14 @@ export default function AgentRoom({ name }: { name: string }) {
   }
 
   function newSession() {
-    if (streaming) stop();
+    // Bump the generation FIRST so any in-flight send()'s finally block
+    // detects it's no longer the current run and skips its store commit.
+    sendGenRef.current++;
+    if (streaming) {
+      ctrlRef.current?.abort();
+      setStreaming(false);
+      ctrlRef.current = null;
+    }
     chatStore.newSession(name);
     setPartial("");
     setError(null);

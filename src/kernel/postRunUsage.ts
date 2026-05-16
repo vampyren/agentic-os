@@ -12,7 +12,7 @@
 //   transport, so the UI consumes them identically.
 
 import { safeSpawn } from "./spawn";
-import type { AgentUsage } from "./types";
+import { hasMeaningfulUsage, type AgentUsage } from "./types";
 
 export type PostRunUsageParser = "hermes-session-export";
 
@@ -95,7 +95,13 @@ export function parseSessionIdFromListOutput(stdout: string): string | undefined
   return undefined;
 }
 
-export function hermesSessionJsonToUsage(j: Record<string, unknown>): AgentUsage {
+/**
+ * Map a Hermes session-export JSON to AgentUsage. Returns `undefined` when
+ * the object carries no meaningful usage signal — empty `{}` would otherwise
+ * pass `if (usage)` checks downstream and bump session counters with no
+ * real data (Hermes review of v0.2.6).
+ */
+export function hermesSessionJsonToUsage(j: Record<string, unknown>): AgentUsage | undefined {
   const u: AgentUsage = {};
   if (typeof j["model"] === "string") u.model = j["model"];
   if (typeof j["input_tokens"] === "number") u.inputTokens = j["input_tokens"];
@@ -104,7 +110,7 @@ export function hermesSessionJsonToUsage(j: Record<string, unknown>): AgentUsage
   if (typeof j["cache_write_tokens"] === "number") u.cacheCreationInputTokens = j["cache_write_tokens"];
   const cost = j["actual_cost_usd"] ?? j["estimated_cost_usd"];
   if (typeof cost === "number") u.totalCostUsd = cost;
-  return u;
+  return hasMeaningfulUsage(u) ? u : undefined;
 }
 
 async function runCapture(

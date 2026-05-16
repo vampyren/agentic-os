@@ -18,7 +18,7 @@
 // - Vault notes remain the durable, long-term record. This store is only
 //   the active in-memory session per agent.
 
-import type { AgentUsage } from "@/kernel/types";
+import { hasMeaningfulUsage, type AgentUsage } from "@/kernel/types";
 
 export interface ChatMessage {
   role: "user" | "assistant";
@@ -79,28 +79,39 @@ class ChatStore {
 
   appendAssistantMessage(agent: string, msg: ChatMessage): void {
     const s = this.get(agent);
-    s.msgs.push(msg);
+    // Strip empty `{}` usage before persisting so the saved message can't
+    // resurrect zero-data turns on reload. (Hermes review of v0.2.6.)
+    const cleanMsg = hasMeaningfulUsage(msg.usage)
+      ? msg
+      : { ...msg, usage: undefined };
+    s.msgs.push(cleanMsg);
     s.rev++;
-    // Roll cumulative session usage.
-    if (msg.usage) {
+    // Roll cumulative session usage ONLY when the message has real numbers.
+    if (hasMeaningfulUsage(msg.usage)) {
       s.sessionUsage = {
         ...s.sessionUsage,
         turns: s.sessionUsage.turns + 1,
-        model: msg.usage.model ?? s.sessionUsage.model,
-        inputTokens: (s.sessionUsage.inputTokens ?? 0) + (msg.usage.inputTokens ?? 0),
-        outputTokens: (s.sessionUsage.outputTokens ?? 0) + (msg.usage.outputTokens ?? 0),
-        cacheReadInputTokens: (s.sessionUsage.cacheReadInputTokens ?? 0) + (msg.usage.cacheReadInputTokens ?? 0),
-        cacheCreationInputTokens: (s.sessionUsage.cacheCreationInputTokens ?? 0) + (msg.usage.cacheCreationInputTokens ?? 0),
-        totalCostUsd: (s.sessionUsage.totalCostUsd ?? 0) + (msg.usage.totalCostUsd ?? 0),
+        model: msg.usage!.model ?? s.sessionUsage.model,
+        inputTokens: (s.sessionUsage.inputTokens ?? 0) + (msg.usage!.inputTokens ?? 0),
+        outputTokens: (s.sessionUsage.outputTokens ?? 0) + (msg.usage!.outputTokens ?? 0),
+        cacheReadInputTokens: (s.sessionUsage.cacheReadInputTokens ?? 0) + (msg.usage!.cacheReadInputTokens ?? 0),
+        cacheCreationInputTokens: (s.sessionUsage.cacheCreationInputTokens ?? 0) + (msg.usage!.cacheCreationInputTokens ?? 0),
+        totalCostUsd: (s.sessionUsage.totalCostUsd ?? 0) + (msg.usage!.totalCostUsd ?? 0),
       };
-      s.lastUsage = msg.usage;
+      s.lastUsage = msg.usage!;
     }
     this.persist(agent, s);
     this.notify(agent);
   }
 
-  /** Live-update the most-recent usage during streaming (no message yet). */
+  /**
+   * Live-update the most-recent usage during streaming (no message yet).
+   * Empty `{}` updates are dropped — they'd otherwise flip the Tokens card
+   * into "rendering" mode with zero data, then flicker back. The Tokens
+   * card cares about meaningful changes only.
+   */
   setLastUsage(agent: string, usage: AgentUsage): void {
+    if (!hasMeaningfulUsage(usage)) return;
     const s = this.get(agent);
     s.lastUsage = { ...(s.lastUsage ?? {}), ...usage };
     s.rev++;
@@ -139,17 +150,22 @@ class ChatStore {
     try {
       const raw = window.localStorage.getItem(STORAGE_KEY_PREFIX + agent);
       if (!raw) return null;
-      const parsed = JSON.parse(raw) as {
-        msgs?: ChatMessage[];
-        sessionUsage?: SessionUsageTotals;
-        lastUsage?: AgentUsage | null;
-      };
-      return {
-        msgs: parsed.msgs ?? [],
-        sessionUsage: parsed.sessionUsage ?? { turns: 0 },
-        lastUsage: parsed.lastUsage ?? null,
-        rev: 0,
-      };
+      const parsed = JSON.parse(raw) as unknown;
+      // Defensive shape validation. localStorage is operator-controlled and
+      // small enough that malformed payloads aren't a security issue, but
+      // bad shapes can produce confusing UI state (Hermes review v0.2.7).
+      if (!parsed || typeof parsed !== "object") return null;
+      const p = parsed as Record<string, unknown>;
+      const msgs = Array.isArray(p["msgs"]) ? validateMessages(p["msgs"]) : [];
+      const sessionUsage =
+        p["sessionUsage"] && typeof p["sessionUsage"] === "object"
+          ? validateSessionUsage(p["sessionUsage"] as Record<string, unknown>)
+          : { turns: 0 };
+      const lastUsage =
+        p["lastUsage"] && typeof p["lastUsage"] === "object"
+          ? (p["lastUsage"] as AgentUsage)
+          : null;
+      return { msgs, sessionUsage, lastUsage, rev: 0 };
     } catch {
       return null;
     }
@@ -164,6 +180,38 @@ class ChatStore {
 
 function emptySession(): ChatSession {
   return { msgs: [], sessionUsage: { turns: 0 }, lastUsage: null, rev: 0 };
+}
+
+function validateMessages(raw: unknown[]): ChatMessage[] {
+  const out: ChatMessage[] = [];
+  for (const m of raw) {
+    if (!m || typeof m !== "object") continue;
+    const r = m as Record<string, unknown>;
+    const role = r["role"];
+    const text = r["text"];
+    const ts = r["ts"];
+    if ((role === "user" || role === "assistant") && typeof text === "string" && typeof ts === "number") {
+      const msg: ChatMessage = { role, text, ts };
+      if (typeof r["savedPath"] === "string") msg.savedPath = r["savedPath"];
+      if (r["usage"] && typeof r["usage"] === "object") {
+        msg.usage = r["usage"] as AgentUsage;
+      }
+      out.push(msg);
+    }
+  }
+  return out;
+}
+
+function validateSessionUsage(raw: Record<string, unknown>): SessionUsageTotals {
+  const out: SessionUsageTotals = { turns: typeof raw["turns"] === "number" ? raw["turns"] : 0 };
+  for (const k of [
+    "inputTokens", "outputTokens", "cacheReadInputTokens",
+    "cacheCreationInputTokens", "totalCostUsd",
+  ] as const) {
+    if (typeof raw[k] === "number") out[k] = raw[k];
+  }
+  if (typeof raw["model"] === "string") out.model = raw["model"];
+  return out;
 }
 
 // Module-level singleton (per browser tab). Survives React hot-reload by
