@@ -1,6 +1,6 @@
 # Contributing
 
-This project is in planning. Until Phase 1 code lands, contributions are docs-only.
+This project ships in tagged releases. Every release follows [`docs/RELEASE-CHECKLIST.md`](docs/RELEASE-CHECKLIST.md) — read it before cutting one.
 
 ## Doc conventions
 
