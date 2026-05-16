@@ -1,0 +1,47 @@
+# Node / Next.js
+node_modules/
+.next/
+out/
+dist/
+build/
+*.tsbuildinfo
+
+# Env + local config
+.env
+.env.local
+.env.*.local
+~/.agentic-os/
+.agentic-os/
+
+# OS junk
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+.idea/
+
+# Logs / databases
+*.log
+*.db
+*.db-journal
+*.sqlite
+*.sqlite-journal
+
+# Temp
+tmp/
+.cache/
+
+# Source materials we keep but don't want re-zipped accidentally
+source-julian/web/page.html
+source-julian/web/page-data.json
+source-julian/web/screenshot-full.png
+source-julian/web/agentic-os-v0.1.zip
+# (duplicate of source-julian/agentic-os-v0.1.zip at the top level)
+
+# Claude Code per-user workspace settings (project-shared settings.json may be committed)
+.claude/settings.local.json
+.claude/.history/
+.claude/cache/
