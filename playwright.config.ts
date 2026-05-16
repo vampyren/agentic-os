@@ -1,12 +1,17 @@
 // Playwright config for Phase 1B smoke tests.
 //
-// e2e/global-setup.ts builds a throwaway vault + config in /tmp so the tests
-// don't depend on the operator's real ~/.agentic-os/ — they only verify the
-// dashboard renders, the agents list endpoint responds, and basic routes
-// don't throw. Agent invocations against real CLIs are NOT exercised here
-// (covered by manual smoke; CI runners don't have claude/hermes installed).
+// e2e/global-setup.ts builds a throwaway vault + config at a fixed /tmp path
+// (TMP_CONFIG / TMP_VAULT in e2e/e2e-paths.ts) so the tests don't depend on
+// the operator's real ~/.agentic-os/. The webServer subprocess gets the same
+// path via the env block below — no timing coupling between globalSetup
+// execution and webServer launch.
+//
+// CI runners don't have claude/hermes installed, so we only verify the
+// dashboard renders, /api/agents responds, and goal/journal POSTs land.
+// Agent invocations against real CLIs are covered by manual smoke.
 
 import { defineConfig } from "@playwright/test";
+import { TMP_CONFIG, TMP_VAULT } from "./e2e/e2e-paths";
 
 export default defineConfig({
   testDir: "./e2e",
@@ -25,11 +30,10 @@ export default defineConfig({
     timeout: 60_000,
     stdout: "pipe",
     stderr: "pipe",
-    // No explicit env override here on purpose — Playwright's webServer
-    // inherits the parent process env, and global-setup.ts populates
-    // AGENTIC_OS_CONFIG / AGENTIC_OS_VAULT before the server boots. Listing
-    // them explicitly in this block would snapshot the values at module-
-    // load time (before globalSetup runs) and produce empty strings.
+    env: {
+      AGENTIC_OS_CONFIG: TMP_CONFIG,
+      AGENTIC_OS_VAULT: TMP_VAULT,
+    },
   },
   globalSetup: "./e2e/global-setup.ts",
   projects: [
