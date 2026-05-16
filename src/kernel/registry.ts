@@ -23,7 +23,7 @@ import type {
   StreamOpts,
   Transport,
 } from "./types";
-import { renderArgs } from "./spawn";
+import { renderArgsForAudit } from "./spawn";
 
 interface RegisteredAgent {
   manifest: AgentManifest;
@@ -127,7 +127,11 @@ class Registry {
 
     const { manifest, transport } = a;
     const transportConfig = manifest.transportConfig as { bin: string; args: string[] };
-    const renderedArgs = renderArgs(transportConfig.args, opts.prompt);
+    // Build the audit-safe argv view: the {prompt} placeholder maps to
+    // [PROMPT_REDACTED], never the real prompt content. The real prompt is
+    // passed to the transport directly through opts.prompt below — it never
+    // reaches the audit log other than as promptSha256 / promptChars.
+    const argsForAudit = renderArgsForAudit(transportConfig.args);
 
     bus.emit({
       source: name,
@@ -138,7 +142,7 @@ class Registry {
       agent: name,
       transport: manifest.transport,
       bin: transportConfig.bin,
-      argsRedacted: redactArgs(renderedArgs),
+      argsRedacted: redactArgs(argsForAudit),
       prompt: opts.prompt,
     });
 

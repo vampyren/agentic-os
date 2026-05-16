@@ -28,13 +28,15 @@ This is a single-operator, single-machine system in Phase 1. The security postur
 
 ## Subprocess execution
 
-All subprocess calls go through a single helper (`src/lib/runner.ts` in Phase 1). Rules:
+All subprocess calls go through a single helper (`src/kernel/spawn.ts`). Rules:
 
 - `spawn(bin, argv, opts)` with `shell: false`. **Never `exec`, never `spawn(..., { shell: true })`.**
 - Arguments are arrays of strings. The prompt is one array element. No shell interpolation of any kind.
 - Null bytes in any argument → reject before spawn.
 - Max argument length: 32KB per arg.
-- Environment is the parent's env minus `FORCE_COLOR`, plus `NO_COLOR=1`. No additional secrets in env unless the manifest's `secrets:` block explicitly maps them.
+- **Environment is built from a strict allowlist, not inherited wholesale.** The parent process's env is filtered through `ENV_ALLOWLIST` in `spawn.ts` (PATH, HOME, USER, SHELL, TERM, LANG, LC_*, TZ, TMPDIR, XDG_*, NODE_PATH). Plus any var starting with `AGENTIC_OS_` is forwarded unconditionally (our own config namespace). `NO_COLOR=1` and `FORCE_COLOR=0` are forced. Manifest-declared `env:` blocks add to that on top.
+  - **Why this matters:** API keys and tokens in your shell env (`OPENAI_API_KEY`, `GITHUB_TOKEN`, `ANTHROPIC_API_KEY`, etc.) would otherwise be forwarded to every agent CLI whether the manifest asked for them or not. The allowlist prevents that.
+  - **If a CLI breaks because it needed a var not on the allowlist:** add the var to its manifest's `env:` block (manifest-declared additions always win). Don't expand the global allowlist unless the var is universally safe.
 - Process timeout: per-transport. Subprocess default 120s. Streaming has no hard timeout but the operator can cancel from the UI (which sends `SIGTERM`).
 
 ## CLI verb allowlist (`/api/run`)
@@ -90,9 +92,9 @@ Each line is a single JSON object. Example records:
 
 **Redaction rules:**
 
-- Prompts: stored as `promptSha256` + `promptChars` only. The raw prompt is **never** in the audit log.
-- Args: any value matching a known secret env-var name or HTTP header pattern is replaced with `[REDACTED]`.
-- Vault paths: stored verbatim. They're not secrets.
+- **Prompts: never logged verbatim.** The registry builds the audit-version of argv via `renderArgsForAudit()`, which substitutes `{prompt}` with the literal placeholder `[PROMPT_REDACTED]` before the args ever reach the audit module. Then `auditAgentInvoke` stores `promptSha256` (first 8 hex chars of SHA-256) + `promptChars` as separate fields. A `prompt-nonce` unit test asserts the prompt body never reaches the JSONL file.
+- Args: any value matching a known secret env-var name pattern (`API_KEY|TOKEN|SECRET|PASSWORD|Bearer`) is replaced with `[REDACTED]` as a second-layer defense.
+- **Vault paths: stored verbatim.** A chat saved at `00_Inbox/agentic-os/chats/YYYY-MM-DD-HHMM-{agent}-{slug}.md` appears in the `vault.write` audit entry. The slug is derived from the prompt's first ~40 chars (lowercased, dashes for spaces, lossy). For most prompts this is uninteresting — the operator owns the audit file and presumably owns the vault too — but be aware that *short prompts can be partially reconstructed* from the chat filename in audit. This is a known trade-off (filenames need to be human-findable in Obsidian); a hash-only filename mode is planned for v0.2.3.
 - HTTP bodies: never logged. Only `status`, `durationMs`, `bytesIn`, `bytesOut`.
 
 **Rotation:** one file per day, kept for 30 days, then deleted. The operator can disable rotation with `audit.retentionDays: 0` (keeps forever) or change it.

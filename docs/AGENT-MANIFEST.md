@@ -76,6 +76,16 @@ mcpServers:
 
 ## Transport types
 
+> **Loader status as of v0.2.2:** only `subprocess` and `streamJson` are accepted by the manifest loader (`src/kernel/manifest.ts`). The others below (`http`, `mcp`, `sdk`) are documented as spec — they ship in later phases. A manifest declaring one of the not-yet-shipped transports fails validation at startup today with a Zod error.
+>
+> | Transport | Loader status | Lands in |
+> |---|---|---|
+> | `subprocess` | accepted | 1A (shipped) |
+> | `streamJson` | accepted | 1A (shipped) |
+> | `http`       | rejected by validator | 2A |
+> | `mcp`        | rejected by validator | 2C |
+> | `sdk`        | rejected by validator | 3 |
+
 ### `subprocess`
 
 A CLI that takes a prompt as argv and returns a response on stdout. One-shot, no streaming.

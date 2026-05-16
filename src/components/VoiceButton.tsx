@@ -4,8 +4,16 @@
 // listening, each interim transcript chunk is sent to onTranscript so the
 // caller can append it to a textarea.
 //
-// Firefox doesn't implement the API; the button renders disabled there with
-// a tooltip.
+// Compatibility:
+// - Chrome / Edge: works.
+// - Safari: works (with webkit prefix).
+// - Firefox: does NOT implement the API.
+// - Brave: limits or blocks because Chrome's implementation phones home
+//   to Google for transcription; users see "not-allowed" or "network"
+//   errors. Try Chromium/Chrome instead.
+//
+// On error we surface the actual error type (`not-allowed`, `network`,
+// `service-not-allowed`, etc.) so the operator can debug.
 
 import { useEffect, useRef, useState } from "react";
 import { Mic, MicOff } from "lucide-react";
@@ -18,7 +26,7 @@ interface RecognitionLike {
   interimResults: boolean;
   lang: string;
   onresult: ((event: { results: ArrayLike<ArrayLike<{ transcript: string }>>; resultIndex: number }) => void) | null;
-  onerror: ((event: unknown) => void) | null;
+  onerror: ((event: { error?: string; message?: string }) => void) | null;
   onend: (() => void) | null;
 }
 
@@ -44,15 +52,31 @@ export default function VoiceButton({
 }) {
   const [supported, setSupported] = useState(false);
   const [listening, setListening] = useState(false);
+  const [lastError, setLastError] = useState<string | null>(null);
   const recRef = useRef<RecognitionLike | null>(null);
 
   useEffect(() => {
     setSupported(getRecognitionCtor() !== null);
   }, []);
 
+  // Stop and clean up the recognition session if the component unmounts
+  // mid-listen (e.g., operator navigates away). Without this, the API keeps
+  // an active session in the background and may not release the microphone
+  // promptly.
+  useEffect(() => {
+    return () => {
+      const r = recRef.current;
+      if (!r) return;
+      try { r.onresult = null; r.onerror = null; r.onend = null; } catch { /* ignore */ }
+      try { r.abort(); } catch { /* ignore */ }
+      recRef.current = null;
+    };
+  }, []);
+
   function start() {
     const Ctor = getRecognitionCtor();
     if (!Ctor) return;
+    setLastError(null);
     const rec = new Ctor();
     rec.continuous = true;
     rec.interimResults = true;
@@ -66,8 +90,6 @@ export default function VoiceButton({
         const r = results[i];
         if (!r || !r[0]) continue;
         const text = r[0].transcript;
-        // Final results have an isFinal flag on the SpeechRecognitionResult;
-        // we approximate using event.resultIndex but rely on the live append.
         const isFinal = (results[i] as unknown as { isFinal?: boolean }).isFinal === true;
         if (isFinal) {
           onTranscript(text, true);
@@ -78,11 +100,25 @@ export default function VoiceButton({
       }
       if (interim) onTranscript(interim, false);
     };
-    rec.onerror = () => setListening(false);
+    rec.onerror = (event) => {
+      // event.error is one of: "no-speech", "aborted", "audio-capture",
+      // "network", "not-allowed", "service-not-allowed", "bad-grammar",
+      // "language-not-supported". Brave + Web Speech typically yields
+      // "network" or "not-allowed".
+      const err = (event && event.error) || "unknown";
+      setLastError(err);
+      setListening(false);
+    };
     rec.onend = () => setListening(false);
 
-    try { rec.start(); setListening(true); recRef.current = rec; }
-    catch { setListening(false); }
+    try {
+      rec.start();
+      setListening(true);
+      recRef.current = rec;
+    } catch (e) {
+      setLastError(String(e).slice(0, 80));
+      setListening(false);
+    }
   }
 
   function stop() {
@@ -103,14 +139,26 @@ export default function VoiceButton({
     );
   }
 
+  const title = listening
+    ? "Stop listening (recording…)"
+    : lastError
+      ? `Voice failed: ${lastError} — click to retry. Brave often blocks Web Speech; try Chrome.`
+      : "Start voice input";
+
   return (
     <button
       type="button"
       onClick={listening ? stop : start}
       disabled={disabled}
-      title={listening ? "Stop listening (recording…)" : "Start voice input"}
+      title={title}
       className="!px-2.5 !py-2"
-      style={listening ? { borderColor: "rgba(248,113,113,0.5)", color: "#fca5a5" } : undefined}
+      style={
+        listening
+          ? { borderColor: "rgba(248,113,113,0.5)", color: "#fca5a5" }
+          : lastError
+            ? { borderColor: "rgba(245,158,11,0.5)", color: "#fbbf24" }
+            : undefined
+      }
     >
       {listening ? (
         <span className="flex items-center gap-1.5">

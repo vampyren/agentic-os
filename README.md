@@ -2,7 +2,7 @@
 
 A local-first mission control for your AI agents. Single dashboard. Pluggable brains. Your knowledge stays in your vault.
 
-> **Status: planning.** No application code yet. This repository currently holds the design docs and ADRs that will guide the build.
+> **Status: v0.2.2 — Phase 1B shipped.** Runnable. Two built-in agents (Claude Code, Hermes) work end-to-end. Mission Control UI, vault inbox-first writes, SQLite FTS5 search, setup wizard, JSONL audit log with full prompt redaction. See [`CHANGELOG.md`](CHANGELOG.md) for version history.
 
 ---
 

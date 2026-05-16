@@ -20,8 +20,10 @@ import type {
  * Pull usage stats out of a Claude Code stream-json event. Returns undefined
  * if nothing useful is present. Multiple events may carry usage during a
  * single call; we emit each and the UI keeps the most-recent.
+ *
+ * Exported for unit testing.
  */
-function extractUsage(e: Record<string, unknown>): AgentUsage | undefined {
+export function extractUsage(e: Record<string, unknown>): AgentUsage | undefined {
   const out: AgentUsage = {};
   let any = false;
 
@@ -156,8 +158,9 @@ export function createStreamJsonTransport(manifest: AgentManifest): Transport {
           return;
         }
 
-        // Fallback: full assistant message (used when partials not enabled
-        // or as the closing message).
+        // Full assistant message — extract both the body text (used as
+        // fallback if we never got streaming deltas) AND the per-message
+        // usage that Claude includes on most assistant turns.
         if (e["type"] === "assistant") {
           const message = e["message"] as Record<string, unknown> | undefined;
           const content = message?.["content"];
@@ -172,11 +175,12 @@ export function createStreamJsonTransport(manifest: AgentManifest): Transport {
               }
             }
           }
+          const usage = extractUsage(e);
+          if (usage) push({ kind: "usage", usage });
           return;
         }
 
-        // Final result event. Carries cumulative usage + cost in the
-        // "result" / "system" final messages.
+        // Final result event. Carries cumulative usage + cost.
         if (e["type"] === "result") {
           const r = e["result"];
           if (typeof r === "string" && r.length > 0) {
@@ -187,15 +191,8 @@ export function createStreamJsonTransport(manifest: AgentManifest): Transport {
           return;
         }
 
-        // Per-message usage on assistant turns (claude-code stream-json
-        // includes message.usage on most assistant chunks; we take the last
-        // one). Also extract model from system init for display.
-        if (e["type"] === "assistant") {
-          const usage = extractUsage(e);
-          if (usage) push({ kind: "usage", usage });
-          return;
-        }
-
+        // System init carries the model name — emit so the UI gets it
+        // before any tokens stream in.
         if (e["type"] === "system" && e["subtype"] === "init") {
           const model = typeof e["model"] === "string" ? e["model"] : undefined;
           if (model) push({ kind: "usage", usage: { model } });
