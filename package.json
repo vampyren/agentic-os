@@ -1,6 +1,6 @@
 {
   "name": "agentic-os",
-  "version": "0.2.9",
+  "version": "0.2.10",
   "private": true,
   "description": "Local mission control for AI agents. Phase 1A: kernel skeleton.",
   "license": "MIT",

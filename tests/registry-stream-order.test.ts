@@ -9,7 +9,7 @@
 // Tests use the __TEST__ helper to build an isolated Registry with a fake
 // transport. No real Claude/Hermes needed.
 
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import os from "node:os";
@@ -17,6 +17,19 @@ import { __TEST__ } from "../src/kernel/registry";
 import type {
   AgentEvent, AgentManifest, HealthReport, Transport, StreamOpts, AgentUsage,
 } from "../src/kernel/types";
+
+// Mock runPostRunUsage at module level so individual tests can have it
+// return a specific AgentUsage (or undefined) without standing up a real
+// hermes CLI. Hoisted by vitest so the registry imports the mocked version.
+vi.mock("../src/kernel/postRunUsage", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/kernel/postRunUsage")>();
+  return {
+    ...actual,
+    runPostRunUsage: vi.fn(async () => undefined),
+  };
+});
+const { runPostRunUsage } = await import("../src/kernel/postRunUsage");
+const mockedRun = vi.mocked(runPostRunUsage);
 
 // Quiet audit during the test — redirect to a tmpdir.
 let auditDir: string;
@@ -131,5 +144,110 @@ describe("registry.stream — event ordering", () => {
     const kinds = events.map((e) => e.kind);
     expect(kinds[0]).toBe("error");
     expect(kinds[kinds.length - 1]).toBe("done");
+  });
+});
+
+describe("registry.stream — postRunUsage emits BEFORE done", () => {
+  // Hermes v0.2.8 review "worth tightening": the existing tests prove
+  // ordering in general, but NOT the postRunUsage-specific branch. This
+  // suite mocks runPostRunUsage and asserts that any usage it returns is
+  // yielded before the terminal done event — so any consumer treating
+  // done as terminal still sees the telemetry.
+  it("yields postRunUsage-derived usage event before the terminal done", async () => {
+    mockedRun.mockResolvedValueOnce({ model: "test", inputTokens: 100, outputTokens: 50 } as AgentUsage);
+
+    const reg = __TEST__.newRegistry();
+    __TEST__.injectAgent(
+      reg,
+      fakeManifest({
+        postRunUsage: { parser: "hermes-session-export" },
+      } as Partial<AgentManifest>),
+      fakeTransport([
+        { kind: "token", text: "OK" },
+        { kind: "done", durationMs: 5, exitCode: 0 },
+      ]),
+    );
+
+    const events = await collect(reg.stream("fake-agent", { prompt: "x" }));
+    const kinds = events.map((e) => e.kind);
+    const usageIdx = kinds.lastIndexOf("usage");
+    const doneIdx = kinds.lastIndexOf("done");
+    expect(usageIdx).toBeGreaterThanOrEqual(0);
+    expect(doneIdx).toBe(kinds.length - 1);
+    expect(usageIdx).toBeLessThan(doneIdx);
+  });
+
+  it("postRunUsage returning empty usage does NOT emit a usage event", async () => {
+    // Even though postRunUsage might return undefined (parser returned no
+    // meaningful fields), the registry must not yield an empty usage event
+    // — that would defeat the v0.2.8 suppression.
+    mockedRun.mockResolvedValueOnce(undefined);
+
+    const reg = __TEST__.newRegistry();
+    __TEST__.injectAgent(
+      reg,
+      fakeManifest({
+        postRunUsage: { parser: "hermes-session-export" },
+      } as Partial<AgentManifest>),
+      fakeTransport([
+        { kind: "token", text: "OK" },
+        { kind: "done", durationMs: 5, exitCode: 0 },
+      ]),
+    );
+
+    const events = await collect(reg.stream("fake-agent", { prompt: "x" }));
+    const kinds = events.map((e) => e.kind);
+    expect(kinds).toEqual(["token", "done"]);
+  });
+
+  it("postRunUsage extractor failure is fail-soft — call still succeeds, no usage event", async () => {
+    mockedRun.mockRejectedValueOnce(new Error("simulated extractor crash"));
+
+    const reg = __TEST__.newRegistry();
+    __TEST__.injectAgent(
+      reg,
+      fakeManifest({
+        postRunUsage: { parser: "hermes-session-export" },
+      } as Partial<AgentManifest>),
+      fakeTransport([
+        { kind: "token", text: "OK" },
+        { kind: "done", durationMs: 5, exitCode: 0 },
+      ]),
+    );
+
+    const events = await collect(reg.stream("fake-agent", { prompt: "x" }));
+    const kinds = events.map((e) => e.kind);
+    // Call still reports done with exit 0 — the operator got their reply,
+    // the extractor crash is silent telemetry-loss only.
+    expect(kinds).toEqual(["token", "done"]);
+    const doneEvent = events.find((e) => e.kind === "done");
+    if (doneEvent?.kind === "done") {
+      expect(doneEvent.exitCode).toBe(0);
+    }
+  });
+});
+
+describe("registry.stream — error path duration is elapsed, not epoch (v0.2.10)", () => {
+  // Hermes v0.2.8 review: the catch path was setting
+  // `durationMs: Date.now()` (epoch milliseconds). Should be elapsed.
+  it("catch path reports a reasonable durationMs, never epoch-shaped", async () => {
+    const reg = __TEST__.newRegistry();
+    // Transport throws synchronously inside the async iterator.
+    const explodingTransport: Transport = {
+      health: async () => ({ status: "live", checkedAt: Date.now() }),
+      async *stream() {
+        throw new Error("boom");
+      },
+    };
+    __TEST__.injectAgent(reg, fakeManifest(), explodingTransport);
+
+    const events = await collect(reg.stream("fake-agent", { prompt: "x" }));
+    const doneEvent = events.find((e) => e.kind === "done");
+    if (doneEvent?.kind === "done") {
+      // Elapsed should be < 1 minute for a test that throws instantly.
+      // The epoch-ms value would be ~1.7e12, so this also catches the bug.
+      expect(doneEvent.durationMs).toBeLessThan(60_000);
+      expect(doneEvent.durationMs).toBeGreaterThanOrEqual(0);
+    }
   });
 });

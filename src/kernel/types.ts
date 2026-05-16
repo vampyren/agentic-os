@@ -75,7 +75,9 @@ export function hasMeaningfulUsage(u: AgentUsage | undefined | null): boolean {
     (u.cacheReadInputTokens && u.cacheReadInputTokens > 0) ||
     (u.cacheCreationInputTokens && u.cacheCreationInputTokens > 0) ||
     (typeof u.totalCostUsd === "number" && u.totalCostUsd >= 0 && u.totalCostUsd !== 0) ||
-    (typeof u.model === "string" && u.model.length > 0),
+    // .trim() so "   " or "\t\n" doesn't pass as a meaningful model name
+    // (Hermes v0.2.8 review "worth tightening").
+    (typeof u.model === "string" && u.model.trim().length > 0),
   );
 }
 

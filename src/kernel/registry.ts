@@ -161,6 +161,9 @@ class Registry {
     let durationMs = 0;
     let errored = false;
     let errorMessage = "";
+    // Capture wall start so the catch path can report elapsed-ms instead
+    // of epoch-ms (Hermes v0.2.8 review "worth tightening").
+    const startedAt = Date.now();
     // Buffer the transport's done event so we can interleave postRunUsage
     // BEFORE done. Canonical run order per docs/SECURITY.md & ADR-0009:
     //   1. token | usage (interleaved as transport emits)
@@ -202,7 +205,9 @@ class Registry {
       errorMessage = message;
       bus.emit({ source: name, kind: "agent.invoke.error", payload: { message: message.slice(0, 200) } });
       yield { kind: "error", message };
-      pendingDone = { kind: "done", durationMs: Date.now(), exitCode: -1 };
+      // Was Date.now() (epoch) — fixed in v0.2.10 to report elapsed-ms.
+      durationMs = Date.now() - startedAt;
+      pendingDone = { kind: "done", durationMs, exitCode: -1 };
     }
 
     if (errored) {

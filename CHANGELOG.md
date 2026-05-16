@@ -22,17 +22,68 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-**v0.2.9 — UI continued (operator request + screenshots):**
-- **Top-row agent picker** (operator request after v0.2.7) — change agents from a tabs/chips row in the AgentRoom header instead of nav-then-pick from the sidebar. Much more natural for the most-frequent action in the dashboard.
-- Per-agent action rail: `Status / Sessions / Skills / Plugins / Kanban / Doctor / Insights` for Hermes (mirrors Julian's pattern, screenshot 164202).
+**v0.2.11 — UI continued:**
+- Per-agent action rail for Hermes: `Status / Sessions / Skills / Plugins / Kanban / Doctor / Insights` (mirrors Julian's pattern, screenshot 164202). Surfaces what each CLI exposes via `hermes <verb>` instead of reinventing.
 - Memory page improvements: tabs (Local conversations / Obsidian vault), filter chips, right-pane preview (screenshot 163509).
 
 Then later:
 - "Send last prompt to agent X" action in the command palette.
-- Voice input on the journal page.
+- Voice input on the journal page (chat box already has it).
 - Vault search results inside the command palette.
 - "Clear all chat cache" affordance (Hermes review of v0.2.7 — localStorage UX).
 - localStorage opt-out toggle (operator setting → in-memory only).
+
+---
+
+## [0.2.10] — 2026-05-16 — Feature: top-row agent picker + nav-abort cleanup + Hermes v0.2.8 review carry-overs
+
+The operator-requested top-row agent picker ships, AND the navigation-abort gap Hermes flagged is closed (was previously claimed in `docs/SECURITY.md` but the code wasn't delivering). Plus three small "worth tightening" items from the same review.
+
+### Added — top-row agent picker
+
+- **`src/components/AgentTabs.tsx`** — clickable agent chips in the AgentRoom header. Current agent highlighted with its accent color + a tiny status dot. Click to navigate (`router.push("/agents/<name>")`).
+- **Alt+1 / Alt+2 / ... keyboard shortcuts** — jump to the Nth agent in the chip row. Alt avoids conflicts with browser/OS shortcuts.
+- Operator-frequent action surfaced at the top of every AgentRoom instead of buried in the sidebar nav. Matches the visual pattern from Julian's screenshots — agent context where the action is.
+
+### Fixed — HIGH: AgentRoom unmount cleanup
+
+**The gap (Hermes v0.2.8 review):** `docs/SECURITY.md` claimed "switching agents mid-stream uses the same abort path", but the code had no `AgentRoom` unmount cleanup. Navigating away mid-stream left the fetch running and the old `send()`'s `finally` block could still write to a freshly-unmounted component's store (race with the new room's state).
+
+**The fix:** new `useEffect(cleanup, [name])` in `AgentRoom`. On unmount or agent-name change:
+1. Bumps `sendGenRef.current` so any in-flight `send()`'s `finally` sees `myGeneration !== sendGenRef.current` and skips the commit.
+2. Aborts the fetch via `ctrlRef.current?.abort()`.
+3. Clears the controller ref.
+
+SECURITY.md's "Aborts, races, and reloads" table updated to match the now-honest behavior with a v0.2.10 note crediting the review.
+
+### Fixed — small Hermes "worth tightening" items
+
+- **`registry.stream()` catch path duration was epoch-ms, not elapsed-ms.** The transport-error path set `durationMs: Date.now()` instead of `Date.now() - startedAt`. Telemetry was always ~1.7 trillion ms. Captured `startedAt` at the top of the stream and now reports elapsed. Test: `expect(durationMs).toBeLessThan(60_000)` on an instant-throw transport.
+- **`hasMeaningfulUsage()` trims model strings.** `"   "` or `"\t\n"` no longer count as meaningful. `.trim().length > 0` instead of `.length > 0`.
+
+### Added — direct tests for the Hermes "worth tightening" gaps
+
+- **`tests/registry-stream-order.test.ts`** gained 4 new cases:
+  - `postRunUsage` yields usage event BEFORE terminal `done` (mocks `runPostRunUsage`).
+  - `postRunUsage` returning `undefined` does NOT emit an empty usage event.
+  - `postRunUsage` throwing is fail-soft — exit code stays 0, no usage event.
+  - Registry catch path's `durationMs` is elapsed, not epoch.
+
+### Tests + CI
+
+- Vitest: 90 → **94 passing**.
+- Typecheck + Playwright unchanged (clean).
+- Release hygiene gate green across all 6 surfaces.
+
+### Migration
+
+None. The top-row picker is purely additive — sidebar nav still works. AgentRoom unmount cleanup is invisible to operators except for the now-correct behavior (no ghost messages from prior agents).
+
+### Known limitations remaining (v0.2.11+)
+
+- "Clear all chat cache" UI affordance — still queued.
+- localStorage opt-out toggle — still queued.
+- Per-agent action rail (`Status / Sessions / Insights` tabs) — queued for v0.2.11 UI continued.
 
 ---
 

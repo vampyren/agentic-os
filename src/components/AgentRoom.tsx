@@ -6,6 +6,7 @@ import { Send, Square, Sparkles, RotateCcw } from "lucide-react";
 import Pill, { type PillTone } from "./Pill";
 import Markdown from "./Markdown";
 import VoiceButton from "./VoiceButton";
+import AgentTabs from "./AgentTabs";
 import { accentFor } from "@/lib/accent";
 import { resolveModel, contextBreakdown } from "@/lib/models";
 import { chatStore } from "@/lib/chatStore";
@@ -84,6 +85,21 @@ export default function AgentRoom({ name }: { name: string }) {
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
   }, [msgs, partial]);
+
+  // Unmount/agent-change cleanup: abort any in-flight stream and bump the
+  // generation so the old send()'s finally block doesn't write to the
+  // freshly-mounted AgentRoom's store. Without this, switching agents
+  // mid-stream leaves an orphan assistant message in the prior agent's
+  // session AND the streaming UI state can race with the new room. (Hermes
+  // v0.2.8 review: SECURITY.md was promising this and the code wasn't
+  // delivering.)
+  useEffect(() => {
+    return () => {
+      sendGenRef.current++;
+      try { ctrlRef.current?.abort(); } catch { /* noop */ }
+      ctrlRef.current = null;
+    };
+  }, [name]);
 
   async function send() {
     const trimmed = prompt.trim();
@@ -190,7 +206,12 @@ export default function AgentRoom({ name }: { name: string }) {
   }
 
   return (
-    <div className="grid lg:grid-cols-[1fr_280px] gap-6 min-h-[70vh]">
+    <div className="flex flex-col gap-4 min-h-[70vh]">
+      {/* Top-row agent picker — operator's most-frequent action, lifted out
+          of the sidebar (operator feedback after v0.2.7). */}
+      <AgentTabs current={name} />
+
+      <div className="grid lg:grid-cols-[1fr_280px] gap-6 flex-1 min-h-0">
       {/* Chat surface */}
       <section className="panel flex flex-col min-h-0">
         <header className="px-5 py-4 border-b border-[var(--border)] flex items-center justify-between">
@@ -430,6 +451,7 @@ export default function AgentRoom({ name }: { name: string }) {
           </div>
         )}
       </aside>
+      </div>
     </div>
   );
 }
