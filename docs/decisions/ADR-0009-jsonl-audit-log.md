@@ -27,12 +27,16 @@ Each line is one JSON object. Required envelope fields:
 { "ts": "ISO8601 UTC", "kind": "<event-kind>", ... event-specific fields ... }
 ```
 
-**Event kinds (initial set):**
+**Event kinds (current set as of v0.2.5):**
 
-- `agent.invoke` — start of an agent call. Includes `agent`, `transport`, `command`, `argsRedacted`, `promptSha256`, `promptChars`.
-- `agent.invoke.complete` — end. Adds `status`, `exitCode`, `durationMs`, `bytesOut`.
-- `agent.invoke.error` — failed call. Adds `status` (e.g., `"missing-secret"`, `"timeout"`, `"transport-error"`) and a sanitized `message`.
-- `vault.write` — `agent`, `path`, `action` (`create` / `append` / `promote`), `bytes`.
+- `agent.invoke` — start of an agent call. Includes `agent`, `transport`, `bin`, `argsRedacted` (with `{prompt}` placeholder pre-substituted to `[PROMPT_REDACTED]` by `renderArgsForAudit`), `promptSha256`, `promptChars`.
+- `agent.invoke.complete` — end. Adds `status` (success/error string), `exitCode`, `durationMs`, `bytesOut`.
+- `agent.invoke.error` — failed call. **No raw message field** (per SEC-001 fix in v0.2.4 — raw stderr can contain prompt text). Carries only neutral fields: `errorClass` (one of `non-zero-exit` / `spawn-failed` / `timeout` / `killed` / `transport-error` / `unknown`), `exitCode`, `stderrSha8` (8-char correlation hash, never content), `stderrChars` (length only), `transport`.
+- `vault.write` — `agent`, `path`, `action` (`create` / `append` / `promote`), `bytes`. For `kind: "chat"` notes, `path` includes a hash-suffixed filename so the prompt never leaks via the filename (v0.2.3 fix).
+- `vault.update` — frontmatter patches on existing inbox notes. `agent`, `path`, `bytes`, `patch` (list of keys patched, never values).
+
+**Reserved for future phases (not yet emitted):**
+
 - `vault.promote` — `from`, `to`, `templateApplied`.
 - `secrets.read` — `keyPath`, `requester`. No secret value, ever.
 - `verb.run` — operator-triggered CLI verb. `agent`, `verb`, `exitCode`, `durationMs`.
@@ -42,9 +46,14 @@ Each line is one JSON object. Required envelope fields:
 
 **Redaction (hard rules, see SECURITY.md):**
 
-- Prompts: never stored. Only `promptSha256` (first 8 hex chars are fine) and `promptChars`.
+- **Prompts: never stored.** Only `promptSha256` (first 8 hex chars) and `promptChars`. Enforced at three layers: (1) `renderArgsForAudit` substitutes `{prompt}` → `[PROMPT_REDACTED]` in the argv before audit; (2) chat filenames use `sha256(prompt).slice(0,8)` instead of a slugified prefix; (3) `auditAgentInvokeError`'s type signature has no `message` field — raw stderr can't pass through.
 - Secret-bearing args (anything matching a known secret env var name): replaced with `[REDACTED]`.
 - HTTP headers carrying `Authorization` / `x-api-key`: stripped.
+
+**Test enforcement:**
+- `tests/audit-security.test.ts` — nonce in prompt, assert absent from `argsRedacted` field of `agent.invoke`.
+- `tests/audit-pipeline-security.test.ts` — nonce in chat title/body/seed, assert absent from any field of any entry (raw scan + recursive walk); chat filename suffix asserted to equal exact `sha256(fullPrompt).slice(0,8)`.
+- `tests/audit-stderr-security.test.ts` — real subprocess emits nonce on stderr, assert absent from `agent.invoke.error` entries (which now only carry neutral metadata).
 - HTTP bodies: never logged. Only metadata (`bytesIn`, `bytesOut`, `durationMs`).
 
 **Rotation:** one file per UTC day. Files older than `audit.retentionDays` (default 30) are deleted on kernel boot. Setting `audit.retentionDays: 0` disables deletion (keep forever).

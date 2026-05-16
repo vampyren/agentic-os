@@ -7,6 +7,7 @@ import Pill, { type PillTone } from "./Pill";
 import Markdown from "./Markdown";
 import VoiceButton from "./VoiceButton";
 import { accentFor } from "@/lib/accent";
+import { resolveModel, contextBreakdown } from "@/lib/models";
 
 interface Agent {
   name: string;
@@ -354,13 +355,9 @@ export default function AgentRoom({ name }: { name: string }) {
               )}
             </h3>
 
-            {usage && (usage.inputTokens || usage.outputTokens) && (
+            {usage && (usage.inputTokens || usage.outputTokens || usage.cacheReadInputTokens) && (
               <>
-                <UsageBar
-                  inputTokens={usage.inputTokens ?? 0}
-                  outputTokens={usage.outputTokens ?? 0}
-                  accent={accent}
-                />
+                <ContextBar usage={usage} accent={accent} />
                 <dl className="space-y-2 text-[12px] mt-3">
                   {usage.inputTokens !== undefined && (
                     <Row label="last in">{formatK(usage.inputTokens)}</Row>
@@ -430,32 +427,75 @@ function formatK(n: number): string {
   return (n / 1000).toFixed(n < 10_000 ? 1 : 0) + "k";
 }
 
-/** Slim horizontal bar: input chunk + output chunk, sized to share of total. */
-function UsageBar({
-  inputTokens,
-  outputTokens,
+/**
+ * Context-window fill bar — shows what fraction of the model's max context
+ * the last turn consumed. Replaces the old in/out ratio bar, which got
+ * visually swamped by cache hits (a 6-in / 86-out call with 18k cache
+ * read rendered as "all orange" and told you nothing).
+ *
+ * The bar visualizes used / max where:
+ *   used = input + cacheRead + cacheCreation + output
+ *   max  = model's context-window size (e.g. 1M for claude-opus-4-7[1m],
+ *          272k for gpt-5.5)
+ *
+ * Inside the bar, two segments distinguish "context" (the prompt we sent,
+ * including cache hits) from "generated" (the model's output) so the
+ * operator can see roughly how the budget is split. Hover for the full
+ * breakdown.
+ */
+function ContextBar({
+  usage,
   accent,
-}: { inputTokens: number; outputTokens: number; accent: string }) {
-  const total = Math.max(1, inputTokens + outputTokens);
-  const inPct = (inputTokens / total) * 100;
+}: {
+  usage: Usage;
+  accent: string;
+}) {
+  const breakdown = contextBreakdown(usage);
+  const model = resolveModel(usage.model ?? "");
+  const max = model.contextTokens;
+  const fillPct = Math.min(100, (breakdown.usedTotal / max) * 100);
+
+  // Within the filled portion, what fraction is generated output (vs.
+  // context)? Used to render the small accent-colored tip at the end.
+  const filledTokens = Math.max(1, breakdown.usedTotal);
+  const outputShareOfFill =
+    breakdown.outputTokens > 0
+      ? (breakdown.outputTokens / filledTokens) * fillPct
+      : 0;
+  const contextShareOfFill = fillPct - outputShareOfFill;
+
+  const tip = [
+    `${formatK(breakdown.usedTotal)} of ${formatK(max)} (${fillPct.toFixed(1)}%)`,
+    breakdown.inputTokens          ? `in: ${formatK(breakdown.inputTokens)}` : "",
+    breakdown.cacheReadTokens      ? `cache read: ${formatK(breakdown.cacheReadTokens)}` : "",
+    breakdown.cacheCreationTokens  ? `cache create: ${formatK(breakdown.cacheCreationTokens)}` : "",
+    breakdown.outputTokens         ? `out: ${formatK(breakdown.outputTokens)}` : "",
+  ].filter(Boolean).join(" · ");
+
   return (
-    <div
-      className="w-full h-1.5 rounded-full overflow-hidden flex"
-      style={{ background: "var(--bg-elevated-hot)" }}
-      title={`in: ${formatK(inputTokens)} · out: ${formatK(outputTokens)}`}
-    >
+    <div className="flex flex-col gap-1.5">
       <div
-        style={{
-          width: `${inPct}%`,
-          background: "color-mix(in srgb, var(--fg-dim) 80%, transparent)",
-        }}
-      />
-      <div
-        style={{
-          width: `${100 - inPct}%`,
-          background: accent,
-        }}
-      />
+        className="w-full h-1.5 rounded-full overflow-hidden flex"
+        style={{ background: "var(--bg-elevated-hot)" }}
+        title={tip}
+      >
+        <div
+          style={{
+            width: `${contextShareOfFill}%`,
+            background: "color-mix(in srgb, var(--fg-dim) 70%, transparent)",
+          }}
+        />
+        <div
+          style={{
+            width: `${outputShareOfFill}%`,
+            background: accent,
+          }}
+        />
+      </div>
+      <div className="flex items-baseline justify-between text-[10px] text-[var(--fg-dimmer)] tabular-nums">
+        <span>{formatK(breakdown.usedTotal)} / {formatK(max)}</span>
+        <span>{fillPct >= 1 ? fillPct.toFixed(1) : fillPct.toFixed(2)}%</span>
+      </div>
     </div>
   );
 }

@@ -22,12 +22,64 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-Queued for 0.2.5 (feature pass — Hermes review of v0.2.3 surfaced one more security item which became 0.2.4; gate now fully closed):
-- **Context-window fill bar** in the AgentRoom tokens card (Claude `[1m]` → "used / 1M" progress bar; same per-model max). Replaces today's in/out bar that gets visually swamped by cache hits.
-- **Hermes usage** via `hermes insights --json` / `hermes sessions stats`.
+Queued (one focused release per item, smallest first per Hermes review's "bounded UI work" rule):
+- **Hermes usage card** — pull per-session token + cost stats from `hermes sessions stats` / `hermes insights --json` so the Hermes AgentRoom shows the same kind of metrics Claude already does. Will likely introduce an optional `postRunUsage` hook on the subprocess transport.
 - "Send last prompt to agent X" action in the command palette.
-- Voice input on the journal page.
+- Voice input on the journal page (chat box already has it).
 - Vault search results inside the command palette.
+
+---
+
+## [0.2.5] — 2026-05-16 — Feature: context-window fill bar (per-model max)
+
+Cleared by Hermes's third review of v0.2.4 — security gate now genuinely closed across argv / vault paths / stderr. v0.2.5 starts the feature pass with the single item Hermes recommended as the safest first move: **the context-window fill bar in the AgentRoom tokens card**. Bounded UI work, no audit/security surfaces touched.
+
+### Added — context-window fill bar
+
+- **`src/lib/models.ts`** — per-model context-window lookup. Exact-match table for the models the operator already uses (Claude Opus/Sonnet/Haiku, GPT-5.5, Gemini, Gemma, Qwen), plus family-prefix fallbacks so future model versions in the same family resolve sensibly without an exact entry. Default fallback is 200K (Claude family standard), which underestimates the bar fraction rather than overestimating it.
+- **Anthropic `[1m]` annotation handling** — model strings like `claude-opus-4-7[1m]` correctly resolve to 1,000,000 tokens. `[200k]` and other annotations supported via the same parser.
+- **`contextBreakdown()` helper** — computes `usedTotal = input + cacheRead + cacheCreation + output` and `contextTotal = input + cacheRead + cacheCreation` (the prompt-side portion). Used by the bar to render two segments (context vs. generated output).
+- **`<ContextBar>` component in `AgentRoom.tsx`** — replaces the old in/out ratio bar. Visualizes `usedTotal / max(model.contextTokens)`. Inside the bar, a dim segment represents the context portion and the agent's accent color tip represents generated output. Hover tooltip shows the full breakdown (in / cache read / cache create / out). Below the bar: `{usedK} / {maxK}` and percentage in tabular nums.
+
+### Why this replaces the old bar
+
+The previous `<UsageBar>` was an input-vs-output ratio. With Claude Code's prompt caching, a typical call looked like `{ inputTokens: 6, outputTokens: 86, cacheReadInputTokens: 17922 }` — input was 0.03% of total tokens, so the bar rendered as "all output color" and told the operator nothing. The new bar shows what fraction of the model's actual context window the turn consumed (in your screenshots' example: `25.9k / 1M = 2.6%`), which is the metric that matches Claude Code's own `/context` view and the gpt-5.5 bar Hermes displays.
+
+### Tests added
+
+- **`tests/models.test.ts`** (8 cases):
+  - Exact model match.
+  - `[1m]` and `[200k]` annotation override.
+  - Family-prefix fallback for unknown model versions.
+  - Unknown models fall back to safe default.
+  - Empty model string handled gracefully.
+  - `contextBreakdown` sums input + caches correctly.
+  - `contextBreakdown` handles missing fields as zero.
+
+### Docs
+
+- **`docs/decisions/ADR-0009-jsonl-audit-log.md`** — Hermes review carry-over (low-priority cleanup). The "Event kinds" list was still describing `agent.invoke.error` as having a sanitized `message` field. Updated to match the v0.2.4 stricter no-message schema (`errorClass` + `stderrSha8` + `stderrChars` + neutrals only). Added a "Test enforcement" subsection listing the three regression test files that prove the redaction invariants hold.
+
+### Tests + CI
+
+- Vitest: 51 → **59 passing** (+8 model tests).
+- Typecheck clean.
+- Playwright unchanged (5/5).
+- Release hygiene gate verified consistent across `package.json` / `package-lock.json` / sidebar / README / CHANGELOG.
+
+### Verified end-to-end
+
+Smoke against the operator's real Claude:
+```
+POST /api/agents/claude-code/run "test"
+→ model resolves to claude-opus-4-7[1m] = 1,000,000 ctx
+→ used 25.9k tokens (6 in + 17.9k cache read + 8k cache creation + 86 out)
+→ bar fills to 2.6%, hover shows full breakdown
+```
+
+### Migration from 0.2.4
+
+None. The `UsageBar` component was renamed to `ContextBar` and its props shape changed (now takes the full `usage` object plus `accent` instead of split in/out tokens), but it's a private component inside `AgentRoom.tsx` — no external API affected.
 
 ---
 
