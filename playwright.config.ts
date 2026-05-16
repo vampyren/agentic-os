@@ -25,10 +25,11 @@ export default defineConfig({
     timeout: 60_000,
     stdout: "pipe",
     stderr: "pipe",
-    env: {
-      AGENTIC_OS_CONFIG: process.env.AGENTIC_OS_CONFIG ?? "",
-      AGENTIC_OS_VAULT: process.env.AGENTIC_OS_VAULT ?? "",
-    },
+    // No explicit env override here on purpose — Playwright's webServer
+    // inherits the parent process env, and global-setup.ts populates
+    // AGENTIC_OS_CONFIG / AGENTIC_OS_VAULT before the server boots. Listing
+    // them explicitly in this block would snapshot the values at module-
+    // load time (before globalSetup runs) and produce empty strings.
   },
   globalSetup: "./e2e/global-setup.ts",
   projects: [
