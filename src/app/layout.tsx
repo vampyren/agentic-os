@@ -1,15 +1,17 @@
 import type { ReactNode } from "react";
+import "./globals.css";
+import Shell from "@/components/Shell";
 
 export const metadata = {
-  title: "Agentic OS (Phase 1A)",
-  description: "Local mission control for AI agents — kernel skeleton.",
+  title: "Agentic OS",
+  description: "Local mission control for AI agents",
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en">
-      <body style={{ fontFamily: "system-ui, sans-serif", margin: 0, padding: "1rem" }}>
-        {children}
+      <body>
+        <Shell>{children}</Shell>
       </body>
     </html>
   );

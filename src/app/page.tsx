@@ -1,23 +1,22 @@
 "use client";
 
-// Phase 1A UI — intentionally unstyled. Plain HTML elements, no Tailwind,
-// no animations. Goal: prove the kernel works end-to-end.
-//
-// Layout:
-//   - Header
-//   - Agent picker (select)
-//   - Prompt textarea + send button
-//   - Response area (streamed tokens append into a <pre>)
-//   - Last-50 bus events (<ul>, newest first)
+// Mission Control — overview page. Agent cards with live status pills,
+// recent activity stream from the bus.
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
+import Link from "next/link";
+import { motion, AnimatePresence } from "framer-motion";
+import { ArrowRight, Zap } from "lucide-react";
+import Pill, { type PillTone } from "@/components/Pill";
+import { accentFor } from "@/lib/accent";
 
-interface Agent {
+interface AgentSummary {
   name: string;
   displayName: string;
-  description: string | null;
   transport: string;
-  capabilities: { chat?: boolean; streamingChat?: boolean };
+  status: PillTone;
+  version?: string;
+  latencyMs?: number;
 }
 
 interface BusEvent {
@@ -28,231 +27,145 @@ interface BusEvent {
   payload?: unknown;
 }
 
-export default function Page() {
-  const [agents, setAgents] = useState<Agent[]>([]);
-  const [selected, setSelected] = useState<string>("");
-  const [prompt, setPrompt] = useState<string>("");
-  const [response, setResponse] = useState<string>("");
-  const [running, setRunning] = useState<boolean>(false);
-  const [savedPath, setSavedPath] = useState<string | null>(null);
+export default function MissionControl() {
+  const [agents, setAgents] = useState<AgentSummary[]>([]);
   const [events, setEvents] = useState<BusEvent[]>([]);
-  const [error, setError] = useState<string | null>(null);
-  const abortRef = useRef<AbortController | null>(null);
 
-  // Load agents list on mount.
+  // Periodic vitals refresh.
   useEffect(() => {
-    fetch("/api/agents")
-      .then((r) => r.json())
-      .then((j: { agents: Agent[] }) => {
-        setAgents(j.agents);
-        if (j.agents.length > 0 && !selected) {
-          setSelected(j.agents[0]!.name);
+    const tick = async () => {
+      try {
+        const r = await fetch("/api/vitals", { cache: "no-store" });
+        if (r.ok) {
+          const j = await r.json();
+          setAgents(j.agents);
         }
-      })
-      .catch((e) => setError(`failed to load agents: ${String(e)}`));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+      } catch { /* ignore */ }
+    };
+    tick();
+    const id = setInterval(tick, 15_000);
+    return () => clearInterval(id);
   }, []);
 
-  // Subscribe to bus events.
+  // Live bus events.
   useEffect(() => {
     const es = new EventSource("/api/events");
     es.onmessage = (m) => {
       try {
         const evt = JSON.parse(m.data) as BusEvent;
-        setEvents((prev) => [evt, ...prev].slice(0, 50));
-      } catch {
-        /* keepalive comment lines don't fire onmessage; ignore parse errors */
-      }
-    };
-    es.onerror = () => {
-      // Browser will auto-reconnect.
+        setEvents((prev) => [evt, ...prev].slice(0, 25));
+      } catch { /* keepalive comments don't parse */ }
     };
     return () => es.close();
   }, []);
 
-  async function runPrompt() {
-    if (!selected || !prompt.trim() || running) return;
-    setRunning(true);
-    setResponse("");
-    setSavedPath(null);
-    setError(null);
-
-    const ctrl = new AbortController();
-    abortRef.current = ctrl;
-
-    try {
-      const r = await fetch(`/api/agents/${encodeURIComponent(selected)}/run`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ prompt }),
-        signal: ctrl.signal,
-      });
-      if (!r.ok) {
-        setError(`HTTP ${r.status}: ${await r.text()}`);
-        return;
-      }
-      if (!r.body) {
-        setError("no response body");
-        return;
-      }
-      const reader = r.body.getReader();
-      const dec = new TextDecoder();
-      let buf = "";
-      while (true) {
-        const { value, done } = await reader.read();
-        if (done) break;
-        buf += dec.decode(value, { stream: true });
-        let nl: number;
-        // eslint-disable-next-line no-cond-assign
-        while ((nl = buf.indexOf("\n")) !== -1) {
-          const line = buf.slice(0, nl);
-          buf = buf.slice(nl + 1);
-          if (!line.trim()) continue;
-          try {
-            const evt = JSON.parse(line) as
-              | { kind: "token"; text: string }
-              | { kind: "error"; message: string }
-              | { kind: "done"; durationMs: number; exitCode: number | null }
-              | { kind: "saved"; path: string; bytes: number };
-            if (evt.kind === "token") {
-              setResponse((prev) => prev + evt.text);
-            } else if (evt.kind === "error") {
-              setError(evt.message);
-            } else if (evt.kind === "saved") {
-              setSavedPath(evt.path);
-            }
-          } catch {
-            /* skip malformed line */
-          }
-        }
-      }
-    } catch (e) {
-      if (!ctrl.signal.aborted) setError(String(e));
-    } finally {
-      setRunning(false);
-      abortRef.current = null;
-    }
-  }
-
-  function stop() {
-    abortRef.current?.abort();
-    setRunning(false);
-  }
-
-  const selectedAgent = agents.find((a) => a.name === selected);
-
   return (
-    <main>
-      <h1>Agentic OS — Phase 1A</h1>
-      <p>
-        <small>
-          Kernel skeleton. Plain HTML on purpose — see <code>docs/ROADMAP.md</code>{" "}
-          (the Tailwind / Framer Motion port lands in Phase 1B).
-        </small>
-      </p>
-
-      <hr />
-
-      <h2>Agents ({agents.length})</h2>
-      {agents.length === 0 ? (
-        <p>(none loaded — check <code>agents/builtin/</code>)</p>
-      ) : (
-        <ul>
-          {agents.map((a) => (
-            <li key={a.name}>
-              <code>{a.name}</code> — {a.displayName} <em>({a.transport})</em>
-              {a.description ? <> · {a.description}</> : null}
-            </li>
-          ))}
-        </ul>
-      )}
-
-      <hr />
-
-      <h2>Run an agent</h2>
-      <div>
-        <label>
-          Agent:&nbsp;
-          <select
-            value={selected}
-            onChange={(e) => setSelected(e.target.value)}
-            disabled={running}
+    <div className="flex flex-col gap-8">
+      <section>
+        <header className="flex items-baseline justify-between mb-4">
+          <h2 className="text-[20px] font-medium tracking-tight">Agents</h2>
+          <Link
+            href="/agents"
+            className="text-[12px] text-[var(--fg-dim)] hover:text-[var(--fg)] flex items-center gap-1"
           >
-            {agents.map((a) => (
-              <option key={a.name} value={a.name}>
-                {a.displayName} ({a.name})
-              </option>
-            ))}
-          </select>
-        </label>
-      </div>
+            all agents <ArrowRight size={12} />
+          </Link>
+        </header>
 
-      <div style={{ marginTop: "0.5rem" }}>
-        <textarea
-          value={prompt}
-          onChange={(e) => setPrompt(e.target.value)}
-          rows={4}
-          cols={80}
-          placeholder="Type a prompt and click Send…"
-          disabled={running}
-        />
-      </div>
-
-      <div style={{ marginTop: "0.5rem" }}>
-        {running ? (
-          <button onClick={stop}>Stop</button>
+        {agents.length === 0 ? (
+          <div className="panel p-8 text-center text-[var(--fg-dim)] text-[13px]">
+            No agents loaded. Add manifests to <code>agents/builtin/</code> or
+            <code> ~/.agentic-os/agents/</code>.
+          </div>
         ) : (
-          <button onClick={runPrompt} disabled={!selected || !prompt.trim()}>
-            Send to {selectedAgent?.displayName ?? "agent"}
-          </button>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {agents.map((a) => {
+              const accent = accentFor(a.name);
+              return (
+                <Link
+                  key={a.name}
+                  href={`/agents/${a.name}`}
+                  className="panel p-5 hover:bg-[var(--bg-elevated-hot)] transition group"
+                  style={{ borderColor: "var(--border)" }}
+                >
+                  <div className="flex items-start justify-between mb-4">
+                    <div className="flex items-center gap-2.5">
+                      <span
+                        className="w-2.5 h-2.5 rounded-full"
+                        style={{
+                          background: accent,
+                          boxShadow: `0 0 12px -2px ${accent}`,
+                        }}
+                      />
+                      <div className="leading-tight">
+                        <div className="text-[14px] font-medium">{a.displayName}</div>
+                        <div className="text-[10px] uppercase tracking-widest text-[var(--fg-dimmer)] mt-0.5">
+                          {a.name} · {a.transport}
+                        </div>
+                      </div>
+                    </div>
+                    <Pill tone={a.status} pulse={a.status === "live"}>
+                      {a.status}
+                    </Pill>
+                  </div>
+                  <div className="text-[11px] text-[var(--fg-dimmer)] flex items-center justify-between">
+                    <span>{a.version ?? "version unknown"}</span>
+                    <span className="opacity-0 group-hover:opacity-100 transition flex items-center gap-1">
+                      open room <ArrowRight size={11} />
+                    </span>
+                  </div>
+                </Link>
+              );
+            })}
+          </div>
         )}
-      </div>
+      </section>
 
-      {error && (
-        <p style={{ color: "crimson" }}>
-          <strong>Error:</strong> {error}
-        </p>
-      )}
-
-      <h3>Response</h3>
-      <pre
-        style={{
-          whiteSpace: "pre-wrap",
-          border: "1px solid #ccc",
-          padding: "0.5rem",
-          minHeight: "6rem",
-          background: "#fafafa",
-        }}
-      >
-        {response || (running ? "thinking…" : "(no response yet)")}
-      </pre>
-      {savedPath && (
-        <p>
-          <small>
-            saved → <code>{savedPath}</code>
-          </small>
-        </p>
-      )}
-
-      <hr />
-
-      <h2>Live event bus (newest first)</h2>
-      <p>
-        <small>
-          GET <code>/api/events</code> · last {events.length} of 50 shown
-        </small>
-      </p>
-      <ul style={{ fontFamily: "ui-monospace, monospace", fontSize: "0.85rem" }}>
-        {events.map((e) => (
-          <li key={e.id}>
-            <code>{new Date(e.ts).toISOString().slice(11, 19)}</code>{" "}
-            <strong>{e.source}</strong> {e.kind}
-            {e.payload !== undefined ? (
-              <> &nbsp;<small>{JSON.stringify(e.payload)}</small></>
-            ) : null}
-          </li>
-        ))}
-      </ul>
-    </main>
+      <section>
+        <header className="flex items-baseline justify-between mb-4">
+          <h2 className="text-[20px] font-medium tracking-tight flex items-center gap-2">
+            <Zap size={16} className="text-[var(--fg-dim)]" />
+            Live activity
+          </h2>
+          <span className="text-[11px] uppercase tracking-widest text-[var(--fg-dimmer)]">
+            last {events.length} · streaming
+          </span>
+        </header>
+        <div className="panel">
+          {events.length === 0 ? (
+            <div className="p-8 text-center text-[var(--fg-dim)] text-[13px]">
+              Waiting for events from the bus…
+            </div>
+          ) : (
+            <ul className="divide-y divide-[var(--border)]">
+              <AnimatePresence initial={false}>
+                {events.map((e) => (
+                  <motion.li
+                    key={e.id}
+                    initial={{ opacity: 0, y: -4 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="px-5 py-2.5 text-[12px] grid grid-cols-[64px_120px_180px_1fr] gap-3 items-baseline font-[var(--font-geist-mono)]"
+                  >
+                    <span className="text-[var(--fg-dimmer)]">
+                      {new Date(e.ts).toISOString().slice(11, 19)}
+                    </span>
+                    <span
+                      className="font-medium"
+                      style={{ color: accentFor(e.source) }}
+                    >
+                      {e.source}
+                    </span>
+                    <span className="text-[var(--fg-dim)]">{e.kind}</span>
+                    <span className="text-[var(--fg-dimmer)] truncate">
+                      {e.payload !== undefined ? JSON.stringify(e.payload) : ""}
+                    </span>
+                  </motion.li>
+                ))}
+              </AnimatePresence>
+            </ul>
+          )}
+        </div>
+      </section>
+    </div>
   );
 }

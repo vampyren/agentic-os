@@ -1,0 +1,144 @@
+@import "tailwindcss";
+
+/* ─── Theme tokens ─────────────────────────────────────────────────────
+ * Mission Control aesthetic — graphite background, glass surfaces, status
+ * pills, per-agent accent colors. Designed to be legible at the cost of
+ * being a bit understated. Override accent per agent via manifest later.
+ * ─────────────────────────────────────────────────────────────────────── */
+
+:root {
+  /* surfaces */
+  --bg:           #08090b;
+  --bg-elevated:  rgba(255,255,255,0.025);
+  --bg-elevated-hot: rgba(255,255,255,0.05);
+
+  /* borders */
+  --border:       rgba(255,255,255,0.07);
+  --border-hot:   rgba(255,255,255,0.16);
+
+  /* text */
+  --fg:           #f4f4f5;
+  --fg-dim:       #a1a1aa;
+  --fg-dimmer:    #71717a;
+
+  /* status — used by Pill */
+  --status-live:     #10b981;
+  --status-busy:     #06b6d4;
+  --status-degraded: #f59e0b;
+  --status-offline:  #f43f5e;
+  --status-unknown:  #71717a;
+
+  /* per-agent accents (hash-mapped by name when not specified) */
+  --accent-claude-code: #d97757;
+  --accent-hermes:      #22d3ee;
+  --accent-openclaw:    #a855f7;
+  --accent-chatgpt:     #10b981;
+  --accent-openrouter:  #ec4899;
+  --accent-default:     #94a3b8;
+
+  /* misc */
+  --radius: 10px;
+  --shadow-glow: 0 0 24px -8px currentColor;
+}
+
+html, body {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+               "Helvetica Neue", Arial, sans-serif;
+  font-feature-settings: "cv11", "ss01";
+}
+
+body {
+  /* Subtle radial glows in the background, ambient mission-control feel.
+     Cheap (no JS, no canvas) and stays out of the way of content. */
+  background:
+    radial-gradient(900px 600px at 12% -10%, rgba(34, 211, 238, 0.06), transparent 60%),
+    radial-gradient(800px 500px at 90% 110%, rgba(168, 85, 247, 0.05), transparent 60%),
+    var(--bg);
+  background-attachment: fixed;
+  min-height: 100vh;
+}
+
+/* Glass panel — used by cards, side rails, every elevated surface. */
+.panel {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  backdrop-filter: blur(8px);
+}
+.panel:hover { border-color: var(--border-hot); }
+
+/* Scrollbars — slim, dim, unobtrusive */
+.scroll::-webkit-scrollbar { width: 10px; height: 10px; }
+.scroll::-webkit-scrollbar-track { background: transparent; }
+.scroll::-webkit-scrollbar-thumb { background: var(--border); border-radius: 5px; }
+.scroll::-webkit-scrollbar-thumb:hover { background: var(--border-hot); }
+
+/* Status pill — color comes from inline style via component */
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4em;
+  padding: 0.18rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.7rem;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  border: 1px solid currentColor;
+  color: var(--status-unknown);
+  background: color-mix(in srgb, currentColor 10%, transparent);
+}
+
+/* Live tick dot — animated pulse for streaming/in-progress */
+.tick {
+  width: 0.45em; height: 0.45em;
+  border-radius: 999px;
+  background: currentColor;
+  display: inline-block;
+}
+.tick.live { animation: pulse 1.4s ease-in-out infinite; }
+@keyframes pulse {
+  0%, 100% { opacity: 0.4; transform: scale(0.85); }
+  50%      { opacity: 1;   transform: scale(1.15); }
+}
+
+/* Headings */
+h1, h2, h3 { letter-spacing: -0.01em; }
+
+/* Code blocks */
+code, pre {
+  font-family: ui-monospace, "JetBrains Mono", "Fira Code", monospace;
+  font-feature-settings: "calt", "zero", "ss01";
+}
+
+/* Form elements — minimal reset for dark theme */
+input, textarea, select, button {
+  font: inherit;
+  color: inherit;
+}
+textarea, input[type="text"] {
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.5rem 0.75rem;
+}
+textarea:focus, input:focus { outline: none; border-color: var(--border-hot); }
+button {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.4rem 0.9rem;
+  cursor: pointer;
+  transition: background 120ms, border-color 120ms;
+}
+button:hover:not(:disabled) {
+  background: var(--bg-elevated-hot);
+  border-color: var(--border-hot);
+}
+button:disabled { opacity: 0.4; cursor: not-allowed; }
+
+/* Links */
+a { color: inherit; text-decoration: none; }
+a:hover { color: var(--fg); }
