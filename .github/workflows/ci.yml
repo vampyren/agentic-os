@@ -25,5 +25,11 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
-      - name: Test
+      - name: Unit tests (vitest)
         run: npm test
+
+      - name: Install Playwright browser (chromium)
+        run: npx playwright install --with-deps chromium
+
+      - name: E2E smoke tests (Playwright)
+        run: npm run e2e

@@ -22,11 +22,91 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-Tracking what's queued for 0.1.1 (point fixes only — 0.2.0 begins Phase 1B).
+Queued for 0.2.1:
+- Command palette (cmdk) with ⌘+K navigation and "send last prompt to agent X" actions.
+- Voice input via Web Speech API on chat/journal text areas.
+- Markdown rendering of agent responses (react-markdown + rehype-highlight already in deps, not yet wired).
+- `AGENTIC_OS_AUDIT_DIR` env override so unit tests don't write to the operator audit log (carried from 0.1.x).
 
-### Planned
-- `AGENTIC_OS_AUDIT_DIR` env override so unit tests don't write into the production audit log.
-- README quickstart updated to reflect the now-real Phase 1A install path (`npm install && npm run dev`).
+---
+
+## [0.2.0] — 2026-05-16 — Phase 1B: Operator UX + SELF layer + FTS5 search
+
+**Mission Control now looks the part.** The kernel from 0.1.0 gets a proper UI on top: persistent sidebar, glass-panel dashboard, streaming agent rooms, real per-agent health probes, live event ticker, full SELF layer (Goals + Journal + Memory), SQLite FTS5 vault search with a chokidar watcher, and a first-run setup wizard. Five logical commits, one tag.
+
+### Added — aesthetic foundation (commit 1)
+
+- Tailwind v4 + @tailwindcss/postcss.
+- `src/app/globals.css`: dark mission-control theme with CSS variable tokens (surfaces, borders, status colors, per-agent accents). Glass panel class, status pill geometry, slim scrollbars, animated `.tick.live` pulse.
+- `src/components/Shell.tsx` + `Sidebar.tsx` + `TopBar.tsx`: persistent layout with multi-route nav. TopBar shows live vitals chips.
+- `src/components/Pill.tsx`: status pill with `live` / `busy` / `degraded` / `offline` / `unknown` / `info` tones.
+- `src/lib/accent.ts`: per-agent accent color (known names mapped + hash-rotation fallback).
+- Pages live at `/`, `/agents`, `/agents/[name]`, `/goals`, `/journal`, `/memory`, `/events`.
+
+### Added — agent rooms + health loop (commit 2)
+
+- `src/kernel/health.ts`: per-manifest probe loop. Runs each agent's healthProbe at its declared `intervalSec` (default 300s, floor 15s). HMR-safe via globalThis state. Bus emits `agent.health.changed` ONLY on status transition — no spam.
+- `src/components/AgentRoom.tsx`: polished streaming chat. Per-agent accent color, autoscroll, ⌘+Enter to send, Esc to stop. Shows "saved → 00_Inbox/..." after each chat lands in vault. Side rail with vitals (status, version, probe latency, last-checked).
+- `/api/vitals`: returns the cached snapshot per agent (status, version, latency).
+
+### Added — Goals + Journal (commit 3)
+
+- `src/vault/reader.ts`: basic vault walker. `readNote`, `listInboxNotes`, `readInboxNotes`, `walkVaultNotes` (used by the FTS5 indexer).
+- `src/vault/writer.ts` extensions:
+  - `appendJournalEntry`: one-file-per-day with timestamped `### HH:MM` sections, creates on first entry, atomic append thereafter.
+  - `updateFrontmatter`: patches frontmatter on existing inbox notes (used by the goals toggle), refuses anything outside the inbox-first directory.
+- `/api/goals` (GET/POST), `/api/goals/toggle` (POST): one file per goal under `00_Inbox/agentic-os/goals/`. OS-specific `goalStatus: open | done` field, `category`.
+- `/api/journal` (GET/POST + GET `?recent=N` + GET `?date=YYYY-MM-DD`): one file per day under `00_Inbox/agentic-os/journal/`.
+- UI: `/goals` (add form, active list with optimistic toggle, completed list dimmed); `/journal` (today entries + recent-day picker, ⌘+Enter to log).
+
+### Added — Memory page + FTS5 index + watcher (commit 4)
+
+- `src/kernel/vaultIndex.ts`:
+  - SQLite FTS5 (`notes_fts`) over note title + body. Sibling `notes_meta` carries type/agent/tags/created/mtime for filtering and sort.
+  - `fullScan()`: walk vault, upsert each note, skip files whose mtime hasn't changed, drop rows for deleted files. Idempotent.
+  - `chokidar` watcher on the vault root: incremental upsert on add/change, remove on unlink. Ignores `.obsidian`, `.git`, `.trash`, `node_modules`, `60_Attachments`.
+  - `search(q, limit)`: BM25-ranked hits with FTS5 `snippet()` highlighting (« » delimiters rendered as `<mark>` in the UI).
+  - Defensive coercion of YAML-parsed frontmatter values (gray-matter returns `Date` for ISO dates; SQLite needs primitives).
+- `/api/memory/search?q=&limit=`: returns hits + total indexed + elapsedMs.
+- `/memory` page: debounced search (200ms), result cards with title, highlighted snippet, type/agent badge, path, mtime.
+
+**Verified against the operator's real ~43-note vault:** full first index 259ms, subsequent queries 1ms (SQLite) / 34ms wire. Comfortably hits the ROADMAP Phase 1B exit criterion (<50ms).
+
+### Added — setup wizard + Playwright (commit 5)
+
+- `scripts/setup.mjs` (`npm run setup`): interactive first-run wizard.
+  - Detects which agent CLIs are installed (claude, hermes, openclaw, ollama).
+  - Auto-detects candidate Obsidian vault paths (anywhere under `~/Documents/Obsidian/`).
+  - Prompts for the vault path and default agent.
+  - Writes `~/.agentic-os/config.yaml` + creates `~/.agentic-os/audit/`.
+- `playwright.config.ts` + `e2e/global-setup.ts` + `e2e/dashboard.spec.ts`:
+  - 5 Playwright smoke tests covering home page render, sidebar routing, `/api/agents` shape, goal creation, journal append.
+  - `global-setup.ts` builds a throwaway vault + config in `/tmp` so tests don't depend on the operator's real `~/.agentic-os/` and can run on CI runners without Obsidian/claude/hermes installed.
+- `.github/workflows/ci.yml` now runs typecheck → vitest → Playwright on every push.
+
+### Tests + CI
+
+- Vitest: 19/19 passing (up from 11 in 0.1.0).
+  - New: `vault-reader.test.ts` (4 tests — read, list, path-escape, walk).
+  - New: `vault-index.test.ts` (4 tests — scan + search, mtime re-index, deleted-file cleanup, empty-query handling).
+- Playwright: 5 e2e smoke tests (CI-only locally — Ubuntu 26.04 host blocks the chromium install but Playwright config + tests are validated structurally via `playwright test --list`).
+- CI workflow extended with Playwright job.
+
+### Dependencies added
+
+`tailwindcss`, `@tailwindcss/postcss`, `framer-motion`, `lucide-react`, `cmdk`, `react-markdown`, `rehype-highlight`, `remark-gfm`, `highlight.js`, `better-sqlite3`, `chokidar`, `gray-matter`, `@types/better-sqlite3`, `@playwright/test`.
+
+### Known limits (deferred to 0.2.1 or later phases)
+
+- Command palette (cmdk) not yet wired despite the dep being present.
+- Markdown rendering of chat responses not yet wired (chats display as preformatted text).
+- Voice input not yet wired.
+- Inbox promotion UI (move drafts to `10_Projects/`, `40_Decisions/` etc.) is Phase 2B.
+- Health probe loop emits status-change events on the bus but no UI shows a probe-error message — clicking degraded chip should open a diagnostic later.
+
+### Migration from 0.1.0
+
+If you already have `~/.agentic-os/config.yaml` from 0.1.0, no migration needed — the schema is unchanged. On first request the FTS5 index will build itself at `~/.agentic-os/index.db`. Safe to delete and let it rebuild.
 
 ---
 
