@@ -22,6 +22,7 @@ const subprocessConfigSchema = z.object({
 const streamJsonConfigSchema = z.object({
   bin: z.string().min(1),
   args: z.array(z.string()),
+  timeoutMs: z.number().int().positive().optional(),
   cwd: z.string().optional(),
 });
 
@@ -40,6 +41,20 @@ const postRunUsageSchema = z.object({
   parser: z.enum(["hermes-session-export"]),
 });
 
+// Per-agent read-only action. Surfaced as a chip in the AgentRoom rail.
+// See docs/AGENT-MANIFEST.md and src/app/api/agents/[name]/actions/[action].
+const actionSchema = z.object({
+  id: z.string().regex(/^[a-z0-9][a-z0-9-]{0,31}$/, "action id must be kebab-case slug"),
+  label: z.string().min(1).max(40),
+  command: z.array(z.string().min(1)).nonempty(),
+  // Raised from the original 10s ceiling to 60s: `hermes insights` can
+  // legitimately take 20–40s on a busy session. The action route still
+  // clamps at 60s.
+  timeoutMs: z.number().int().positive().max(60_000).optional(),
+  hint: z.string().min(1).max(20).optional(),
+  output: z.enum(["text", "json"]).optional(),
+});
+
 const manifestSchema = z.discriminatedUnion("transport", [
   z.object({
     name: z.string().regex(/^[a-z0-9][a-z0-9-]{0,63}$/, "name must be kebab-case slug"),
@@ -53,6 +68,7 @@ const manifestSchema = z.discriminatedUnion("transport", [
     }).optional(),
     healthProbe: healthProbeSchema.optional(),
     postRunUsage: postRunUsageSchema.optional(),
+    actions: z.array(actionSchema).max(10).optional(),
   }),
   z.object({
     name: z.string().regex(/^[a-z0-9][a-z0-9-]{0,63}$/, "name must be kebab-case slug"),
@@ -66,6 +82,7 @@ const manifestSchema = z.discriminatedUnion("transport", [
     }).optional(),
     healthProbe: healthProbeSchema.optional(),
     postRunUsage: postRunUsageSchema.optional(),
+    actions: z.array(actionSchema).max(10).optional(),
   }),
 ]);
 

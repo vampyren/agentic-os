@@ -104,4 +104,155 @@ test.describe("Mission Control dashboard", () => {
     await page.getByRole("button", { name: /New session/i }).click();
     await expect(page.getByText(marker)).not.toBeVisible({ timeout: 5_000 });
   });
+
+  // Regression test for v0.2.10 AgentRoom unmount cleanup, carried forward
+  // for v0.2.11 per Hermes v0.2.8 review. The route-switch path was the
+  // gap SECURITY.md was claiming-but-not-delivering. Intercept the run
+  // endpoint with a hung response, start a stream, navigate to a different
+  // agent, then back, and assert:
+  //   - Stop button is hidden in the new room
+  //   - Textarea is enabled in the new room
+  //   - No orphan assistant message ever landed in either visible chat
+  test("route switch during in-flight stream — no orphan commits, no stale streaming UI", async ({ page }) => {
+    // Intercept the run endpoint for claude-code so a triggered send hangs
+    // indefinitely. Playwright's route handler will time out on the 30s
+    // default — that's fine, the test never actually awaits the response.
+    // We just want streaming = true so the Stop button appears, then we
+    // navigate away to trigger the unmount cleanup.
+    await page.route("**/api/agents/claude-code/run", async () => {
+      await new Promise((resolve) => setTimeout(resolve, 60_000));
+      // Connection will be dropped when the test ends — we never fulfill.
+    });
+
+    // Visit claude-code room and trigger a send.
+    await page.goto("/agents/claude-code");
+    const promptBox = page.getByPlaceholder(/Type a prompt/i);
+    await promptBox.waitFor({ state: "visible", timeout: 10_000 });
+    const marker = `e2e-route-switch-${Date.now()}`;
+    await promptBox.fill(marker);
+    await page.getByRole("button", { name: /^Send/ }).click();
+
+    // The user message appears immediately (appendUserMessage runs before
+    // fetch). The Stop button replaces Send while streaming.
+    await expect(page.getByText(marker)).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByRole("button", { name: /^Stop/ })).toBeVisible({ timeout: 5_000 });
+
+    // Navigate to a different agent. This unmounts the claude-code
+    // AgentRoom, fires the [name] cleanup useEffect, bumps the generation
+    // counter, and aborts the fetch.
+    await page.goto("/agents/hermes");
+    await page.getByPlaceholder(/Type a prompt/i).waitFor({ state: "visible", timeout: 10_000 });
+
+    // In the hermes room:
+    //   - Stop must NOT be visible (no inherited streaming state)
+    //   - Textarea must be enabled (not stuck in disabled-during-streaming)
+    //   - The marker must NOT appear (per-agent isolation)
+    await expect(page.getByRole("button", { name: /^Stop/ })).not.toBeVisible();
+    await expect(page.getByPlaceholder(/Type a prompt/i)).toBeEnabled();
+    await expect(page.getByText(marker)).not.toBeVisible();
+
+    // Navigate back to claude-code. The user marker should still be there
+    // (per-agent chat persistence), but the streaming UI must be cleared
+    // and NO "(no output)" orphan assistant message should have been
+    // committed by the cancelled run's finally block.
+    await page.goto("/agents/claude-code");
+    await page.getByPlaceholder(/Type a prompt/i).waitFor({ state: "visible", timeout: 10_000 });
+    await expect(page.getByText(marker)).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByRole("button", { name: /^Stop/ })).not.toBeVisible();
+    await expect(page.getByPlaceholder(/Type a prompt/i)).toBeEnabled();
+    // The smoking gun: if generation guard or abort failed, the finally
+    // block would have written "(no output)" into the cleared session.
+    await expect(page.getByText("(no output)")).not.toBeVisible({ timeout: 2_000 });
+  });
+
+  test("agent workspace — Chat / Control Room mode toggle (v0.2.11 layout)", async ({ page }) => {
+    // Hermes declares actions → both pills render. The default mode is
+    // Chat, so the textarea is visible. Switching to Control Room hides
+    // the chat textarea and shows the action rail header. Switching back
+    // restores the chat (per-agent chat persistence survives the toggle).
+    await page.goto("/agents/hermes");
+    await page.getByPlaceholder(/Type a prompt/i).waitFor({ state: "visible", timeout: 10_000 });
+
+    // Both mode pills present.
+    const chatPill = page.getByRole("tab", { name: /^Chat$/ });
+    const controlPill = page.getByRole("tab", { name: /^Control Room$/ });
+    await expect(chatPill).toBeVisible();
+    await expect(controlPill).toBeVisible();
+    await expect(chatPill).toHaveAttribute("aria-selected", "true");
+
+    // Switch to Control Room → chat textarea hidden, actions list visible.
+    await controlPill.click();
+    await expect(controlPill).toHaveAttribute("aria-selected", "true");
+    await expect(page.getByPlaceholder(/Type a prompt/i)).not.toBeVisible();
+    // The "ACTIONS" label in the left rail.
+    await expect(page.getByText(/^Actions$/).first()).toBeVisible();
+    // At least one action row by label (Status is first).
+    await expect(page.getByRole("button", { name: /^Status\s+env$/ })).toBeVisible();
+
+    // Switch back → chat restored.
+    await chatPill.click();
+    await expect(chatPill).toHaveAttribute("aria-selected", "true");
+    await expect(page.getByPlaceholder(/Type a prompt/i)).toBeVisible();
+  });
+
+  test("Control Room — Claude (no actions) does NOT render mode toggle", async ({ page }) => {
+    // Claude manifest declares no `actions:` block. The mode toggle is
+    // visible only when actions exist, so Claude stays chat-only by
+    // construction. Verifies the per-agent differentiation in the
+    // workspace wrapper (mirrors Julian's claude/page.tsx).
+    await page.goto("/agents/claude-code");
+    await page.getByPlaceholder(/Type a prompt/i).waitFor({ state: "visible", timeout: 10_000 });
+    await expect(page.getByRole("tab", { name: /^Control Room$/ })).not.toBeVisible();
+    // Chat textarea is the default and only mode.
+    await expect(page.getByPlaceholder(/Type a prompt/i)).toBeVisible();
+  });
+
+  test("Control Room action — runs declared action, viewer renders, chat path unaffected", async ({ page, request }) => {
+    // Action endpoint is best-effort: real `hermes` may or may not be on
+    // the CI runner's PATH. The contract under test is that the action
+    // row renders, navigating to Control Room triggers a run (default
+    // action seeds), the viewer shows a result (ok OR a neutral error),
+    // and the chat textarea remains enabled when we switch back.
+    const list = await request.get("/api/agents");
+    const json = await list.json() as { agents: Array<{ name: string; actions?: Array<{ id: string }> }> };
+    const hermes = json.agents.find((a) => a.name === "hermes");
+    if (!hermes || !hermes.actions || hermes.actions.length === 0) {
+      test.skip(true, "hermes manifest exposes no actions");
+      return;
+    }
+
+    await page.goto("/agents/hermes");
+    await page.getByPlaceholder(/Type a prompt/i).waitFor({ state: "visible", timeout: 10_000 });
+
+    // Enter Control Room.
+    await page.getByRole("tab", { name: /^Control Room$/ }).click();
+
+    // Default action (Status) auto-runs on mount. Wait for the viewer
+    // footer's "Last run · HH:MM:SS" line OR a classified error in the
+    // body — either signals the request resolved.
+    await expect(
+      page.locator("text=/Last run · |spawn-failed|non-zero-exit|timeout|killed|transport-error/").first(),
+    ).toBeVisible({ timeout: 10_000 });
+
+    // Click a different row (Doctor) and confirm the right viewer
+    // re-renders with its header.
+    await page.getByRole("button", { name: /^Doctor\s+check$/ }).click();
+    await expect(page.locator("text=hermes · doctor").first()).toBeVisible({ timeout: 5_000 });
+
+    // Viewer must use non-wrapping monospace + horizontal-scroll layout.
+    // The data-testid lives on the <pre> only when output is rendered;
+    // it's absent for error-only states, so guard the assertion.
+    const out = page.getByTestId("action-output").first();
+    if (await out.count()) {
+      const ws = await out.evaluate((el) => getComputedStyle(el).whiteSpace);
+      // Action output must NOT wrap. Acceptable values:
+      // "pre" (Tailwind whitespace-pre) or "break-spaces"-derived
+      // variants. Reject "normal" / "pre-wrap" / "pre-line".
+      expect(["pre", "break-spaces"]).toContain(ws);
+    }
+
+    // Switch back to chat — textarea must be enabled and intact.
+    await page.getByRole("tab", { name: /^Chat$/ }).click();
+    await expect(page.getByPlaceholder(/Type a prompt/i)).toBeEnabled();
+  });
 });

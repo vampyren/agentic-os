@@ -27,3 +27,64 @@ healthProbe:
 # silently ignored — the operator already got their response.
 postRunUsage:
   parser: hermes-session-export
+
+# Per-agent action set surfaced in the Control Room view (toggle on
+# /agents/hermes). Each row runs a Hermes subcommand under safeSpawn (no
+# shell, env allowlist). Per-action `timeoutMs` overrides the route's
+# 5s default and is clamped at 60s max; values set below per verb based
+# on observed durations (e.g. Insights 45s, Doctor 20s). Stdout is shown
+# in the UI viewer (after server-side ANSI strip + per-line clamp) but
+# never logged to the audit JSONL — session/insight output can contain
+# prompts and model output (operator-private content). All actions are
+# fail-soft: if hermes is missing or the verb is unsupported the row
+# shows a neutral error, the chat path is unaffected. Commands +
+# order match Julian's v0.1 reference (source-julian/.../api/hermes).
+actions:
+  - id: status
+    label: Status
+    hint: env
+    command: ["hermes", "status"]
+    output: text
+  - id: sessions
+    label: Sessions
+    hint: history
+    # Sessions list reads the SQLite session store; usually fast but
+    # can take a few seconds on large histories.
+    timeoutMs: 15000
+    command: ["hermes", "sessions", "list"]
+    output: text
+  - id: skills
+    label: Skills
+    hint: installed
+    timeoutMs: 10000
+    command: ["hermes", "skills", "list"]
+    output: text
+  - id: plugins
+    label: Plugins
+    hint: marketplace
+    # Plugins list may hit the network for marketplace metadata.
+    timeoutMs: 20000
+    command: ["hermes", "plugins", "list"]
+    output: text
+  - id: kanban
+    label: Kanban
+    hint: tasks
+    timeoutMs: 10000
+    command: ["hermes", "kanban", "list"]
+    output: text
+  - id: doctor
+    label: Doctor
+    hint: check
+    # Doctor runs a battery of health probes (binaries, models,
+    # config) — give it room before declaring the run dead.
+    timeoutMs: 20000
+    command: ["hermes", "doctor"]
+    output: text
+  - id: insights
+    label: Insights
+    hint: analytics
+    # Insights aggregates across sessions and can take 20–40s on busy
+    # histories. Previous 5s default routinely killed it before output.
+    timeoutMs: 45000
+    command: ["hermes", "insights"]
+    output: text

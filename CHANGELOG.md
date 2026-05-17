@@ -22,16 +22,96 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-**v0.2.11 — UI continued:**
-- Per-agent action rail for Hermes: `Status / Sessions / Skills / Plugins / Kanban / Doctor / Insights` (mirrors Julian's pattern, screenshot 164202). Surfaces what each CLI exposes via `hermes <verb>` instead of reinventing.
-- Memory page improvements: tabs (Local conversations / Obsidian vault), filter chips, right-pane preview (screenshot 163509).
-
-Then later:
+Queued for v0.2.12+:
 - "Send last prompt to agent X" action in the command palette.
 - Voice input on the journal page (chat box already has it).
 - Vault search results inside the command palette.
 - "Clear all chat cache" affordance (Hermes review of v0.2.7 — localStorage UX).
 - localStorage opt-out toggle (operator setting → in-memory only).
+
+---
+
+## [0.2.11] — 2026-05-17 — Feature: per-agent Control Room workspace + Memory page UX + route-switch regression test
+
+The operator's two outstanding v0.2.11 UI items both ship. Per-agent action workspace ("Control Room") gates behind a top-level mode pill toggle on `/agents/<name>` — chat stays the central conversation surface, never a container for management panels. Control Room is a 260px-left-rail + viewer-pane workbench matching Julian's v0.1 reference. The action set is manifest-driven, so any future agent (OpenClaw, Ollama-host doctor, etc.) gets one for free with an `actions:` block in its YAML. The Memory page gains a scope tab, type filter chips, and a right-pane preview. A Playwright regression test locks down the v0.2.10 unmount cleanup so future refactors of AgentRoom can't silently regress the route-switch race that Hermes flagged.
+
+### Layout — Chat ⇄ Control Room mode toggle (fixes pre-release UX review)
+
+A read-only review against Julian's v0.1 source + reference screenshots before release flagged the initial v0.2.11 placement (action chips inside the chat right column) as a blocker-level UX mismatch. Fixed before shipping:
+
+- **`src/components/AgentWorkspace.tsx`** (new) — owns the agent + vitals fetch and renders the top-row agent picker, the Chat/Control Room pill toggle, then the active mode's component. Mode toggle pills render only when the agent declares actions; Claude (no actions) stays chat-only by construction.
+- **`src/components/ControlRoom.tsx`** (new) — the action workbench: 260px left rail with vitals card + vertical action rows (label + hint badge), right viewer pane with header / monospace output / footer (Last run · char count). Mirrors `source-julian/agentic-os-v0.1/src/components/AgentRoom.tsx`. Default-selects the first action and auto-runs it on entry.
+- **`src/components/AgentRoom.tsx`** — stripped of the inline action rail. Returns to a pure chat surface (chat panel + Vitals + Tokens + About) — the contract Julian's `UnifiedChat` enforces.
+- **`src/components/AgentActionRail.tsx`** — deleted. Superseded by ControlRoom; its abort/generation guards carried forward.
+- **`src/app/agents/[name]/page.tsx`** — thin server component that renders `<AgentWorkspace>`.
+
+### Added — per-agent Control Room actions
+
+- **`AgentActionConfig` in `src/kernel/types.ts`** — optional `actions: AgentActionConfig[]` on `AgentManifest`. Each action declares `{ id, label, command: string[], timeoutMs?, hint?, output? }`. Cap of 10 per agent. All read-only; no `{prompt}` placeholder substitution — actions don't take operator input.
+- **`agents/builtin/hermes.yaml` action block** — 7 actions matching Julian's v0.1 reference order: `Status` (`hermes status`), `Sessions` (`hermes sessions list`), `Skills` (`hermes skills list`), `Plugins` (`hermes plugins list`), `Kanban` (`hermes kanban list`), `Doctor` (`hermes doctor`), `Insights` (`hermes insights`). Each row has a one-word hint (env / history / installed / marketplace / tasks / check / analytics) displayed to the right of the label. Per-action `timeoutMs` overrides set explicitly for slower verbs: Sessions 15s, Skills 10s, Plugins 20s, Kanban 10s, Doctor 20s, Insights 45s; Status uses the route-level default of 5s.
+- **`GET /api/agents/[name]/actions/[action]`** — runs the manifest-declared action through `safeSpawn` (same hardening as the chat path: no `shell:true`, env allowlist, argv length cap). Hard 256 KiB cap on stdout + stderr each. Per-action `timeoutMs`: default **5s**, clamped at **60s max** (raised from the original 10s during this release to give slow read-only verbs like `hermes insights` room to finish). Captured output is sanitised server-side before reaching the UI — `stripAnsi` removes terminal escape sequences (CSI / SGR / OSC / single-char ESC), CRLF is normalised to LF + bare CR dropped, and each line is clamped to 1000 chars with a visible `… [+N chars]` marker so pathological rows (e.g. a `hermes sessions list` Preview cell dumping a multi-kilobyte system prompt) don't break the viewer. Returns the cleaned output to the localhost UI but **never** writes raw output to the JSONL audit log. Bus + audit `stdoutChars` / `stderrChars` record the CLEANED-text lengths so what's logged matches what the operator saw. Emits `agent.action.invoke` / `agent.action.complete` / `agent.action.error` on the bus.
+- **`src/app/api/agents/route.ts`** — public `/agents` shape now includes `actions: [{ id, label, command, hint?, output? }]` so ControlRoom can render without a second round-trip.
+
+### Added — audit envelope for action invocations
+
+- **`auditAgentAction()` in `src/kernel/audit.ts`** — neutral envelope only: `{ agent, actionId, exitCode, durationMs, stdoutChars, stderrChars, errorClass?, status }`. **No raw stdout/stderr text.** Hermes session-list and insight-show output can carry operator-private content (prompt previews, model responses), and the same prompt-leak risk that drove v0.2.4's stderr fix applies here too.
+- **`agent.action` kind** added to the canonical set in `src/kernel/audit.ts`. Reserved alongside `agent.invoke` / `agent.invoke.complete` / `agent.invoke.error` / `vault.write`.
+
+### Fail-soft contract — actions never affect the chat path
+
+Control Room and Chat live in different React state trees (sibling modes inside `AgentWorkspace`, never nested). They cannot influence each other:
+1. An action endpoint returning `200 { ok: false }` is a UI hint only — the chat textarea, Stop button, and chat history are untouched.
+2. The action's AbortController is per-action and held inside `ControlRoom`; AgentRoom's `ctrlRef` is for the run endpoint only.
+3. Unknown agent / unknown action returns 404 with `{ ok: false, errorClass: "unknown-agent" | "unknown-action" }` — no audit write, no bus event.
+4. Spawn failure, timeout, or non-zero exit returns `{ ok: false, errorClass: "spawn-failed" | "timeout" | "non-zero-exit" }` with a neutral operator-facing message (the route never copies stderr text into the message field, to avoid surfacing prompt-shaped text in a status line).
+
+### Added — Memory page UX
+
+- **Scope tabs** at the top of `/memory`: "Obsidian vault" (current behavior — all notes) and "Local conversations" (filters to `type: chat` notes, i.e. the snapshots written by agents to `00_Inbox/agentic-os/chats/`). Switching scope resets type chips because the available types differ between scopes.
+- **Type filter chips** derived from current hits' frontmatter `type`. Click a chip to hide that type; chips show count badges; "clear filters" appears when any are toggled off.
+- **Right-pane preview** when a result is selected. Loads via new `GET /api/memory/note?path=<rel>` route — uses `vault/reader.ts`'s existing `assertUnderRoot()` traversal guard. Pane shows path header, parsed frontmatter as a key/value grid, then truncated body (200k chars cap). Close button or re-clicking the row dismisses.
+- **`/api/memory/search`** gained a `scope=all|chats` parameter — defaults to `all`, gracefully falls back if the value isn't on the allowlist. The chats filter is JS-side over the FTS5 hits since we don't index meta columns.
+
+### Added — regression test for route-switch race (v0.2.10 carry-forward)
+
+Hermes v0.2.8 review called out that the unmount cleanup behavior in v0.2.10 needed a test to lock it down. New e2e case `route switch during in-flight stream — no orphan commits, no stale streaming UI` does exactly that:
+1. Playwright intercepts `POST /api/agents/claude-code/run` with a 60s-hung handler.
+2. Triggers a send → asserts Stop button appears (streaming = true).
+3. Navigates to `/agents/hermes` → asserts Stop is NOT visible in the new room, textarea is enabled, marker text from the prior agent is NOT visible.
+4. Navigates back to `/agents/claude-code` → asserts the user message is still there (persistence works), Stop is still hidden, textarea enabled, and crucially **no `(no output)` orphan** got committed by the aborted run's `finally` block.
+
+A second new case exercises the action rail end-to-end (Status chip → API call → result pill) and asserts the chat textarea stays enabled regardless of action outcome — encodes the fail-soft contract as a test.
+
+### Fixed — HIGH: `(no output)` orphan committed on full-page navigation during streaming
+
+**The gap (caught by the new regression test above):** the v0.2.10 unmount-cleanup pattern (bump `sendGenRef` + abort fetch) is correct for SPA navigation, but on full page navigation (Playwright `page.goto`, browser refresh, hard reload) the browser kills the fetch at the network layer before React can run the unmount cleanup. The `send()` finally then sees `stillCurrent = true` (generation was never bumped) and writes a `"(no output)"` placeholder into `chatStore`. That message gets persisted to localStorage and resurrects on the next visit to the agent.
+
+**The fix:** added a second guard in `AgentRoom.send()`'s finally. A new local `errored` flag captures whether the try block threw. The finally now refuses to commit when the run errored AND no token content was accumulated:
+```ts
+const wouldOrphan = errored && acc.length === 0;
+if (stillCurrent && !wouldOrphan) {
+  chatStore.appendAssistantMessage(name, { text: acc || "(no output)", ... });
+}
+```
+A real agent reply that legitimately produced zero tokens still gets the `"(no output)"` marker because `!errored`. A partial response that errored mid-stream still commits the partial because `acc.length > 0`. The only case suppressed is the empty-aborted-stream case — which is exactly the orphan path.
+
+### Tests + CI
+
+- Vitest: 94 → **106 passing** — adds `tests/textSanitize.test.ts` (12 cases covering SGR colours, chained sequences, cursor / CSI moves, OSC hyperlinks, CRLF + bare-CR normalisation, idempotence, and per-line clamping).
+- Playwright: 7 → **11 passing** — route-switch regression (caught the `(no output)` orphan bug above), Chat/Control Room mode toggle, Claude-without-actions assertion, Control Room action runner.
+- Typecheck: clean.
+- Release hygiene gate green across all 6 surfaces (package.json, package-lock.json, Sidebar badge, README status line, CHANGELOG heading, INSTALL current-version line).
+- No new dependencies.
+
+### Migration
+
+Manifests without an `actions:` block work exactly as before — no rail renders. Manifests adding actions immediately get chips. The new `/api/memory/note` route is additive. No breaking changes; no data migration. The new `agent.action` audit kind appears only when an action is invoked.
+
+### Known limitations
+
+- The `hermes insights` chip assumes the verb exists on the operator's `hermes` CLI; on CLIs without it the chip surfaces a neutral `non-zero-exit` / `spawn-failed` error and the chat path is untouched. If a future Hermes release deprecates a verb, the manifest can be patched without code changes.
+- The Memory page's "Local conversations" tab filters on `frontmatter.type == "chat"` — older chat snapshots without that frontmatter (none exist; `writeDraft` has always set it) would be hidden from that tab. Vault tab shows everything.
+- Action stdout is capped at 256 KiB; a chatty CLI hits the cap and the panel shows `output truncated (256 KiB cap)`. Operator can re-run after narrowing the CLI command in `~/.agentic-os/agents/<agent>.yaml`.
 
 ---
 

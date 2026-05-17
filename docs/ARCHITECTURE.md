@@ -249,7 +249,7 @@ See [`VAULT-CONTRACT.md`](VAULT-CONTRACT.md) for the full rules and rationale.
 
 - Bind 127.0.0.1 only. No CORS for non-localhost origins.
 - Every subprocess invocation goes through a single `spawn()` helper that uses argv arrays (never `shell: true`), enforces arg-length caps, and rejects null bytes.
-- CLI verbs exposed via `/api/run` use an allowlist per agent (Julian's pattern, kept). `/api/run` itself lands in Phase 1B with the action panels.
+- Per-agent Control Room actions (read-only CLI verbs surfaced as rows in the Control Room view) are declared in each manifest's `actions:` block and invoked via `/api/agents/[name]/actions/[action]`. The endpoint uses `safeSpawn` + the env allowlist, clamps timeouts at 60s, caps stdout/stderr at 256 KiB per stream, sanitises output server-side (strip ANSI / per-line clamp) before returning to the localhost UI, and records `agent.action` JSONL entries with cleaned-text lengths only — raw output never reaches the audit log. See [`SECURITY.md`](SECURITY.md) and [`AGENT-MANIFEST.md`](AGENT-MANIFEST.md) for the full contract.
 - Vault paths normalized with `path.resolve` and rejected if they escape the vault root.
 - Audit log: JSONL, one file per UTC day at `~/.agentic-os/audit/YYYY-MM-DD.jsonl`. See [`SECURITY.md`](SECURITY.md#audit-log) and [`decisions/ADR-0009-jsonl-audit-log.md`](decisions/ADR-0009-jsonl-audit-log.md) for the schema and redaction rules.
 - See [`SECURITY.md`](SECURITY.md) for the full threat model and the plan for LAN/remote auth in later phases.

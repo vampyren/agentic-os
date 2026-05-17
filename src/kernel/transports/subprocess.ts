@@ -3,6 +3,7 @@
 // Used by Hermes (`hermes -z {prompt}`) and any other one-shot CLI agent.
 
 import { safeSpawn, renderArgs } from "../spawn";
+import { stripAnsi } from "../textSanitize";
 import type {
   AgentEvent,
   HealthReport,
@@ -89,8 +90,11 @@ export function createSubprocessTransport(manifest: AgentManifest): Transport {
       const stdout = Buffer.concat(stdoutChunks).toString("utf8");
       const stderr = Buffer.concat(stderrChunks).toString("utf8");
 
-      // Strip any ANSI escapes a CLI may still emit despite NO_COLOR.
-      const cleaned = stdout.replace(/\x1b\[[0-9;]*m/g, "").trim();
+      // Strip ANSI escapes a CLI may still emit despite NO_COLOR. Uses the
+      // shared kernel stripper (CSI / SGR / OSC / single-char ESC + CR
+      // normalisation) so the chat path matches the action route — the
+      // previous SGR-only regex let cursor / OSC sequences leak into chat.
+      const cleaned = stripAnsi(stdout).trim();
 
       if (killedForTimeout) {
         yield { kind: "error", message: `timeout after ${timeoutMs}ms` };

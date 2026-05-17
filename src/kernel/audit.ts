@@ -153,6 +153,40 @@ export async function auditAgentInvokeError(input: {
   });
 }
 
+/**
+ * Audit an agent-action invocation (Status / Sessions / Insights chips in
+ * the AgentRoom rail — read-only CLI verbs declared in the manifest's
+ * `actions:` block).
+ *
+ * SECURITY: Action stdout/stderr can contain operator-private content
+ * (Hermes sessions list echoes prompt previews; insights export model
+ * output). Per ADR-0009 / SECURITY.md the raw text MUST NOT land in the
+ * JSONL log. This helper records the action id, exit code, byte lengths,
+ * and a neutral error class only — same shape contract as
+ * auditAgentInvokeError.
+ */
+export async function auditAgentAction(input: {
+  agent: string;
+  actionId: string;
+  exitCode: number | null;
+  durationMs: number;
+  stdoutChars: number;
+  stderrChars: number;
+  errorClass?: AgentErrorClass;
+}): Promise<void> {
+  await writeLine({
+    kind: "agent.action",
+    agent: input.agent,
+    actionId: input.actionId,
+    exitCode: input.exitCode,
+    durationMs: input.durationMs,
+    stdoutChars: input.stdoutChars,
+    stderrChars: input.stderrChars,
+    ...(input.errorClass ? { errorClass: input.errorClass } : {}),
+    status: input.exitCode === 0 ? "success" : "error",
+  });
+}
+
 export async function auditVaultWrite(input: {
   agent: string;
   path: string;

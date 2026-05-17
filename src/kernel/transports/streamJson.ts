@@ -4,6 +4,13 @@
 // `assistant` or `result` event if no incremental deltas were emitted.
 // Also extracts usage stats (model, token counts, cost) from result/assistant
 // events and emits them as `usage` events.
+//
+// stderr contract: `claude -p` writes NON-fatal text to stderr (MCP server
+// logs, deprecation notices, telemetry hints). stderr is therefore BUFFERED,
+// not eagerly turned into `error` events — an `error` is emitted only if the
+// process exits non-zero, mirroring the subprocess transport. Treating every
+// stderr chunk as fatal previously surfaced a spurious error in the chat UI
+// (and a spurious audit `agent.invoke.error` line) on fully successful runs.
 
 import { safeSpawn, renderArgs } from "../spawn";
 import type {
@@ -15,6 +22,24 @@ import type {
   StreamOpts,
   Transport,
 } from "../types";
+
+// Overall wall-clock cap for a streaming invocation when the manifest does
+// not set transportConfig.timeoutMs. Matches the subprocess transport's
+// default so a wedged `claude` process can't hang forever.
+const DEFAULT_TIMEOUT = 120_000;
+
+// Ceiling on un-newlined stdout held in `buf`. NDJSON lines are normally
+// well under a kilobyte; anything past this is a pathological/garbage line,
+// so we abort rather than let the buffer grow without bound.
+const MAX_BUFFER_BYTES = 1024 * 1024;     // 1 MiB
+
+// Ceiling on accumulated fallback text (used only when no streaming deltas
+// arrived). Bounds memory if a `result` event carries a huge body.
+const MAX_FALLBACK_CHARS = 1024 * 1024;   // ~1 MiB of chars
+
+// Ceiling on the buffered stderr we hold for the error message. Avoids
+// unbounded growth if the child floods stderr.
+const MAX_STDERR_BYTES = 64 * 1024;       // 64 KiB is enough for error context
 
 /**
  * Pull usage stats out of a Claude Code stream-json event. Returns undefined
@@ -109,6 +134,7 @@ export function createStreamJsonTransport(manifest: AgentManifest): Transport {
     async *stream(opts: StreamOpts): AsyncIterable<AgentEvent> {
       const startedAt = Date.now();
       const args = renderArgs(cfg.args, opts.prompt);
+      const timeoutMs = cfg.timeoutMs ?? DEFAULT_TIMEOUT;
 
       let child;
       try {
@@ -128,11 +154,23 @@ export function createStreamJsonTransport(manifest: AgentManifest): Transport {
       let sawDelta = false;
       let fallbackText = "";
       let buf = "";
+      // stderr is buffered, not eagerly emitted — see the stderr contract
+      // note at the top of this file. Surfaced as an `error` event only on
+      // a non-zero exit.
+      let stderrBuf = "";
+      let killedForTimeout = false;
+      let killedForBuffer = false;
 
       const push = (e: AgentEvent) => {
         queue.push(e);
         resolveNext?.();
       };
+
+      // Overall wall-clock guard. Cleared in the close / error handlers below.
+      const timeout = setTimeout(() => {
+        killedForTimeout = true;
+        try { child.kill("SIGKILL"); } catch { /* ignore */ }
+      }, timeoutMs);
 
       const handleLine = (line: string) => {
         const trimmed = line.trim();
@@ -171,7 +209,13 @@ export function createStreamJsonTransport(manifest: AgentManifest): Transport {
                 (part as Record<string, unknown>)["type"] === "text"
               ) {
                 const text = (part as Record<string, unknown>)["text"];
-                if (typeof text === "string") fallbackText += text;
+                if (typeof text === "string" && fallbackText.length < MAX_FALLBACK_CHARS) {
+                  // Hard-cap: a single huge `text` mustn't blow past the
+                  // ceiling. Clamp to remaining capacity, not just the
+                  // pre-append length.
+                  const remaining = MAX_FALLBACK_CHARS - fallbackText.length;
+                  fallbackText += text.slice(0, remaining);
+                }
               }
             }
           }
@@ -184,7 +228,7 @@ export function createStreamJsonTransport(manifest: AgentManifest): Transport {
         if (e["type"] === "result") {
           const r = e["result"];
           if (typeof r === "string" && r.length > 0) {
-            if (!fallbackText) fallbackText = r;
+            if (!fallbackText) fallbackText = r.slice(0, MAX_FALLBACK_CHARS);
           }
           const usage = extractUsage(e);
           if (usage) push({ kind: "usage", usage });
@@ -209,16 +253,27 @@ export function createStreamJsonTransport(manifest: AgentManifest): Transport {
           buf = buf.slice(nl + 1);
           handleLine(line);
         }
+        // A single un-newlined line past the ceiling is pathological —
+        // abort rather than buffer without bound.
+        if (buf.length > MAX_BUFFER_BYTES) {
+          killedForBuffer = true;
+          buf = "";
+          try { child.kill("SIGKILL"); } catch { /* ignore */ }
+        }
       });
 
       child.stderr?.on("data", (b: Buffer) => {
-        const text = b.toString("utf8");
-        push({ kind: "error", message: text.slice(0, 500) });
+        // Buffer stderr; do NOT emit an error per chunk. `claude -p` writes
+        // non-fatal text here. We surface it (and only it) on non-zero exit.
+        if (stderrBuf.length < MAX_STDERR_BYTES) {
+          stderrBuf += b.toString("utf8");
+        }
       });
 
       try { child.stdin?.end(); } catch { /* ignore */ }
 
       child.on("close", (code) => {
+        clearTimeout(timeout);
         // Flush any final buffered line.
         if (buf.trim()) handleLine(buf);
         buf = "";
@@ -226,10 +281,23 @@ export function createStreamJsonTransport(manifest: AgentManifest): Transport {
           push({ kind: "token", text: fallbackText });
         }
         exitCode = code;
+        // Emit error events only for genuine failures — never for a clean
+        // run that merely wrote informational text to stderr.
+        if (killedForTimeout) {
+          push({ kind: "error", message: `timeout after ${timeoutMs}ms` });
+        } else if (killedForBuffer) {
+          push({ kind: "error", message: `stdout exceeded ${MAX_BUFFER_BYTES} byte buffer cap` });
+        } else if (code !== 0 && code !== null) {
+          push({
+            kind: "error",
+            message: stderrBuf.trim().slice(0, 500) || `exit ${code}`,
+          });
+        }
         closed = true;
         resolveNext?.();
       });
       child.on("error", (e) => {
+        clearTimeout(timeout);
         push({ kind: "error", message: String(e) });
         closed = true;
         resolveNext?.();
