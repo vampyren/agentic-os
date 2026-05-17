@@ -166,6 +166,34 @@ async function atomicWrite(finalPath: string, content: string): Promise<void> {
   await fs.rename(tmp, finalPath);
 }
 
+// `withFileLock` serializes the whole critical section per absolute path by
+// chaining promises in an in-process map. Single-process scope only — that
+// matches the deployment model (one local Next.js process). The map entry is
+// cleared once its chain drains so it doesn't leak across many distinct
+// files over a long-running session.
+//
+// Used by appendJournalEntry + updateFrontmatter: both do a read → build →
+// atomicWrite that would lose updates under concurrent invocation (e.g. a
+// fast double-tap on the journal compose button, or two goal toggles within
+// the same tick). Per-path serialization fixes that without a real filesystem
+// lock.
+const fileLocks = new Map<string, Promise<unknown>>();
+
+async function withFileLock<T>(absPath: string, fn: () => Promise<T>): Promise<T> {
+  const key = path.resolve(absPath);
+  const prev = fileLocks.get(key) ?? Promise.resolve();
+  // The next caller waits for `prev` to settle (success OR failure) before
+  // running — `.catch(() => {})` makes the chain non-poisoning.
+  const run = prev.catch(() => {}).then(fn);
+  fileLocks.set(key, run);
+  try {
+    return await run;
+  } finally {
+    // Only clear if no newer caller has chained on after us.
+    if (fileLocks.get(key) === run) fileLocks.delete(key);
+  }
+}
+
 export async function writeDraft(input: WriteDraftInput): Promise<WriteDraftResult> {
   if (!path.isAbsolute(input.vaultRoot)) {
     throw new Error(`vaultRoot must be absolute: ${input.vaultRoot}`);
@@ -246,29 +274,35 @@ export async function appendJournalEntry(input: AppendJournalInput): Promise<Wri
   const time = new Date().toISOString().slice(11, 16);
   const entrySection = `\n### ${time}\n\n${input.text.trim()}\n`;
 
-  let exists = false;
-  try { await fs.access(finalPath); exists = true; } catch { /* new file */ }
+  // Serialize the read-modify-write so two concurrent appends to today's
+  // file can't lose each other's entry. Everything that reads `finalPath`,
+  // builds new content, and writes it back must be inside the lock.
+  const { content, exists, bytes } = await withFileLock(finalPath, async () => {
+    let exists = false;
+    try { await fs.access(finalPath); exists = true; } catch { /* new file */ }
 
-  let content: string;
-  if (exists) {
-    const old = await fs.readFile(finalPath, "utf8");
-    content = old.replace(/\n*$/, "") + entrySection + "\n";
-  } else {
-    const fm: Frontmatter = {
-      type: "journal",
-      status: "draft",
-      source: [input.agent],
-      agent: input.agent,
-      tags: approvedOnly(input.tags ?? []),
-      aliases: [],
-      created: today,
-    };
-    content = buildMarkdown({ fm, title: `Journal — ${today}`, body: entrySection.trimStart() });
-  }
+    let content: string;
+    if (exists) {
+      const old = await fs.readFile(finalPath, "utf8");
+      content = old.replace(/\n*$/, "") + entrySection + "\n";
+    } else {
+      const fm: Frontmatter = {
+        type: "journal",
+        status: "draft",
+        source: [input.agent],
+        agent: input.agent,
+        tags: approvedOnly(input.tags ?? []),
+        aliases: [],
+        created: today,
+      };
+      content = buildMarkdown({ fm, title: `Journal — ${today}`, body: entrySection.trimStart() });
+    }
 
-  await atomicWrite(finalPath, content);
+    await atomicWrite(finalPath, content);
+    return { content, exists, bytes: Buffer.byteLength(content, "utf8") };
+  });
+
   const rel = path.relative(input.vaultRoot, finalPath);
-  const bytes = Buffer.byteLength(content, "utf8");
 
   await auditVaultWrite({
     agent: input.agent,
@@ -304,23 +338,30 @@ export async function updateFrontmatter(input: UpdateFrontmatterInput): Promise<
   assertInsideInbox(abs, input.vaultRoot);
   if (!/\.md$/i.test(abs)) throw new Error(`not a markdown file: ${input.relPath}`);
 
-  const raw = await fs.readFile(abs, "utf8");
-  // Find existing frontmatter block.
-  const fmMatch = raw.match(/^---\n([\s\S]*?)\n---\n/);
-  let body: string;
-  let fm: Record<string, unknown>;
-  if (fmMatch) {
-    try { fm = YAML.parse(fmMatch[1] ?? "") as Record<string, unknown>; }
-    catch { throw new Error(`existing frontmatter is invalid YAML in ${input.relPath}`); }
-    body = raw.slice(fmMatch[0].length);
-  } else {
-    fm = {};
-    body = raw;
-  }
+  // Same read-modify-write race as appendJournalEntry: two concurrent
+  // frontmatter patches (e.g. a fast double-tap on a goal toggle) would
+  // both read the same `raw` and the second rename would drop the first
+  // patch. Serialize per file path.
+  const newContent = await withFileLock(abs, async () => {
+    const raw = await fs.readFile(abs, "utf8");
+    // Find existing frontmatter block.
+    const fmMatch = raw.match(/^---\n([\s\S]*?)\n---\n/);
+    let body: string;
+    let fm: Record<string, unknown>;
+    if (fmMatch) {
+      try { fm = YAML.parse(fmMatch[1] ?? "") as Record<string, unknown>; }
+      catch { throw new Error(`existing frontmatter is invalid YAML in ${input.relPath}`); }
+      body = raw.slice(fmMatch[0].length);
+    } else {
+      fm = {};
+      body = raw;
+    }
 
-  const merged = { ...fm, ...input.patch };
-  const newContent = `---\n${YAML.stringify(merged, { lineWidth: 0 }).trimEnd()}\n---\n${body}`;
-  await atomicWrite(abs, newContent);
+    const merged = { ...fm, ...input.patch };
+    const content = `---\n${YAML.stringify(merged, { lineWidth: 0 }).trimEnd()}\n---\n${body}`;
+    await atomicWrite(abs, content);
+    return content;
+  });
 
   const rel = path.relative(input.vaultRoot, abs);
   const bytes = Buffer.byteLength(newContent, "utf8");

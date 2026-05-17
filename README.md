@@ -2,7 +2,7 @@
 
 A local-first mission control for your AI agents. Single dashboard. Pluggable brains. Your knowledge stays in your vault.
 
-> **Status: v0.2.10 — Phase 1B feature: top-row agent picker + nav-abort cleanup.** Runnable. Two built-in agents (Claude Code, Hermes) work end-to-end. Mission Control UI, vault inbox-first writes, SQLite FTS5 search, setup wizard, JSONL audit log with full prompt redaction (argv, filenames, AND stderr). See [`CHANGELOG.md`](CHANGELOG.md) for version history.
+> **Status: v0.2.11 — Phase 1B feature: per-agent action rail + Memory page UX.** Runnable. Two built-in agents (Claude Code, Hermes) work end-to-end. Mission Control UI, top-row agent picker, action rail with Hermes Status/Sessions/Insights chips, Memory page with tabs + filter chips + right-pane preview, vault inbox-first writes, SQLite FTS5 search, setup wizard, JSONL audit log with full prompt redaction (argv, filenames, stderr, AND action output). See [`CHANGELOG.md`](CHANGELOG.md) for version history.
 
 ---
 

@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import {
   LayoutGrid, Bot, Target, BookOpen, Search, Activity, Settings,
 } from "lucide-react";
+import { APP_VERSION_LABEL } from "@/lib/appVersion";
 
 interface NavItem {
   href: string;
@@ -42,7 +43,7 @@ export default function Sidebar() {
         <div className="flex flex-col leading-tight">
           <span className="text-[15px] font-semibold tracking-tight">Agentic OS</span>
           <span className="text-[10px] uppercase tracking-widest text-[var(--fg-dimmer)]">
-            v0.2.10 · ⌘K
+            {APP_VERSION_LABEL} · ⌘K
           </span>
         </div>
       </Link>

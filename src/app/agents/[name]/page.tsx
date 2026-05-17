@@ -1,4 +1,4 @@
-import AgentRoom from "@/components/AgentRoom";
+import AgentWorkspace from "@/components/AgentWorkspace";
 
 export default async function AgentRoomPage({
   params,
@@ -6,5 +6,5 @@ export default async function AgentRoomPage({
   params: Promise<{ name: string }>;
 }) {
   const { name } = await params;
-  return <AgentRoom name={name} />;
+  return <AgentWorkspace name={name} />;
 }

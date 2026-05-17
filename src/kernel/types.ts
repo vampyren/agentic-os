@@ -14,6 +14,7 @@ export interface SubprocessTransportConfig {
 export interface StreamJsonTransportConfig {
   bin: string;
   args: string[];                       // "{prompt}" tokens get replaced at runtime
+  timeoutMs?: number;                   // overall wall-clock cap; default 120_000
   cwd?: string;
 }
 
@@ -28,6 +29,24 @@ export interface PostRunUsageConfig {
   parser: "hermes-session-export";
 }
 
+// Per-agent action: read-only CLI invocation surfaced as a chip in the
+// AgentRoom action rail. NOT part of the chat path — actions run via their
+// own endpoint, do not produce token streams, and never block or fail the
+// chat. See docs/AGENT-MANIFEST.md.
+export interface AgentActionConfig {
+  id: string;                           // kebab-case slug, used in URL + as key
+  label: string;                        // human-readable row text
+  command: string[];                    // argv, no shell. First element is bin.
+  timeoutMs?: number;                   // default 5000, max 60_000 (route enforces both)
+  // Optional short text shown to the right of the label in the Control
+  // Room rail (e.g. "env", "history", "installed"). Mirrors Julian's
+  // reference layout — gives the operator a one-word "what does this do".
+  hint?: string;
+  // How the UI should render captured stdout. `text` is a monospace pre;
+  // `json` is pretty-printed JSON if parseable, falls back to text otherwise.
+  output?: "text" | "json";
+}
+
 export interface AgentManifest {
   name: string;
   displayName: string;
@@ -37,6 +56,7 @@ export interface AgentManifest {
   capabilities?: { chat?: boolean; streamingChat?: boolean };
   healthProbe?: HealthProbeConfig;
   postRunUsage?: PostRunUsageConfig;
+  actions?: AgentActionConfig[];
 }
 
 export interface HealthReport {

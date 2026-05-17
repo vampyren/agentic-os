@@ -5,7 +5,7 @@ import { describe, it, expect, beforeEach, afterEach, beforeAll, afterAll } from
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import os from "node:os";
-import { writeDraft, __TEST__ } from "../src/vault/writer";
+import { writeDraft, appendJournalEntry, __TEST__ } from "../src/vault/writer";
 
 let vaultRoot: string;
 let auditDir: string;
@@ -117,5 +117,39 @@ describe("vault writer", () => {
     // Title heading appears below frontmatter, not above.
     expect(content.indexOf("# what is the meaning of life"))
       .toBeGreaterThan(content.indexOf("---\n"));
+  });
+});
+
+// ─── concurrent journal append — must not lose entries (no read-modify-write race)
+
+describe("vault writer — concurrent journal append", () => {
+  it("preserves all entries when several appendJournalEntry calls fire in parallel", async () => {
+    // Pre-fix, two appendJournalEntry calls landing in the same tick would
+    // both read the file (same starting content), both build a new content
+    // (each containing only their own entry on top of the original), and
+    // both atomicWrite. The second rename clobbers the first. Lost update.
+    //
+    // Post-fix: withFileLock serializes the read-build-write block per
+    // absolute path, so every entry survives. We fire several distinct
+    // entries concurrently and expect to find ALL of them in the final
+    // day file.
+    const N = 8;
+    const markers = Array.from({ length: N }, (_, i) => `concurrent-marker-${i}-${Math.random().toString(36).slice(2, 8)}`);
+    const results = await Promise.all(
+      markers.map((m) =>
+        appendJournalEntry({ vaultRoot, agent: "test-agent", text: m }),
+      ),
+    );
+
+    // All calls should resolve to the same day file (today's journal).
+    const uniquePaths = new Set(results.map((r) => r.absolutePath));
+    expect(uniquePaths.size, "all concurrent appends should target one file").toBe(1);
+
+    const finalPath = results[0]!.absolutePath;
+    const content = await fs.readFile(finalPath, "utf8");
+
+    for (const m of markers) {
+      expect(content, `marker '${m}' must appear in the final journal file`).toContain(m);
+    }
   });
 });

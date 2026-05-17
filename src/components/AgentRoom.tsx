@@ -6,7 +6,6 @@ import { Send, Square, Sparkles, RotateCcw } from "lucide-react";
 import Pill, { type PillTone } from "./Pill";
 import Markdown from "./Markdown";
 import VoiceButton from "./VoiceButton";
-import AgentTabs from "./AgentTabs";
 import { accentFor } from "@/lib/accent";
 import { resolveModel, contextBreakdown } from "@/lib/models";
 import { chatStore } from "@/lib/chatStore";
@@ -120,6 +119,7 @@ export default function AgentRoom({ name }: { name: string }) {
     let savedPath: string | undefined;
     let lastUsage: Usage = {};
     let usageSeen = false;
+    let errored = false;
 
     try {
       const r = await fetch(`/api/agents/${encodeURIComponent(name)}/run`, {
@@ -157,15 +157,25 @@ export default function AgentRoom({ name }: { name: string }) {
         }
       }
     } catch (e) {
+      errored = true;
       if (!ctrl.signal.aborted) setError(String(e));
     } finally {
-      // Race guard: don't commit if the operator clicked New session (or
-      // started another send) while this run was still in flight. Without
-      // this guard, an aborted send's finally would write "(no output)" or
-      // a partial response into the cleared session. (Hermes review of
-      // v0.2.7.)
+      // Race guard #1 (Hermes review of v0.2.7): don't commit if the
+      // operator clicked New session (or started another send) while this
+      // run was still in flight. SPA navigation between agents bumps the
+      // generation via the unmount cleanup before the finally runs.
       const stillCurrent = myGeneration === sendGenRef.current;
-      if (stillCurrent) {
+      // Race guard #2 (v0.2.11 regression test): on full page navigation
+      // (e.g. Playwright page.goto, or a reload), the browser kills the
+      // fetch at the network layer before React can run the unmount
+      // cleanup. The finally then sees stillCurrent=true (generation was
+      // never bumped) and would commit a "(no output)" orphan that
+      // persists to localStorage and re-renders on the next visit. The
+      // fix: refuse to commit an empty placeholder for runs that errored.
+      // A real agent reply that legitimately produced nothing still gets
+      // the "(no output)" marker because !errored.
+      const wouldOrphan = errored && acc.length === 0;
+      if (stillCurrent && !wouldOrphan) {
         chatStore.appendAssistantMessage(name, {
           role: "assistant",
           text: acc || "(no output)",
@@ -176,6 +186,8 @@ export default function AgentRoom({ name }: { name: string }) {
           // kernel/parser/store guards (v0.2.8).
           usage: usageSeen ? lastUsage : undefined,
         });
+      }
+      if (stillCurrent) {
         setPartial("");
         setStreaming(false);
         ctrlRef.current = null;
@@ -206,11 +218,7 @@ export default function AgentRoom({ name }: { name: string }) {
   }
 
   return (
-    <div className="flex flex-col gap-4 min-h-[70vh]">
-      {/* Top-row agent picker — operator's most-frequent action, lifted out
-          of the sidebar (operator feedback after v0.2.7). */}
-      <AgentTabs current={name} />
-
+    <div className="flex flex-col gap-4 min-h-[60vh]">
       <div className="grid lg:grid-cols-[1fr_280px] gap-6 flex-1 min-h-0">
       {/* Chat surface */}
       <section className="panel flex flex-col min-h-0">

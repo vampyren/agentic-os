@@ -52,11 +52,21 @@ healthProbe:
   url: "http://localhost:11434/api/tags"
   expectStatus: 200
 
-# OPTIONAL — verb allowlist for /api/run (action panel in the UI)
-verbs:
-  - { name: "status",   args: ["status"] }
-  - { name: "doctor",   args: ["doctor"] }
-  - { name: "sessions", args: ["sessions", "list"] }
+# OPTIONAL — Control Room actions (manifest-declared read-only CLI verbs
+# surfaced as rows in the agent's Control Room view, called via
+# /api/agents/[name]/actions/[action]). See "Control Room actions" section
+# below for the full schema, security contract, and a Hermes example.
+actions:
+  - id: status
+    label: Status
+    hint: env
+    command: ["hermes", "status"]
+    # timeoutMs optional — default 5s, clamped at 60s max
+
+# DEPRECATED — `verbs:` was a planned but never-implemented v0.1 design for
+# an `/api/run` endpoint. Replaced before v0.2.11 by the `actions:` block
+# above plus `/api/agents/[name]/actions/[action]`. Do not use `verbs:` in
+# new manifests; the loader ignores it.
 
 # OPTIONAL — log tailing for activity stream
 logs:
@@ -249,6 +259,98 @@ healthProbe:
   url: "http://localhost:11434/api/tags"
   expectStatus: 200
 ```
+
+## Control Room actions
+
+A manifest may optionally declare an `actions:` block. Each entry becomes a row in the agent's Control Room view (the workbench mode toggled next to Chat on `/agents/<name>`). Each row is a **read-only** CLI invocation called via `/api/agents/[name]/actions/[action]`.
+
+### Schema
+
+```yaml
+actions:
+  - id: string                  # REQUIRED. kebab-case slug, used in the URL + as React key.
+                                # ^[a-z0-9][a-z0-9-]{0,31}$
+    label: string               # REQUIRED. Row text, 1–40 chars.
+    command: [bin, arg1, ...]   # REQUIRED. argv passed to safeSpawn. Never `shell:true`.
+                                # First element is the binary, rest are arguments.
+    timeoutMs: integer          # OPTIONAL. Per-action timeout. Default 5000.
+                                # Clamped at the route level to 60_000 max.
+    hint: string                # OPTIONAL. Short text shown on the right of the row
+                                # (e.g. "env", "history"). 1–20 chars.
+    output: text | json         # OPTIONAL. UI render hint. Default "text".
+```
+
+Cap: **10 actions per agent**. The zod schema in `src/kernel/manifest.ts` is the authoritative shape; any drift fails manifest validation at startup.
+
+### Security + output contract
+
+Each action invocation:
+
+- Spawns via `safeSpawn` (argv arrays only, no `shell:true`, env allowlist per `src/kernel/spawn.ts`).
+- Captures up to **256 KiB stdout + 256 KiB stderr**; beyond that the child is killed and `truncated: true` is returned.
+- Cleans the captured text server-side via `src/kernel/textSanitize.ts`: `stripAnsi` removes terminal escape sequences, CRLF → LF + bare CR dropped, each line clamped to 1000 chars with a `… [+N chars]` marker.
+- Returns the cleaned output to the localhost UI only. The raw text **never** reaches the JSONL audit log.
+- Records `auditAgentAction` with neutral metadata: `agent`, `actionId`, `exitCode`, `durationMs`, `stdoutChars`, `stderrChars` (cleaned lengths), optional `errorClass`, `status`.
+- On failure: returns HTTP 200 with `{ ok: false, errorClass, errorMessage }`. `errorClass` is one of the fixed enum from `classifyAgentError`; `errorMessage` is a stock neutral phrase — never derived from raw stderr.
+
+See `docs/SECURITY.md` "Per-agent Control Room actions" for the full hardening contract.
+
+### Hermes example (built-in)
+
+`agents/builtin/hermes.yaml` declares the canonical 7-action set in Julian's v0.1 reference order. Per-action `timeoutMs` is tuned to observed durations:
+
+```yaml
+actions:
+  - id: status
+    label: Status
+    hint: env
+    command: ["hermes", "status"]
+    # default 5s timeout
+
+  - id: sessions
+    label: Sessions
+    hint: history
+    timeoutMs: 15000
+    command: ["hermes", "sessions", "list"]
+
+  - id: skills
+    label: Skills
+    hint: installed
+    timeoutMs: 10000
+    command: ["hermes", "skills", "list"]
+
+  - id: plugins
+    label: Plugins
+    hint: marketplace
+    timeoutMs: 20000
+    command: ["hermes", "plugins", "list"]
+
+  - id: kanban
+    label: Kanban
+    hint: tasks
+    timeoutMs: 10000
+    command: ["hermes", "kanban", "list"]
+
+  - id: doctor
+    label: Doctor
+    hint: check
+    timeoutMs: 20000
+    command: ["hermes", "doctor"]
+
+  - id: insights
+    label: Insights
+    hint: analytics
+    timeoutMs: 45000
+    command: ["hermes", "insights"]
+```
+
+### When to add actions to a new agent
+
+- The CLI exposes read-only verbs the operator wants visible without opening a terminal (status, doctor, list-sessions, etc.).
+- The verbs run in seconds-to-tens-of-seconds (>60s won't fit the route's timeout ceiling — split into smaller verbs or skip).
+- The output is text-shaped (tables, status reports). For long streamed output, keep it in the chat path instead.
+
+Agents that are chat-only (e.g. Claude Code) should omit the `actions:` block entirely — the Control Room mode toggle then doesn't render at all, matching the "no fake affordances" rule.
 
 ## Naming conventions
 

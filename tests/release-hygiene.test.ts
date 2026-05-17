@@ -36,14 +36,37 @@ describe("release hygiene — version consistency", () => {
     expect(rootPkg!.version).toBe(pkg.version);
   });
 
-  it("sidebar in-app version badge matches package.json version", async () => {
+  it("appVersion lib derives APP_VERSION + APP_VERSION_LABEL from package.json", async () => {
+    // Single source of truth: src/lib/appVersion.ts imports package.json and
+    // re-exports `APP_VERSION` (semver) + `APP_VERSION_LABEL` ("v" + semver).
+    // The whole UI version display flows through this module so a bump to
+    // package.json automatically updates everything that displays a version.
     const pkg = await readJson<Pkg>("package.json");
+    const lib = await import("../src/lib/appVersion");
+    expect(lib.APP_VERSION).toBe(pkg.version);
+    expect(lib.APP_VERSION_LABEL).toBe(`v${pkg.version}`);
+  });
+
+  it("Sidebar.tsx renders the version via APP_VERSION_LABEL, not a hardcoded literal", async () => {
+    // Lesson from the v0.2.11 review: the sidebar badge was a string literal
+    // (`v0.2.11 · ⌘K`) that had to be hand-bumped every release. If forgotten,
+    // only this test caught the drift after the fact. The new contract: the
+    // sidebar MUST import APP_VERSION_LABEL and MUST NOT contain a raw
+    // `v\d+\.\d+\.\d+ · ⌘K` literal anywhere in the file.
     const sidebar = await fs.readFile(path.join(REPO_ROOT, "src/components/Sidebar.tsx"), "utf8");
-    // Expect a line like `v0.2.4 · ⌘K` in the sidebar.
-    const badgeRegex = /v(\d+\.\d+\.\d+)\s*·\s*⌘K/;
-    const match = sidebar.match(badgeRegex);
-    expect(match, "sidebar badge must contain `vX.Y.Z · ⌘K`").not.toBeNull();
-    expect(match![1]).toBe(pkg.version);
+    expect(
+      sidebar,
+      "Sidebar.tsx must import { APP_VERSION_LABEL } from '@/lib/appVersion'",
+    ).toMatch(/import\s*\{\s*APP_VERSION_LABEL\s*\}\s*from\s*["']@\/lib\/appVersion["']/);
+    expect(
+      sidebar,
+      "Sidebar.tsx must render {APP_VERSION_LABEL} (not a hardcoded version string)",
+    ).toMatch(/\{\s*APP_VERSION_LABEL\s*\}/);
+    // Explicit anti-regression: no `vX.Y.Z · ⌘K` literal allowed.
+    expect(
+      sidebar.match(/v\d+\.\d+\.\d+\s*·\s*⌘K/),
+      "Sidebar.tsx must not contain a hardcoded `vX.Y.Z · ⌘K` literal — use APP_VERSION_LABEL",
+    ).toBeNull();
   });
 
   it("README status line names the current version", async () => {

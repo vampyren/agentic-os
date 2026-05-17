@@ -39,13 +39,24 @@ All subprocess calls go through a single helper (`src/kernel/spawn.ts`). Rules:
   - **If a CLI breaks because it needed a var not on the allowlist:** add the var to its manifest's `env:` block (manifest-declared additions always win). Don't expand the global allowlist unless the var is universally safe.
 - Process timeout: per-transport. Subprocess default 120s. Streaming has no hard timeout but the operator can cancel from the UI (which sends `SIGTERM`).
 
-## CLI verb allowlist (`/api/run`)
+## Per-agent Control Room actions (`/api/agents/[name]/actions/[action]`)
 
-The action panels in the UI call CLI verbs like `openclaw doctor` or `hermes status`. These go through `/api/run`, which:
+The Control Room view on each agent page (introduced in v0.2.11) lets the operator run read-only CLI verbs like `hermes status`, `hermes sessions list`, `hermes doctor`, `hermes insights`. These go through `/api/agents/[name]/actions/[action]`. Hardening contract:
 
-- Accepts only manifests' declared `verbs:` entries.
-- Each verb's args are matched by regex; mismatches are rejected with 403.
-- The prompt body of a chat is never passed through `/api/run` — chats go through transport-specific endpoints that take a single `prompt` field, validated and length-capped.
+- **Manifest allowlist.** Each agent's YAML manifest declares an optional `actions: [...]` block (zod-validated at load — see `docs/AGENT-MANIFEST.md`). Each entry is `{ id, label, command: string[], timeoutMs?, hint?, output? }`. Cap of 10 actions per agent. Unknown agent → 404 `unknown-agent`; unknown action → 404 `unknown-action`. Neither triggers an audit write or bus event.
+- **`safeSpawn` only.** Same helper as the chat path. argv arrays only — no `shell: true`. Null bytes in args rejected. 32 KB max arg length. Environment built from `ENV_ALLOWLIST` per the rule above; manifest `env:` additions on top.
+- **Per-stream byte cap.** 256 KiB on stdout AND stderr each. Beyond the cap, the child is killed with `SIGKILL` and the response carries `truncated: true`.
+- **Per-action timeout.** Default **5s**, clamped at **60s max** at the route level (raised from the original 10s during v0.2.11 so legitimately-slow read-only verbs like `hermes insights` can finish). Each manifest action may override `timeoutMs` up to that ceiling.
+- **Output sanitisation before the UI sees it.** Captured stdout/stderr passes through `src/kernel/textSanitize.ts`:
+  - `stripAnsi()` removes terminal escape sequences (CSI / SGR / OSC / single-char ESC) — without it, the browser `<pre>` would render literal `\x1b[1m` / `\x1b[0m` artifacts.
+  - CRLF is normalised to LF; bare CR (progress-bar `\r` redraws) is dropped.
+  - `clampLines()` truncates any single line longer than 1000 chars with a visible `… [+N chars]` marker. This catches pathological rows like a `hermes sessions list` Preview cell that dumps a multi-kilobyte system prompt — the rest of the row's columns stay readable.
+- **Raw output stays operator-private.** The cleaned output is returned in the localhost-only HTTP response body so the Control Room viewer can render it. It is **NEVER** written to the JSONL audit log. Action stdout from `hermes sessions list` / `hermes insights` legitimately contains prompt previews and model output; same prompt-leak risk that drove v0.2.4's stderr fix applies here.
+- **Audit + bus lengths reflect CLEANED text.** `auditAgentAction` records `stdoutChars` / `stderrChars` computed AFTER `stripAnsi` + `clampLines` — matches what the operator actually saw in the viewer. Same for the bus event payload.
+- **Neutral classified errors.** On non-zero exit / timeout / spawn failure, `classifyAgentError` returns a fixed enum (`spawn-failed | timeout | killed | non-zero-exit | transport-error | unknown`). `neutralErrorMessage` returns a stock phrase per class. The UI error text is **never derived from raw stderr** — that text could echo a prompt.
+- **Fail-soft contract.** An action error (HTTP 200 with `{ ok: false, errorClass, errorMessage }`) is a UI hint only. The chat textarea, Stop button, chat history, and any other agent's Control Room are untouched. ControlRoom holds a per-action AbortController + generation counter so a slow chip can't write into a re-clicked or unmounted room.
+
+Chats go through a separate transport-specific endpoint (`/api/agents/[name]/run`) that takes a single length-capped `prompt` field — never through the actions route.
 
 ## Vault path safety
 
@@ -87,9 +98,12 @@ Each line is a single JSON object. Example records (real shape from `src/kernel/
 {"ts":"2026-05-16T10:12:12.500Z","id":"...","kind":"agent.invoke.complete","agent":"claude-code","durationMs":12345,"exitCode":0,"bytesOut":1024,"status":"success"}
 {"ts":"2026-05-16T10:12:13.456Z","id":"...","kind":"vault.write","agent":"claude-code","path":"00_Inbox/agentic-os/chats/2026-05-16-1012-claude-code-a1b2c3d4.md","action":"create","bytes":4821}
 {"ts":"2026-05-16T10:12:14.789Z","id":"...","kind":"agent.invoke.error","agent":"some-agent","errorClass":"non-zero-exit","exitCode":7,"stderrSha8":"deadbeef","stderrChars":142,"transport":"subprocess"}
+{"ts":"2026-05-17T05:32:11.123Z","id":"...","kind":"agent.action","agent":"hermes","actionId":"sessions","exitCode":0,"durationMs":1652,"stdoutChars":1480,"stderrChars":0,"status":"success"}
 ```
 
-**Kinds (current set):** `agent.invoke`, `agent.invoke.complete`, `agent.invoke.error`, `vault.write`, `vault.update`. Future kinds reserved: `vault.promote`, `secrets.read`, `verb.run`, `mission.run`, `system.boot`, `system.shutdown`.
+**Kinds (current set):** `agent.invoke`, `agent.invoke.complete`, `agent.invoke.error`, `agent.action`, `vault.write`, `vault.update`. Future kinds reserved: `vault.promote`, `secrets.read`, `verb.run`, `mission.run`, `system.boot`, `system.shutdown`.
+
+**Note on `agent.action`:** neutral metadata only — `agent`, `actionId`, `exitCode`, `durationMs`, `stdoutChars`, `stderrChars`, `status`, optional `errorClass`. **Never carries raw stdout/stderr.** Lengths reflect cleaned text (post `stripAnsi` + `clampLines`). See the Control Room actions section above for the full hardening contract.
 
 **Note on `agent.invoke.error`:** never carries a raw `message` field. Per the SEC-001 fix in v0.2.4, only neutral metadata is recorded — `errorClass` (one of `non-zero-exit` / `spawn-failed` / `timeout` / `killed` / `transport-error` / `unknown`), `exitCode`, `stderrSha8` (8-char correlation hash), `stderrChars` (length), and `transport`. The raw stderr/error text stays on the in-memory bus for live UI display but never reaches JSONL. This guards against agent CLIs that echo the prompt to stderr.
 
@@ -148,6 +162,25 @@ Since v0.2.7 the dashboard mirrors each agent's chat session to the browser's `l
 | Page reload during a streaming response | The fetch dies with the page. Last committed message is restored from localStorage on reload. The in-flight partial response is lost; the operator can re-send. The kernel/subprocess on the server side keeps running until it naturally exits (the cancel signal arrives via the closed HTTP body). |
 | Two browser tabs open to the same agent | Both subscribe to the same `chatStore` singleton (within a tab) but separate tabs have separate stores. Send-from-tab-A doesn't appear in tab-B. Both tabs DO read/write the same localStorage on commit, so reloading either tab eventually converges. Multi-tab simultaneity isn't a supported workflow yet. |
 | Kernel-side audit on aborted streams | The aborted run still writes `agent.invoke.complete` with the actual exit/duration (or `agent.invoke.error` with `errorClass: "killed"` if the signal terminated the subprocess). |
+
+## Known limitations (current release candidate)
+
+### `originOk` accepts no-Origin requests on side-effecting endpoints
+
+`src/app/api/_lib/cors.ts`'s `originOk` returns `true` when there is no `Origin` header on a request. The intent is to keep server-side / curl flows working (browsers omit `Origin` on simple GET navigations and `<img>` requests but always send it on cross-origin XHR/fetch, so CORS catches the common XSS-style call shape).
+
+The residual risk: a malicious local page running on the same machine (e.g. a different local dev tool at `http://localhost:8080`) can trigger a no-Origin GET against `http://127.0.0.1:3000/api/agents/<name>/actions/<id>` via `<img>` / browser fetch shapes the browser does not stamp with `Origin`. The attacker cannot READ the JSON response (Same-Origin Policy still blocks it without explicit Access-Control-Allow-Origin), but they CAN trigger side effects — most notably a Control Room action invocation, which spawns a subprocess. Repeated triggers could DOS the operator's machine via slow `hermes insights` runs.
+
+Scope:
+- Highest-risk surface: `GET /api/agents/[name]/actions/[action]` (side-effecting, allow-no-Origin).
+- Lower-risk: `GET /api/memory/note?path=` (read-only; SOP blocks the response body).
+- Lowest-risk: `POST /api/agents/[name]/run`, `POST /api/goals`, `POST /api/journal`, `POST /api/goals/toggle` — browsers send `Origin` on cross-origin XHR/fetch, so CORS rejects them; only same-origin tools see no `Origin`.
+
+Planned hardening (a future release): a stricter `originOkStrict()` for side-effecting endpoints that requires either `Origin` in the allowlist, or `Sec-Fetch-Site: same-origin | none` (browsers always send this metadata header on fetches; curl does not), or a `Host` header in the allowlist. Curl operators can opt in via `--header "Origin: http://127.0.0.1:3000"`.
+
+Until that lands, the operator's mitigations are:
+- Don't run untrusted local dev tools on other ports while the dashboard is up.
+- Treat the dashboard as a localhost-only single-tenant tool (which is already the Phase 1 posture per the threat model above).
 
 ## Reporting
 
