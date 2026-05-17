@@ -292,6 +292,17 @@ export function createStreamJsonTransport(manifest: AgentManifest): Transport {
             kind: "error",
             message: stderrBuf.trim().slice(0, 500) || `exit ${code}`,
           });
+        } else if (code === null) {
+          // Child was terminated by an external signal (SIGTERM/SIGKILL from
+          // outside our own timeout/buffer paths — e.g. an OS oom-kill, an
+          // operator running `kill` against the pid, or our AbortController
+          // signal firing when the operator hits Stop / navigates away). Not
+          // a clean run; surface as an error so it doesn't look like a
+          // successful chat that just produced no output.
+          push({
+            kind: "error",
+            message: stderrBuf.trim().slice(0, 500) || "terminated by signal",
+          });
         }
         closed = true;
         resolveNext?.();
