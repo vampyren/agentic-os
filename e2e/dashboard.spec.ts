@@ -341,7 +341,7 @@ test.describe("Mission Control dashboard", () => {
     expect(warnings).toEqual([]);
   });
 
-  test("sidebar standby status keeps Julian-style signal bars animated", async ({ page }) => {
+  test("sidebar standby status keeps signal bars static", async ({ page }) => {
     await page.route("**/api/vitals", async (route) => {
       await route.fulfill({
         status: 200,
@@ -355,16 +355,45 @@ test.describe("Mission Control dashboard", () => {
 
     await expect(sidebar.getByText(/^Standby$/i)).toBeVisible({ timeout: 5_000 });
     const firstBar = sidebar.locator(".tick-bar").first();
+    await expect(firstBar).toHaveCSS("animation-name", "none");
+  });
+
+  test("sidebar live status animates signal bars", async ({ page }) => {
+    await page.route("**/api/vitals", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          ts: Date.now(),
+          agents: [
+            {
+              name: "claude-code",
+              displayName: "Claude Code",
+              transport: "streamJson",
+              status: "live",
+              version: "2.0.0",
+              latencyMs: 80,
+            },
+          ],
+        }),
+      });
+    });
+
+    await page.goto("/");
+    const sidebar = page.locator("aside");
+
+    await expect(sidebar.getByText(/^All systems$/i)).toBeVisible({ timeout: 5_000 });
+    const firstBar = sidebar.locator(".tick-bar").first();
     await expect(firstBar).toHaveCSS("animation-name", "tick-bar");
   });
 
-  test("sidebar aggregate status chip reflects tone — degraded vitals → label is NOT 'All systems'", async ({ page }) => {
+  test("sidebar aggregate status chip reflects tone — degraded vitals are static and NOT 'All systems'", async ({ page }) => {
     // Slice 2 / review item B2: the chip label was hardcoded "All
     // systems" regardless of aggregate vitals tone. Fix introduced
     // TONE_LABEL so the label reads "Degraded" / "Offline" / "Standby"
     // appropriately. This test mocks /api/vitals to return a degraded
     // agent and asserts the chip doesn't cheerfully claim everything
-    // is fine.
+    // is fine or animate like a live status.
     await page.route("**/api/vitals", async (route) => {
       await route.fulfill({
         status: 200,
@@ -391,5 +420,37 @@ test.describe("Mission Control dashboard", () => {
     // The chip text must reflect the degraded tone, not the default.
     await expect(sidebar.getByText(/^Degraded$/i)).toBeVisible({ timeout: 5_000 });
     await expect(sidebar.getByText(/^All systems$/i)).toHaveCount(0);
+    const firstBar = sidebar.locator(".tick-bar").first();
+    await expect(firstBar).toHaveCSS("animation-name", "none");
+  });
+
+  test("reduced-motion disables live sidebar signal-bar animation", async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await page.route("**/api/vitals", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          ts: Date.now(),
+          agents: [
+            {
+              name: "claude-code",
+              displayName: "Claude Code",
+              transport: "streamJson",
+              status: "live",
+              version: "2.0.0",
+              latencyMs: 80,
+            },
+          ],
+        }),
+      });
+    });
+
+    await page.goto("/");
+    const sidebar = page.locator("aside");
+
+    await expect(sidebar.getByText(/^All systems$/i)).toBeVisible({ timeout: 5_000 });
+    const firstBar = sidebar.locator(".tick-bar").first();
+    await expect(firstBar).toHaveCSS("animation-name", "none");
   });
 });
