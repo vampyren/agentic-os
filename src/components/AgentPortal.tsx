@@ -8,7 +8,6 @@ import Link from "next/link";
 import { motion } from "framer-motion";
 import { ArrowUpRight } from "lucide-react";
 import type { ReactNode } from "react";
-import { usePrefersReducedMotion } from "@/lib/usePrefersReducedMotion";
 
 type PortalStatus = "ok" | "warn" | "err" | "unknown";
 
@@ -50,7 +49,6 @@ export default function AgentPortal({
   status,
   metrics,
 }: Props) {
-  const prefersReducedMotion = usePrefersReducedMotion();
   return (
     <Link href={href} className="block group">
       <motion.div
@@ -63,8 +61,8 @@ export default function AgentPortal({
         // ever renders these on the server. Hover motion stays gated.
         initial={false}
         animate={{ opacity: 1, y: 0 }}
-        whileHover={prefersReducedMotion ? undefined : { y: -3 }}
-        transition={{ duration: prefersReducedMotion ? 0 : 0.35 }}
+        whileHover={{ y: -3 }}
+        transition={{ duration: 0.35 }}
         className="panel panel-hover relative h-full p-5 overflow-hidden"
       >
         {/* Accent glow blob behind the identity tile. Intensifies on hover. */}

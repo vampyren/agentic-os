@@ -9,13 +9,11 @@ import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { resolveTitle } from "@/lib/titles";
-import { usePrefersReducedMotion } from "@/lib/usePrefersReducedMotion";
 
 export default function TopBar() {
   const pathname = usePathname() ?? "/";
   const t = resolveTitle(pathname);
   const [time, setTime] = useState<string>("");
-  const prefersReducedMotion = usePrefersReducedMotion();
 
   useEffect(() => {
     const setNow = () =>
@@ -43,7 +41,7 @@ export default function TopBar() {
       // mount / route change. Acceptable for static page chrome.
       initial={false}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: prefersReducedMotion ? 0 : 0.35 }}
+      transition={{ duration: 0.35 }}
       className="min-w-0 mb-8"
     >
       <div

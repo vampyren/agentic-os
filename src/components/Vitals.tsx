@@ -11,7 +11,6 @@ import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { Activity, Bot, Zap, type LucideIcon } from "lucide-react";
 import { accentFor } from "@/lib/accent";
-import { usePrefersReducedMotion } from "@/lib/usePrefersReducedMotion";
 
 interface AgentVital {
   name: string;
@@ -60,7 +59,6 @@ interface TileProps {
 }
 
 function Tile({ accentColor, label, icon: Icon, primary, sub, tone }: TileProps) {
-  const prefersReducedMotion = usePrefersReducedMotion();
   return (
     <motion.div
       // SSR-safe: initial={false} so framer-motion does not inject the
@@ -72,8 +70,8 @@ function Tile({ accentColor, label, icon: Icon, primary, sub, tone }: TileProps)
       // motion preference.
       initial={false}
       animate={{ opacity: 1, y: 0 }}
-      whileHover={prefersReducedMotion ? undefined : { y: -2 }}
-      transition={{ duration: prefersReducedMotion ? 0 : 0.35 }}
+      whileHover={{ y: -2 }}
+      transition={{ duration: 0.35 }}
       className="panel panel-hover px-4 py-3"
       style={{
         // Each tile gets a soft accent glow so the row reads as a colour story.

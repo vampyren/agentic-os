@@ -326,8 +326,8 @@ test.describe("Mission Control dashboard", () => {
   test("reduced-motion users do not get framer-motion dev warning spam", async ({ page }) => {
     // Regression: framer-motion's useReducedMotion() and MotionConfig
     // reducedMotion="user" both emit a dev warning when the OS setting is
-    // reduce. Track 2 uses a local matchMedia hook for explicit motion gates
-    // so reduced-motion users get the behavior without console spam.
+    // reduce. Match Julian's reference by avoiding those helpers/settings;
+    // plain motion transitions do not emit the warning.
     await page.emulateMedia({ reducedMotion: "reduce" });
     const warnings: string[] = [];
     page.on("console", (msg) => {
@@ -339,6 +339,23 @@ test.describe("Mission Control dashboard", () => {
     await expect(page.getByRole("heading", { name: /Mission Control/i })).toBeVisible();
 
     expect(warnings).toEqual([]);
+  });
+
+  test("sidebar standby status keeps Julian-style signal bars animated", async ({ page }) => {
+    await page.route("**/api/vitals", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ ts: Date.now(), agents: [] }),
+      });
+    });
+
+    await page.goto("/");
+    const sidebar = page.locator("aside");
+
+    await expect(sidebar.getByText(/^Standby$/i)).toBeVisible({ timeout: 5_000 });
+    const firstBar = sidebar.locator(".tick-bar").first();
+    await expect(firstBar).toHaveCSS("animation-name", "tick-bar");
   });
 
   test("sidebar aggregate status chip reflects tone — degraded vitals → label is NOT 'All systems'", async ({ page }) => {
