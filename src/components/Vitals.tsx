@@ -62,7 +62,14 @@ function Tile({ accentColor, label, icon: Icon, primary, sub, tone }: TileProps)
   const prefersReducedMotion = useReducedMotion();
   return (
     <motion.div
-      initial={prefersReducedMotion ? false : { opacity: 0, y: 10 }}
+      // SSR-safe: initial={false} so framer-motion does not inject the
+      // initial transform/opacity into server-rendered HTML. Otherwise
+      // useReducedMotion()'s null→bool resolution during hydration
+      // causes a "server-rendered HTML attributes did not match client"
+      // error. Heartbeat and Latency tiles always SSR-render. Hover
+      // motion (whileHover) is unaffected and stays gated by reduced-
+      // motion preference.
+      initial={false}
       animate={{ opacity: 1, y: 0 }}
       whileHover={prefersReducedMotion ? undefined : { y: -2 }}
       transition={{ duration: prefersReducedMotion ? 0 : 0.35 }}

@@ -1,5 +1,15 @@
 "use client";
 
+// /agents — registry overview page (list of every loaded manifest with
+// status + version). Intentionally NOT in the sidebar nav after v0.2.12
+// Slice 1's redesign — sidebar is by-design minimal (Workspace / Agents
+// runtime list / Self), and a separate "All agents" index would clutter
+// it. The route stays reachable via:
+//   - the command palette ("All agents" entry in NAV_ROUTES)
+//   - direct URL navigation
+// This is a deliberate UX call, not an orphan; do not silently delete
+// the route without revisiting the decision.
+
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import Pill, { type PillTone } from "@/components/Pill";

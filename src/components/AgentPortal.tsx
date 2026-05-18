@@ -53,7 +53,14 @@ export default function AgentPortal({
   return (
     <Link href={href} className="block group">
       <motion.div
-        initial={prefersReducedMotion ? false : { opacity: 0, y: 12 }}
+        // SSR-safe: initial={false} prevents framer-motion from
+        // injecting the initial transform/opacity into server-rendered
+        // HTML. AgentPortal currently only renders after the client
+        // fetches /api/vitals (so it doesn't hit SSR in practice), but
+        // the same pattern is applied across Slice 3 motion components
+        // for consistency and to prevent regressions if a future change
+        // ever renders these on the server. Hover motion stays gated.
+        initial={false}
         animate={{ opacity: 1, y: 0 }}
         whileHover={prefersReducedMotion ? undefined : { y: -3 }}
         transition={{ duration: prefersReducedMotion ? 0 : 0.35 }}
