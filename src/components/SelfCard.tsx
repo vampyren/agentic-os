@@ -5,7 +5,7 @@
 // at the bottom-right corner.
 
 import Link from "next/link";
-import { motion } from "framer-motion";
+import { motion, useReducedMotion } from "framer-motion";
 import { ArrowUpRight } from "lucide-react";
 import type { ReactNode } from "react";
 
@@ -19,11 +19,12 @@ interface Props {
 }
 
 export default function SelfCard({ href, title, tagline, icon, accent, stat }: Props) {
+  const prefersReducedMotion = useReducedMotion();
   return (
     <Link href={href} className="block group">
       <motion.div
-        whileHover={{ y: -3 }}
-        transition={{ duration: 0.25 }}
+        whileHover={prefersReducedMotion ? undefined : { y: -3 }}
+        transition={{ duration: prefersReducedMotion ? 0 : 0.25 }}
         className="panel panel-hover p-5 relative overflow-hidden h-full"
       >
         <div

@@ -7,13 +7,14 @@
 
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
-import { motion } from "framer-motion";
+import { motion, useReducedMotion } from "framer-motion";
 import { resolveTitle } from "@/lib/titles";
 
 export default function TopBar() {
   const pathname = usePathname() ?? "/";
   const t = resolveTitle(pathname);
   const [time, setTime] = useState<string>("");
+  const prefersReducedMotion = useReducedMotion();
 
   useEffect(() => {
     const setNow = () =>
@@ -32,9 +33,9 @@ export default function TopBar() {
   return (
     <motion.header
       key={pathname}
-      initial={{ opacity: 0, y: 6 }}
+      initial={prefersReducedMotion ? false : { opacity: 0, y: 6 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.35 }}
+      transition={{ duration: prefersReducedMotion ? 0 : 0.35 }}
       className="min-w-0 mb-8"
     >
       <div

@@ -171,9 +171,10 @@ body > * { position: relative; z-index: 1; }
   50%      { opacity: 1;   transform: scale(1.15); }
 }
 
-/* Mission-control tick bar — vertical bars used by the TopBar ALL
-   SYSTEMS cluster (Slice 2). Visually distinct from .tick (the circular
-   dot used inside status pills) so we don't ripple-change every Pill. */
+/* Mission-control tick bar — vertical bars used by the Sidebar bottom
+   ALL SYSTEMS chip (Slice 2 — chip moved from TopBar to Sidebar).
+   Visually distinct from .tick (the circular dot used inside status
+   pills) so we don't ripple-change every Pill. */
 .tick-bar {
   display: inline-block;
   width: 4px; height: 12px;
@@ -214,14 +215,31 @@ body > * { position: relative; z-index: 1; }
   font-feature-settings: "tnum", "ss01";
 }
 
-/* Panel with hover lift — used by interactive tiles/cards. Distinct from
-   the static .panel which doesn't move. */
+/* Panel with hover border lift — used by interactive tiles/cards.
+   Distinct from the static .panel which doesn't react. Only changes
+   border colour: framer-motion's whileHover on the wrapping motion
+   element owns the y-translate so the two systems don't fight (review
+   item N3 / #5). */
 .panel-hover {
-  transition: border-color .25s ease, transform .25s ease;
+  transition: border-color .25s ease;
 }
 .panel-hover:hover {
   border-color: var(--panel-border-hot);
-  transform: translateY(-1px);
+}
+
+/* Accessibility — respect prefers-reduced-motion. Neutralises all the
+   new CSS keyframe animations (heartbeat / tick-bar / tick pulse) and
+   disables hover transitions. Framer-motion is gated separately via
+   useReducedMotion() in each motion component. */
+@media (prefers-reduced-motion: reduce) {
+  .heartbeat,
+  .tick-bar.live,
+  .tick.live {
+    animation: none !important;
+  }
+  .panel-hover {
+    transition: none !important;
+  }
 }
 
 /* Headings */
