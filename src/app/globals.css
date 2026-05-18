@@ -39,6 +39,14 @@
   /* misc */
   --radius: 10px;
   --shadow-glow: 0 0 24px -8px currentColor;
+
+  /* glass panels — purplish-navy tint that picks up the body's radial
+     glows through backdrop-blur. Used by the sidebar rail (v0.2.12
+     Track 2 Slice 1) and any future atmospheric surface. Separate from
+     --bg-elevated which stays neutral for cards/buttons. */
+  --panel:            rgba(18, 18, 38, 0.55);
+  --panel-border:     rgba(255, 255, 255, 0.06);
+  --panel-border-hot: rgba(255, 255, 255, 0.16);
 }
 
 html, body {
@@ -50,15 +58,73 @@ html, body {
 }
 
 body {
-  /* Subtle radial glows in the background, ambient mission-control feel.
-     Cheap (no JS, no canvas) and stays out of the way of content. */
+  /* Futuristic mission-control aurora. Layered radial glows over a deep
+     obsidian/navy base. Static — no animation — so prefers-reduced-motion
+     is automatically respected. Pool opacities chosen so colours read
+     clearly without overpowering text; blobs cluster at corners and the
+     deep-purple centre-bottom pool gives atmospheric depth under the live
+     activity area. */
   background:
-    radial-gradient(900px 600px at 12% -10%, rgba(34, 211, 238, 0.06), transparent 60%),
-    radial-gradient(800px 500px at 90% 110%, rgba(168, 85, 247, 0.05), transparent 60%),
+    /* Top soft cyan light haze (sense of light from above) */
+    linear-gradient(180deg, rgba(34, 211, 238, 0.04), transparent 22%),
+    /* Top-left teal/cyan pool */
+    radial-gradient(900px 700px at 8% -5%, rgba(34, 211, 238, 0.13), transparent 60%),
+    /* Top-right magenta haze */
+    radial-gradient(800px 600px at 95% 5%, rgba(236, 72, 153, 0.11), transparent 55%),
+    /* Mid-right amber whisper */
+    radial-gradient(700px 500px at 100% 50%, rgba(251, 191, 36, 0.06), transparent 60%),
+    /* Centre-bottom deep purple pool (depth under live activity / cards) */
+    radial-gradient(1100px 700px at 45% 105%, rgba(139, 92, 246, 0.10), transparent 60%),
+    /* Bottom-left purple wash */
+    radial-gradient(1000px 800px at 5% 110%, rgba(168, 85, 247, 0.13), transparent 60%),
+    /* Bottom-right deep magenta echo */
+    radial-gradient(800px 600px at 95% 95%, rgba(217, 70, 239, 0.08), transparent 60%),
+    /* Subtle navy lift over the obsidian base */
+    linear-gradient(180deg, rgba(18, 18, 38, 0.5), transparent 35%),
     var(--bg);
   background-attachment: fixed;
   min-height: 100vh;
+  position: relative;
 }
+
+/* Soft inner vignette — gently darkens the screen edges so the eye is
+   pulled toward content. Sits above the body bg and below the grid +
+   UI; pure visual atmosphere, non-interactive. */
+body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  background: radial-gradient(
+    ellipse 90% 70% at 50% 50%,
+    transparent 55%,
+    rgba(0, 0, 0, 0.45) 100%
+  );
+}
+
+/* Subtle blueprint grid overlay. Pinned, non-interactive, masked so the
+   texture fades out where the heaviest content sits (left half, where
+   the page content hugs the sidebar) and stays visible on the calmer
+   right side for sci-fi flavour. Always low contrast. */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.024) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.024) 1px, transparent 1px);
+  background-size: 56px 56px;
+  /* Mask centred slightly left-of-centre so the grid fades through the
+     content column and reappears on the empty right gutter. */
+  -webkit-mask-image: radial-gradient(ellipse 80% 65% at 38% 50%, transparent 25%, black 95%);
+          mask-image: radial-gradient(ellipse 80% 65% at 38% 50%, transparent 25%, black 95%);
+}
+
+/* Lift the app shell above the grid overlay. */
+body > * { position: relative; z-index: 1; }
 
 /* Glass panel — used by cards, side rails, every elevated surface. */
 .panel {
@@ -91,7 +157,8 @@ body {
   background: color-mix(in srgb, currentColor 10%, transparent);
 }
 
-/* Live tick dot — animated pulse for streaming/in-progress */
+/* Live tick dot — animated pulse for streaming/in-progress.
+   Used by status pills (round dot indicator). */
 .tick {
   width: 0.45em; height: 0.45em;
   border-radius: 999px;
@@ -102,6 +169,59 @@ body {
 @keyframes pulse {
   0%, 100% { opacity: 0.4; transform: scale(0.85); }
   50%      { opacity: 1;   transform: scale(1.15); }
+}
+
+/* Mission-control tick bar — vertical bars used by the TopBar ALL
+   SYSTEMS cluster (Slice 2). Visually distinct from .tick (the circular
+   dot used inside status pills) so we don't ripple-change every Pill. */
+.tick-bar {
+  display: inline-block;
+  width: 4px; height: 12px;
+  margin: 0 1px;
+  background: currentColor;
+  border-radius: 1px;
+  opacity: 0.4;
+}
+.tick-bar.live { animation: tick-bar 1.4s ease-in-out infinite; }
+@keyframes tick-bar {
+  0%, 100% { transform: scaleY(0.4); opacity: 0.4; }
+  50%      { transform: scaleY(1);   opacity: 1; }
+}
+
+/* Glow-dot heartbeat — 8px filled circle with currentColor glow that
+   pulses gently. Used on Mission Control vitals tiles and agent portal
+   status indicators (Slice 3). Distinct from .tick (small dot in
+   pills) and .tick-bar (chip bars) — three separate visual
+   languages, three classes. */
+.heartbeat {
+  display: inline-block;
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: currentColor;
+  box-shadow: 0 0 10px currentColor;
+  animation: heartbeat 1.6s ease-in-out infinite;
+}
+@keyframes heartbeat {
+  0%, 100% { transform: scale(1);   opacity: 1; }
+  50%      { transform: scale(0.7); opacity: 0.4; }
+}
+
+/* Tabular-numeric monospace for headline metrics on vitals tiles and
+   agent-card metric grids. Prevents number jitter when values change. */
+.metric {
+  font-family: ui-monospace, "JetBrains Mono", "Fira Code", monospace;
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum", "ss01";
+}
+
+/* Panel with hover lift — used by interactive tiles/cards. Distinct from
+   the static .panel which doesn't move. */
+.panel-hover {
+  transition: border-color .25s ease, transform .25s ease;
+}
+.panel-hover:hover {
+  border-color: var(--panel-border-hot);
+  transform: translateY(-1px);
 }
 
 /* Headings */

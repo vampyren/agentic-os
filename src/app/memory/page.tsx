@@ -149,12 +149,9 @@ export default function MemoryPage() {
 
   return (
     <div className="flex flex-col gap-5">
-      <header>
-        <h2 className="text-[20px] font-medium tracking-tight">Memory</h2>
-        <p className="text-[12px] text-[var(--fg-dim)] mt-1">
-          Full-text search across your Obsidian vault, backed by a local SQLite FTS5 index.
-        </p>
-      </header>
+      <p className="text-[12px] text-[var(--fg-dim)]">
+        Full-text search across your Obsidian vault, backed by a local SQLite FTS5 index.
+      </p>
 
       {/* Scope tabs */}
       <div className="flex items-center gap-1 border-b border-[var(--border)]">
