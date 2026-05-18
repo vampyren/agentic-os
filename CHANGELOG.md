@@ -20,9 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [Unreleased]
-
-### v0.2.12 Track 2 — UI/UX shell + Mission Control rebuild (in branch, not yet released)
+## [0.2.12] — 2026-05-18 — Track 2 UI/UX shell + Mission Control rebuild
 
 Three Track 2 slices are implemented on `feature/v0.2.12-sidebar-redesign`. All UI-only; no backend, security, or vault-write contract changes.
 
