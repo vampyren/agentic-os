@@ -268,4 +268,93 @@ test.describe("Mission Control dashboard", () => {
     await page.getByRole("tab", { name: /^Chat$/ }).click();
     await expect(page.getByPlaceholder(/Type a prompt/i)).toBeEnabled();
   });
+
+  // ─── v0.2.12 Slice 2/3 review-coverage tests ──────────────────────
+
+  test("sidebar ⌘K Command palette button opens the palette and 'All agents' navigates to /agents", async ({ page }) => {
+    // The sidebar bottom block carries the ⌘K Command palette button
+    // (Slice 2). It dispatches a CustomEvent that CommandPalette
+    // listens for alongside the existing keyboard shortcut. This test
+    // exercises that wiring + asserts /agents is intentionally
+    // reachable via the palette (it was removed from sidebar nav in
+    // Slice 1, per the agents/page.tsx top-of-file comment).
+    await page.goto("/");
+
+    // Click the chip in the sidebar.
+    await page.locator("aside").getByRole("button", { name: /Command palette/i }).click();
+
+    // Palette modal opens (cmdk Command.Input with "Jump to anything…").
+    const paletteInput = page.getByPlaceholder(/Jump to anything/i);
+    await expect(paletteInput).toBeVisible({ timeout: 3_000 });
+
+    // Click the "All agents" entry inside the palette.
+    await page.getByRole("option", { name: /^All agents/i }).click();
+
+    // Lands at /agents, page renders without a route-level identity h2
+    // (TopBar h1 from titles.ts owns identity now); the agents list
+    // should have at least the built-in claude-code or hermes name.
+    await expect(page).toHaveURL(/\/agents$/);
+    await expect(page.getByText(/claude-code|hermes/).first()).toBeVisible({ timeout: 5_000 });
+  });
+
+  test("Mission Control agent portal — workspace copy + click lands in /agents/<name> with chat input", async ({ page }) => {
+    // Slice 3 / review item B1: the CTA used to falsely say "Open
+    // control room" but cards link to /agents/<name> which boots in
+    // Chat mode. Copy was corrected to "Open agent workspace →".
+    // This test pins the corrected wording + the actual click target.
+    await page.goto("/");
+
+    // The visible CTA on every portal card must read workspace, not
+    // control room — at least one occurrence on the page.
+    await expect(page.getByText(/Open agent workspace/i).first()).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText(/Open control room/i)).toHaveCount(0);
+
+    // Click the Claude Code portal card (whole card is the Link; the
+    // accessible name includes "Open agent workspace →" which is
+    // distinct from the sidebar Claude Code nav row).
+    await page
+      .getByRole("link", { name: /Claude Code[\s\S]*Open agent workspace/i })
+      .first()
+      .click();
+
+    // Lands at /agents/claude-code with the chat textarea visible —
+    // proves the workspace boots in Chat mode (matches the new copy).
+    await expect(page).toHaveURL(/\/agents\/claude-code$/);
+    await expect(page.getByPlaceholder(/Type a prompt/i)).toBeVisible({ timeout: 10_000 });
+  });
+
+  test("sidebar aggregate status chip reflects tone — degraded vitals → label is NOT 'All systems'", async ({ page }) => {
+    // Slice 2 / review item B2: the chip label was hardcoded "All
+    // systems" regardless of aggregate vitals tone. Fix introduced
+    // TONE_LABEL so the label reads "Degraded" / "Offline" / "Standby"
+    // appropriately. This test mocks /api/vitals to return a degraded
+    // agent and asserts the chip doesn't cheerfully claim everything
+    // is fine.
+    await page.route("**/api/vitals", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          ts: Date.now(),
+          agents: [
+            {
+              name: "claude-code",
+              displayName: "Claude Code",
+              transport: "streamJson",
+              status: "degraded",
+              version: "2.0.0",
+              latencyMs: 120,
+            },
+          ],
+        }),
+      });
+    });
+
+    await page.goto("/");
+    const sidebar = page.locator("aside");
+
+    // The chip text must reflect the degraded tone, not the default.
+    await expect(sidebar.getByText(/^Degraded$/i)).toBeVisible({ timeout: 5_000 });
+    await expect(sidebar.getByText(/^All systems$/i)).toHaveCount(0);
+  });
 });

@@ -33,7 +33,15 @@ export default function TopBar() {
   return (
     <motion.header
       key={pathname}
-      initial={prefersReducedMotion ? false : { opacity: 0, y: 6 }}
+      // SSR-safe: initial={false} prevents framer-motion from injecting
+      // entrance styles into the server-rendered HTML. The previous
+      // `useReducedMotion()`-gated initial caused a Next.js hydration
+      // mismatch because useReducedMotion returns null on SSR and may
+      // resolve to a different value during client hydration — server
+      // HTML ended up with opacity:0/translateY(6px) while client had
+      // opacity:1/translateY(0). Trade-off: no entrance fade on first
+      // mount / route change. Acceptable for static page chrome.
+      initial={false}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: prefersReducedMotion ? 0 : 0.35 }}
       className="min-w-0 mb-8"
