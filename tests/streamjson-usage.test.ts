@@ -148,3 +148,44 @@ describe("streamJson stream — stderr buffering policy", () => {
     expect(errs.some((e) => /timeout/.test(e.message))).toBe(true);
   }, 12_000);
 });
+
+describe("streamJson stream — operator cancellation (F4)", () => {
+  it("does NOT emit error events when the caller's AbortController fires", async () => {
+    // Pre-F4 (after F3), an aborted child closed with `code === null` and
+    // the streamJson close handler pushed `{ kind: "error", message:
+    // "terminated by signal" }` — making operator Stop / route nav look
+    // like a generic external kill in the audit log. F4 guards that branch
+    // on `!opts.signal?.aborted` so cancellation stays silent on the event
+    // stream; the registry then audits the run as `status: "cancelled"`
+    // rather than `agent.invoke.error`.
+    //
+    // Script: long-sleeping no-op so the child outlives our abort.
+    const script = "setTimeout(()=>{}, 60000);";
+    const t = createStreamJsonTransport(
+      fakeStreamJsonManifest(script, { timeoutMs: 30_000 }),
+    );
+    const controller = new AbortController();
+    // Abort shortly after the child has spawned but well before timeout.
+    setTimeout(() => controller.abort(), 200);
+
+    const startedAt = Date.now();
+    const events = await collect(t.stream({
+      prompt: "ignored",
+      signal: controller.signal,
+    }));
+    const elapsed = Date.now() - startedAt;
+    // Should resolve within a couple seconds of the abort — definitely not
+    // the 30s timeout, and not the 60s sleep.
+    expect(elapsed).toBeLessThan(10_000);
+
+    const errs = events.filter((e) => e.kind === "error");
+    expect(
+      errs,
+      "operator cancellation must NOT yield error events on the stream",
+    ).toHaveLength(0);
+
+    // Stream must still terminate with `done`.
+    const done = events.find((e) => e.kind === "done");
+    expect(done).toBeDefined();
+  }, 12_000);
+});

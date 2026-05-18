@@ -91,14 +91,22 @@ export async function auditAgentInvokeComplete(input: {
   durationMs: number;
   exitCode: number | null;
   bytesOut: number;
+  // Optional explicit status. When omitted, derives from `exitCode`
+  // (0 → "success", anything else → "error"). Callers pass
+  // "cancelled" when the run ended because the caller's AbortController
+  // fired (Stop button / route navigation / page reload). Cancellation
+  // must NOT be audited as a failure — see F4 contract.
+  status?: "success" | "cancelled" | "error";
 }): Promise<void> {
+  const status: "success" | "cancelled" | "error" =
+    input.status ?? (input.exitCode === 0 ? "success" : "error");
   await writeLine({
     kind: "agent.invoke.complete",
     agent: input.agent,
     durationMs: input.durationMs,
     exitCode: input.exitCode,
     bytesOut: input.bytesOut,
-    status: input.exitCode === 0 ? "success" : "error",
+    status,
   });
 }
 

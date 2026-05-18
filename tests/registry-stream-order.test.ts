@@ -14,6 +14,7 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import { __TEST__ } from "../src/kernel/registry";
+import { bus } from "../src/kernel/bus";
 import type {
   AgentEvent, AgentManifest, HealthReport, Transport, StreamOpts, AgentUsage,
 } from "../src/kernel/types";
@@ -249,5 +250,244 @@ describe("registry.stream — error path duration is elapsed, not epoch (v0.2.10
       expect(doneEvent.durationMs).toBeLessThan(60_000);
       expect(doneEvent.durationMs).toBeGreaterThanOrEqual(0);
     }
+  });
+});
+
+describe("registry.stream — operator cancellation reclassifies to status: cancelled (F4)", () => {
+  // Per the F4 contract, when the caller's AbortController has fired by the
+  // time the stream ends, the registry must:
+  //   - NOT write `agent.invoke.error` (even if the transport defensively
+  //     yielded a stray error event in violation of the contract);
+  //   - write `agent.invoke.complete` with `status: "cancelled"` so audit
+  //     consumers can distinguish operator cancellation from real failures.
+  //
+  // We reach into the test audit dir and parse JSONL to verify.
+
+  async function readAuditKinds(): Promise<Array<{ kind: string; status?: string }>> {
+    const day = new Date().toISOString().slice(0, 10);
+    const file = path.join(auditDir, `${day}.jsonl`);
+    const raw = await fs.readFile(file, "utf8");
+    return raw
+      .split("\n")
+      .filter((line) => line.trim().length > 0)
+      .map((line) => {
+        const e = JSON.parse(line) as { kind: string; status?: string };
+        return { kind: e.kind, ...(e.status !== undefined ? { status: e.status } : {}) };
+      });
+  }
+
+  it("aborted signal: audit gets agent.invoke.complete status:cancelled, NOT agent.invoke.error", async () => {
+    const reg = __TEST__.newRegistry();
+    // Transport yields a token + done. It does NOT yield an error event:
+    // simulating a well-behaved transport that respected the F4 contract.
+    __TEST__.injectAgent(reg, fakeManifest(), fakeTransport([
+      { kind: "token", text: "partial" },
+      { kind: "done", durationMs: 5, exitCode: null },
+    ]));
+
+    // Caller pre-aborts the signal — equivalent to the operator having hit
+    // Stop / navigated away by the time the registry finishes draining.
+    const controller = new AbortController();
+    controller.abort();
+
+    const events = await collect(reg.stream("fake-agent", {
+      prompt: "x",
+      signal: controller.signal,
+    }));
+
+    // Stream must still terminate cleanly with `done`.
+    expect(events.find((e) => e.kind === "done")).toBeDefined();
+
+    // Audit must show complete:cancelled and NOT contain agent.invoke.error
+    // for this run.
+    const lines = await readAuditKinds();
+    const lastInvoke = lines.findLast((l) => l.kind === "agent.invoke");
+    const lastComplete = lines.findLast((l) => l.kind === "agent.invoke.complete");
+    const lastError = lines.findLast((l) => l.kind === "agent.invoke.error");
+    expect(lastInvoke, "should have logged the invoke").toBeDefined();
+    expect(lastComplete, "should have logged a complete envelope").toBeDefined();
+    expect(lastComplete?.status).toBe("cancelled");
+    // Defensive: no fresh agent.invoke.error in this test's tail.
+    if (lastError) {
+      // If a prior test wrote an error entry, ensure it's not THIS test's
+      // run by checking it comes before our latest invoke line. (Vitest
+      // runs in a shared audit dir for the describe block; ordering check
+      // is enough to prove this run didn't add one.)
+      const invokeIdx = lines.lastIndexOf(lastInvoke!);
+      const errorIdx = lines.lastIndexOf(lastError);
+      expect(errorIdx).toBeLessThan(invokeIdx);
+    }
+  });
+
+  it("aborted signal + transport defensively yields error: still reclassifies to cancelled", async () => {
+    // Backstop: even if a transport ignored the F4 contract and yielded a
+    // kind:"error" event on cancellation, the registry must not promote
+    // that to an agent.invoke.error audit entry — the caller's signal IS
+    // the source of truth.
+    const reg = __TEST__.newRegistry();
+    __TEST__.injectAgent(reg, fakeManifest(), fakeTransport([
+      { kind: "error", message: "terminated by signal" },
+      { kind: "done", durationMs: 5, exitCode: null },
+    ]));
+
+    const controller = new AbortController();
+    controller.abort();
+
+    await collect(reg.stream("fake-agent", {
+      prompt: "x",
+      signal: controller.signal,
+    }));
+
+    const lines = await readAuditKinds();
+    const lastInvoke = lines.findLast((l) => l.kind === "agent.invoke");
+    const lastComplete = lines.findLast((l) => l.kind === "agent.invoke.complete");
+    const lastError = lines.findLast((l) => l.kind === "agent.invoke.error");
+
+    expect(lastComplete?.status).toBe("cancelled");
+
+    // If there's an error line, it must be from a prior test (older index).
+    if (lastError) {
+      const invokeIdx = lines.lastIndexOf(lastInvoke!);
+      const errorIdx = lines.lastIndexOf(lastError);
+      expect(
+        errorIdx,
+        "operator cancellation must NOT add a fresh agent.invoke.error entry",
+      ).toBeLessThan(invokeIdx);
+    }
+  });
+
+  it("aborted signal + cancellation-shaped error: no bus agent.invoke.error emitted (Jarvis Blocker 2)", async () => {
+    // Jarvis F4 review Blocker 2: even though audit now suppresses errors
+    // on cancellation, the bus used to receive `agent.invoke.error` before
+    // classification ran. This test pins the fix: cancellation-shaped errors
+    // must stay silent on the bus too.
+    const reg = __TEST__.newRegistry();
+    __TEST__.injectAgent(reg, fakeManifest(), fakeTransport([
+      { kind: "error", message: "terminated by signal" },
+      { kind: "done", durationMs: 5, exitCode: null },
+    ]));
+
+    const seenBus: Array<{ kind: string }> = [];
+    const off = bus.on((e) => seenBus.push({ kind: e.kind }));
+
+    const controller = new AbortController();
+    controller.abort();
+
+    try {
+      await collect(reg.stream("fake-agent", {
+        prompt: "x",
+        signal: controller.signal,
+      }));
+    } finally {
+      off();
+    }
+
+    expect(
+      seenBus.find((e) => e.kind === "agent.invoke.error"),
+      "operator cancellation must NOT emit agent.invoke.error on the bus",
+    ).toBeUndefined();
+
+    // Sanity: the complete envelope IS emitted on the bus for this run.
+    expect(
+      seenBus.find((e) => e.kind === "agent.invoke.complete"),
+      "complete envelope should still be emitted on the bus",
+    ).toBeDefined();
+  });
+
+  it("aborted signal + REAL non-zero failure: still surfaces as error on bus AND audit (Jarvis Blocker 1)", async () => {
+    // Jarvis F4 review Blocker 1: the original `cancelled =
+    // opts.signal?.aborted === true` predicate would mask real failures
+    // whenever the request signal happened to be aborted by finalization
+    // time. Real failures must stay errors. Here the transport yields a
+    // non-zero exit + a non-abort-shaped error message; the pre-aborted
+    // signal must NOT promote this to cancellation.
+    const reg = __TEST__.newRegistry();
+    __TEST__.injectAgent(reg, fakeManifest(), fakeTransport([
+      { kind: "error", message: "exit 7" },
+      { kind: "done", durationMs: 5, exitCode: 7 },
+    ]));
+
+    const seenBus: Array<{ kind: string }> = [];
+    const off = bus.on((e) => seenBus.push({ kind: e.kind }));
+
+    const controller = new AbortController();
+    controller.abort(); // pre-aborted, simulating late abort racing a real failure
+
+    try {
+      await collect(reg.stream("fake-agent", {
+        prompt: "x",
+        signal: controller.signal,
+      }));
+    } finally {
+      off();
+    }
+
+    // Bus MUST surface agent.invoke.error — real failures don't get masked.
+    expect(
+      seenBus.find((e) => e.kind === "agent.invoke.error"),
+      "real non-zero failure must surface as agent.invoke.error on bus even under aborted signal",
+    ).toBeDefined();
+
+    // Audit MUST contain a fresh agent.invoke.error for this run.
+    const lines = await readAuditKinds();
+    const lastInvoke = lines.findLast((l) => l.kind === "agent.invoke");
+    const lastError = lines.findLast((l) => l.kind === "agent.invoke.error");
+    const lastComplete = lines.findLast((l) => l.kind === "agent.invoke.complete");
+
+    expect(lastError, "real failure must write agent.invoke.error to audit").toBeDefined();
+    const invokeIdx = lines.lastIndexOf(lastInvoke!);
+    const errorIdx = lines.lastIndexOf(lastError!);
+    expect(
+      errorIdx,
+      "fresh agent.invoke.error must come AFTER this run's invoke line",
+    ).toBeGreaterThan(invokeIdx);
+
+    // Complete envelope must NOT be marked cancelled — this was a real failure.
+    expect(lastComplete?.status).not.toBe("cancelled");
+  });
+
+  it("aborted signal + thrown generic error in catch path: stays classified as error", async () => {
+    // Catch-path coverage: a transport that throws (not yields kind:"error")
+    // with a non-abort-shaped message must remain an error even when the
+    // request signal has been aborted. Generic throws are not cancellation.
+    const reg = __TEST__.newRegistry();
+    const explodingTransport: Transport = {
+      health: async () => ({ status: "live", checkedAt: Date.now() }),
+      async *stream() {
+        throw new Error("boom");
+      },
+    };
+    __TEST__.injectAgent(reg, fakeManifest(), explodingTransport);
+
+    const seenBus: Array<{ kind: string }> = [];
+    const off = bus.on((e) => seenBus.push({ kind: e.kind }));
+
+    const controller = new AbortController();
+    controller.abort();
+
+    try {
+      await collect(reg.stream("fake-agent", {
+        prompt: "x",
+        signal: controller.signal,
+      }));
+    } finally {
+      off();
+    }
+
+    expect(
+      seenBus.find((e) => e.kind === "agent.invoke.error"),
+      "generic thrown error must surface as agent.invoke.error on bus even under aborted signal",
+    ).toBeDefined();
+
+    const lines = await readAuditKinds();
+    const lastInvoke = lines.findLast((l) => l.kind === "agent.invoke");
+    const lastError = lines.findLast((l) => l.kind === "agent.invoke.error");
+    const lastComplete = lines.findLast((l) => l.kind === "agent.invoke.complete");
+
+    expect(lastError).toBeDefined();
+    const invokeIdx = lines.lastIndexOf(lastInvoke!);
+    const errorIdx = lines.lastIndexOf(lastError!);
+    expect(errorIdx).toBeGreaterThan(invokeIdx);
+    expect(lastComplete?.status).not.toBe("cancelled");
   });
 });

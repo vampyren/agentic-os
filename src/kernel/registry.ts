@@ -34,6 +34,22 @@ interface RegisteredAgent {
   transport: Transport;
 }
 
+// F4: classify whether an error is "abort-shaped" — caused by the caller's
+// AbortController firing, not a real transport failure. Used to decide
+// whether to suppress bus/audit error events on operator cancellation. A
+// late-arriving signal abort must NOT mask a real failure, so we require
+// both a recognizable abort-shaped message AND a cancellation-shaped exit
+// code (null = signal-killed, or negative synthetic).
+function isAbortShapedError(message: string, exitCode: number | null): boolean {
+  const m = (message ?? "").toLowerCase();
+  const shape =
+    m.includes("terminated by signal") ||
+    m.includes("aborterror") ||
+    m === "aborted";
+  const codeShape = exitCode === null || (typeof exitCode === "number" && exitCode < 0);
+  return shape && codeShape;
+}
+
 class Registry {
   private agents = new Map<string, RegisteredAgent>();
   private initPromise: Promise<void> | null = null;
@@ -172,6 +188,11 @@ class Registry {
     //   4. done                  ← terminal event
     //   5. saved                 ← added by the run endpoint after stream ends
     let pendingDone: AgentEvent | null = null;
+    // F4: buffer transport-yielded error events too. We can't emit bus
+    // `agent.invoke.error` or yield the error event immediately, because we
+    // don't yet know if this is operator cancellation (suppress) or a real
+    // failure (surface). Classification happens after the loop finishes.
+    let pendingError: AgentEvent | null = null;
 
     try {
       for await (const evt of transport.stream(opts)) {
@@ -187,10 +208,12 @@ class Registry {
             yield evt;
           }
         } else if (evt.kind === "error") {
+          // F4: buffer — bus emit + yield decided after cancellation
+          // classification. Prevents a transport-yielded cancellation-shaped
+          // error from looking like a real failure to bus/SSE consumers.
           errored = true;
           errorMessage = evt.message;
-          bus.emit({ source: name, kind: "agent.invoke.error", payload: { message: evt.message.slice(0, 200) } });
-          yield evt;
+          pendingError = evt;
         } else if (evt.kind === "done") {
           // Buffer — emit after postRunUsage so consumers treating `done`
           // as terminal still get the usage event first.
@@ -200,17 +223,48 @@ class Registry {
         }
       }
     } catch (e) {
+      // F4: same buffering for the catch path. A thrown error during
+      // streaming may or may not be abort-shaped; classification below
+      // decides whether to surface or suppress.
       const message = String(e);
       errored = true;
       errorMessage = message;
-      bus.emit({ source: name, kind: "agent.invoke.error", payload: { message: message.slice(0, 200) } });
-      yield { kind: "error", message };
+      pendingError = { kind: "error", message };
       // Was Date.now() (epoch) — fixed in v0.2.10 to report elapsed-ms.
       durationMs = Date.now() - startedAt;
       pendingDone = { kind: "done", durationMs, exitCode: -1 };
     }
 
-    if (errored) {
+    // F4: operator cancellation contract.
+    // Two conditions BOTH required to classify as cancelled:
+    //   1. the caller's AbortController fired (`opts.signal.aborted`); AND
+    //   2. the observed transport outcome is consistent with cancellation —
+    //      either no error was emitted, OR the error is recognizably
+    //      abort-shaped (`terminated by signal` / Node AbortError + null/neg
+    //      exitCode).
+    // Real failures (non-zero exit, timeout, ENOENT, generic thrown errors)
+    // stay classified as errors even if `opts.signal.aborted` is true by
+    // finalization. This prevents a late-arriving abort from masking a real
+    // failure — addresses Jarvis F4 review Blocker 1.
+    const signalAborted = opts.signal?.aborted === true;
+    const cancelled =
+      signalAborted && (!errored || isAbortShapedError(errorMessage, exitCode));
+
+    // F4: emit bus + yield the buffered error ONLY for real failures.
+    // For cancellation, both stay silent (audit will record
+    // `agent.invoke.complete status:cancelled` instead). Addresses Jarvis
+    // F4 review Blocker 2: cancellation no longer surfaces as
+    // `agent.invoke.error` on the bus/SSE.
+    if (errored && !cancelled && pendingError) {
+      bus.emit({
+        source: name,
+        kind: "agent.invoke.error",
+        payload: { message: errorMessage.slice(0, 200) },
+      });
+      yield pendingError;
+    }
+
+    if (errored && !cancelled) {
       // Never pass the raw stderr/error message to the audit log. Classify
       // into a neutral bucket, record length + sha8 for correlation/debug,
       // and the transport name. The full message stays on the bus (which is
@@ -230,8 +284,9 @@ class Registry {
 
     // Post-run usage extractor (Hermes etc.) — fail-soft: any error here
     // must NOT mark the agent call as failed. The operator already got
-    // their response; usage is bonus telemetry.
-    if (!errored && manifest.postRunUsage) {
+    // their response; usage is bonus telemetry. Skip on cancel too —
+    // there's no useful usage to extract from an aborted run.
+    if (!errored && !cancelled && manifest.postRunUsage) {
       try {
         const usage = await runPostRunUsage(manifest.postRunUsage.parser);
         if (hasMeaningfulUsage(usage)) {
@@ -248,13 +303,19 @@ class Registry {
     bus.emit({
       source: name,
       kind: "agent.invoke.complete",
-      payload: { exitCode, durationMs, bytesOut },
+      payload: {
+        exitCode,
+        durationMs,
+        bytesOut,
+        ...(cancelled ? { status: "cancelled" as const } : {}),
+      },
     });
     await auditAgentInvokeComplete({
       agent: name,
       durationMs,
       exitCode,
       bytesOut,
+      ...(cancelled ? { status: "cancelled" as const } : {}),
     });
   }
 }
