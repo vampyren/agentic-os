@@ -98,6 +98,15 @@ export function createSubprocessTransport(manifest: AgentManifest): Transport {
 
       if (killedForTimeout) {
         yield { kind: "error", message: `timeout after ${timeoutMs}ms` };
+      } else if (opts.signal?.aborted) {
+        // Operator cancellation (Stop button / route navigation / page
+        // reload). The AbortController passed via opts.signal fired and
+        // SIGKILLed the child. Not a failure: stay silent on the event
+        // stream and let the registry audit this as `status: "cancelled"`
+        // rather than `agent.invoke.error`. The chat client already
+        // suppressed its own error UI for this case (it knows it asked
+        // for the cancellation). Yielding a token here would be wasted
+        // — the fetch is already aborted, so nothing reaches the UI.
       } else if (exitCode !== 0) {
         yield {
           kind: "error",

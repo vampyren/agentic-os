@@ -292,13 +292,21 @@ export function createStreamJsonTransport(manifest: AgentManifest): Transport {
             kind: "error",
             message: stderrBuf.trim().slice(0, 500) || `exit ${code}`,
           });
-        } else if (code === null) {
-          // Child was terminated by an external signal (SIGTERM/SIGKILL from
-          // outside our own timeout/buffer paths — e.g. an OS oom-kill, an
-          // operator running `kill` against the pid, or our AbortController
-          // signal firing when the operator hits Stop / navigates away). Not
-          // a clean run; surface as an error so it doesn't look like a
-          // successful chat that just produced no output.
+        } else if (code === null && !opts.signal?.aborted) {
+          // Child was terminated by an external signal (SIGTERM/SIGKILL
+          // from outside our own timeout/buffer paths — e.g. an OS
+          // oom-kill, an operator running `kill` against the pid). Surface
+          // as an error so it doesn't look like a successful chat that
+          // just produced no output.
+          //
+          // The `!opts.signal?.aborted` guard distinguishes those true
+          // external kills from operator cancellation. When the caller's
+          // AbortController fires (Stop button, route navigation, page
+          // reload), Node spawn kills the child with `code === null` too
+          // — but that's an EXPECTED cancellation, not a failure. Per the
+          // F4 contract, the transport stays silent in that case; the
+          // registry then audits the run as `status: "cancelled"` rather
+          // than `agent.invoke.error`.
           push({
             kind: "error",
             message: stderrBuf.trim().slice(0, 500) || "terminated by signal",
@@ -309,7 +317,13 @@ export function createStreamJsonTransport(manifest: AgentManifest): Transport {
       });
       child.on("error", (e) => {
         clearTimeout(timeout);
-        push({ kind: "error", message: String(e) });
+        // Suppress AbortError-shaped events when the caller's signal
+        // initiated the abort — that's the F4 cancellation contract, not
+        // a spawn / runtime failure. Genuine spawn failures (ENOENT etc.)
+        // still surface here.
+        if (!opts.signal?.aborted) {
+          push({ kind: "error", message: String(e) });
+        }
         closed = true;
         resolveNext?.();
       });
