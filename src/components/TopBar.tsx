@@ -32,7 +32,6 @@ export default function TopBar() {
 
   return (
     <motion.header
-      key={pathname}
       // SSR-safe: initial={false} prevents framer-motion from injecting
       // entrance styles into the server-rendered HTML. The previous
       // `useReducedMotion()`-gated initial caused a Next.js hydration
