@@ -2,10 +2,10 @@
 
 // Mission Control agent portal card (Slice 3). Accent glow behind the
 // identity tile, status indicator with heartbeat dot, two-metric grid,
-// "Open control room →" CTA. Whole card is a Link to the agent room.
+// "Open agent workspace →" CTA. Whole card is a Link to the agent room.
 
 import Link from "next/link";
-import { motion } from "framer-motion";
+import { motion, useReducedMotion } from "framer-motion";
 import { ArrowUpRight } from "lucide-react";
 import type { ReactNode } from "react";
 
@@ -49,13 +49,14 @@ export default function AgentPortal({
   status,
   metrics,
 }: Props) {
+  const prefersReducedMotion = useReducedMotion();
   return (
     <Link href={href} className="block group">
       <motion.div
-        initial={{ opacity: 0, y: 12 }}
+        initial={prefersReducedMotion ? false : { opacity: 0, y: 12 }}
         animate={{ opacity: 1, y: 0 }}
-        whileHover={{ y: -3 }}
-        transition={{ duration: 0.35 }}
+        whileHover={prefersReducedMotion ? undefined : { y: -3 }}
+        transition={{ duration: prefersReducedMotion ? 0 : 0.35 }}
         className="panel panel-hover relative h-full p-5 overflow-hidden"
       >
         {/* Accent glow blob behind the identity tile. Intensifies on hover. */}
@@ -115,8 +116,13 @@ export default function AgentPortal({
           ))}
         </div>
 
+        {/* Cards link to /agents/[name] which boots in Chat mode by
+            default; the Control Room is one click away inside that
+            workspace. Calling this "Open control room" was a UX contract
+            mismatch (review B1 / #3) — wording corrected. Deep-linking
+            Control Room via a query param is a future enhancement. */}
         <div className="relative mt-4 text-[11px] uppercase tracking-[0.2em] text-[var(--fg-dimmer)] group-hover:text-[var(--fg-dim)] transition">
-          Open control room →
+          Open agent workspace →
         </div>
       </motion.div>
     </Link>

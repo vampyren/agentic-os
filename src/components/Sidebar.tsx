@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
-import { motion, LayoutGroup } from "framer-motion";
+import { motion, LayoutGroup, useReducedMotion } from "framer-motion";
 import { LayoutGrid, Target, BookOpen, Search } from "lucide-react";
 import { APP_VERSION_LABEL } from "@/lib/appVersion";
 import { accentFor } from "@/lib/accent";
@@ -39,6 +39,17 @@ const TONE_BORDER: Record<Tone, string | undefined> = {
   degraded: "var(--status-degraded)",
   offline:  "var(--status-offline)",
   unknown:  undefined,
+};
+
+// Visible label per tone — the chip text must reflect status, not
+// stay "All systems" forever. Reviewers correctly flagged that a
+// status indicator whose text never changes with status is close to
+// non-functional (review B2 / #2).
+const TONE_LABEL: Record<Tone, string> = {
+  live:     "All systems",
+  degraded: "Degraded",
+  offline:  "Offline",
+  unknown:  "Standby",
 };
 
 interface NavItem {
@@ -91,6 +102,10 @@ interface NavLinkProps extends NavItem {
 }
 
 function NavLink({ href, label, icon, accent, isAgent = false, active }: NavLinkProps) {
+  // Skip the spring layout transition when the user prefers reduced motion
+  // — the bar still appears on the active row, just without the cross-row
+  // slide animation.
+  const prefersReducedMotion = useReducedMotion();
   return (
     <Link
       href={href}
@@ -105,7 +120,9 @@ function NavLink({ href, label, icon, accent, isAgent = false, active }: NavLink
           layoutId="nav-indicator"
           className="absolute -left-1 top-1/2 -translate-y-1/2 w-[3px] h-[20px] rounded-r-full"
           style={{ background: accent, boxShadow: `0 0 14px ${accent}` }}
-          transition={{ type: "spring", stiffness: 380, damping: 30 }}
+          transition={prefersReducedMotion
+            ? { duration: 0 }
+            : { type: "spring", stiffness: 380, damping: 30 }}
         />
       )}
       {isAgent ? (
@@ -266,12 +283,15 @@ export default function Sidebar() {
           title={tone === "live" ? "All loaded agents healthy" : `Aggregate vitals: ${tone}`}
         >
           <span className="inline-flex items-center">
-            <span className="tick-bar live" style={{ color: "#22d3ee" }} />
-            <span className="tick-bar live" style={{ color: "#a855f7", animationDelay: ".15s" }} />
-            <span className="tick-bar live" style={{ color: "#ec4899", animationDelay: ".3s" }} />
-            <span className="tick-bar live" style={{ color: "#fbbf24", animationDelay: ".45s" }} />
+            {/* Bars only pulse on `live`. On degraded/offline/unknown they
+                render static (no `.live` class) so the chip doesn't
+                cheerfully animate while reporting a problem (review B2 / #2). */}
+            <span className={`tick-bar${tone === "live" ? " live" : ""}`} style={{ color: "#22d3ee" }} />
+            <span className={`tick-bar${tone === "live" ? " live" : ""}`} style={{ color: "#a855f7", animationDelay: ".15s" }} />
+            <span className={`tick-bar${tone === "live" ? " live" : ""}`} style={{ color: "#ec4899", animationDelay: ".3s" }} />
+            <span className={`tick-bar${tone === "live" ? " live" : ""}`} style={{ color: "#fbbf24", animationDelay: ".45s" }} />
           </span>
-          <span className="uppercase tracking-widest">All systems</span>
+          <span className="uppercase tracking-widest">{TONE_LABEL[tone]}</span>
         </div>
         <div className="mt-1 flex items-center justify-between text-[10px] uppercase tracking-[0.25em] text-[var(--fg-dimmer)]">
           <span suppressHydrationWarning>{time || "—"}</span>

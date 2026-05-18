@@ -109,7 +109,7 @@ export default function MissionControl() {
 
       <section>
         <h2 className="text-[11px] uppercase tracking-[0.22em] text-[var(--fg-dimmer)] mb-4">
-          Agents · click to open control room
+          Agents · click to open workspace
         </h2>
         {portalAgents.length === 0 ? (
           <div className="panel p-8 text-center text-[var(--fg-dim)] text-[13px]">

@@ -1,12 +1,14 @@
 "use client";
 
 // Mission Control vitals row (Slice 3). N agent tiles + Heartbeat
-// (poll-tick counter) + Latency (combined p50 across agents). Refreshes
-// every 4s like Julian's reference. Adapts to however many agents the
-// registry has loaded — no hardcoded shape.
+// (poll-tick counter) + Latency (sum across loaded agents — honest
+// "combined" sum, NOT a percentile; reviewers correctly flagged the
+// earlier "p50" wording was wrong, so this is plainly a sum and the
+// sub copy says so). Refreshes every 4s. Adapts to however many
+// agents the registry has loaded — no hardcoded shape.
 
 import { useEffect, useState } from "react";
-import { motion } from "framer-motion";
+import { motion, useReducedMotion } from "framer-motion";
 import { Activity, Bot, Zap, type LucideIcon } from "lucide-react";
 import { accentFor } from "@/lib/accent";
 
@@ -57,12 +59,13 @@ interface TileProps {
 }
 
 function Tile({ accentColor, label, icon: Icon, primary, sub, tone }: TileProps) {
+  const prefersReducedMotion = useReducedMotion();
   return (
     <motion.div
-      initial={{ opacity: 0, y: 10 }}
+      initial={prefersReducedMotion ? false : { opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
-      whileHover={{ y: -2 }}
-      transition={{ duration: 0.35 }}
+      whileHover={prefersReducedMotion ? undefined : { y: -2 }}
+      transition={{ duration: prefersReducedMotion ? 0 : 0.35 }}
       className="panel panel-hover px-4 py-3"
       style={{
         // Each tile gets a soft accent glow so the row reads as a colour story.
@@ -154,7 +157,7 @@ export default function Vitals() {
         label="Latency"
         icon={Zap}
         primary={agents.length > 0 ? `${combinedLatency}ms` : "…"}
-        sub="combined across loaded agents"
+        sub="sum across loaded agents"
         tone="ok"
       />
     </div>
