@@ -227,21 +227,11 @@ body > * { position: relative; z-index: 1; }
   border-color: var(--panel-border-hot);
 }
 
-/* Accessibility — respect prefers-reduced-motion. Neutralises all the
-   new CSS keyframe animations (heartbeat / tick-bar / tick pulse) and
-   disables hover transitions. New Track 2 framer-motion hover/transition
-   paths use the local usePrefersReducedMotion() hook to avoid framer's
-   noisy dev warning while preserving reduced-motion behavior. */
-@media (prefers-reduced-motion: reduce) {
-  .heartbeat,
-  .tick-bar.live,
-  .tick.live {
-    animation: none !important;
-  }
-  .panel-hover {
-    transition: none !important;
-  }
-}
+/* Motion note: match Julian's reference build here. We do not use
+   framer-motion's reduced-motion helpers or MotionConfig reducedMotion="user"
+   because those emit noisy dev console warnings when the OS setting is
+   reduce. The decorative signal bars remain animated; text/border carry the
+   actual status tone. */
 
 /* Headings */
 h1, h2, h3 { letter-spacing: -0.01em; }
