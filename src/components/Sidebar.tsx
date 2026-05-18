@@ -114,6 +114,7 @@ function NavLink({ href, label, icon, accent, isAgent = false, active }: NavLink
       {active && (
         <motion.span
           layoutId="nav-indicator"
+          initial={false}
           className="absolute -left-1 top-1/2 -translate-y-1/2 w-[3px] h-[20px] rounded-r-full"
           style={{ background: accent, boxShadow: `0 0 14px ${accent}` }}
           transition={{ type: "spring", stiffness: 380, damping: 30 }}
@@ -277,12 +278,12 @@ export default function Sidebar() {
           title={tone === "live" ? "All loaded agents healthy" : `Aggregate vitals: ${tone}`}
         >
           <span className="inline-flex items-center">
-            {/* Match Julian's reference: the signal bars are an ambient
-                pulse, while the text/border communicate the actual tone. */}
-            <span className="tick-bar live" style={{ color: "#22d3ee" }} />
-            <span className="tick-bar live" style={{ color: "#a855f7", animationDelay: ".15s" }} />
-            <span className="tick-bar live" style={{ color: "#ec4899", animationDelay: ".3s" }} />
-            <span className="tick-bar live" style={{ color: "#fbbf24", animationDelay: ".45s" }} />
+            {/* The signal bars are a truthful live-status affordance, not
+                ambient decoration: only the live aggregate tone animates. */}
+            <span className={`tick-bar${tone === "live" ? " live" : ""}`} style={{ color: "#22d3ee" }} />
+            <span className={`tick-bar${tone === "live" ? " live" : ""}`} style={{ color: "#a855f7", animationDelay: ".15s" }} />
+            <span className={`tick-bar${tone === "live" ? " live" : ""}`} style={{ color: "#ec4899", animationDelay: ".3s" }} />
+            <span className={`tick-bar${tone === "live" ? " live" : ""}`} style={{ color: "#fbbf24", animationDelay: ".45s" }} />
           </span>
           <span className="uppercase tracking-widest">{TONE_LABEL[tone]}</span>
         </div>

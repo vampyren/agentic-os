@@ -227,11 +227,25 @@ body > * { position: relative; z-index: 1; }
   border-color: var(--panel-border-hot);
 }
 
-/* Motion note: match Julian's reference build here. We do not use
-   framer-motion's reduced-motion helpers or MotionConfig reducedMotion="user"
-   because those emit noisy dev console warnings when the OS setting is
-   reduce. The decorative signal bars remain animated; text/border carry the
-   actual status tone. */
+/* Motion note: match Julian's reference build by avoiding framer-motion's
+   reduced-motion helpers or MotionConfig reducedMotion="user" because those
+   emit noisy dev console warnings when the OS setting is reduce. Accessibility
+   still belongs in CSS: this media query has no SSR/hydration footprint and
+   keeps live-only animations honest for reduced-motion users. */
+@media (prefers-reduced-motion: reduce) {
+  .heartbeat,
+  .tick.live,
+  .tick-bar.live {
+    animation: none !important;
+  }
+
+  .panel-hover,
+  button,
+  a,
+  .tick-bar {
+    transition: none !important;
+  }
+}
 
 /* Headings */
 h1, h2, h3 { letter-spacing: -0.01em; }
