@@ -229,8 +229,9 @@ body > * { position: relative; z-index: 1; }
 
 /* Accessibility — respect prefers-reduced-motion. Neutralises all the
    new CSS keyframe animations (heartbeat / tick-bar / tick pulse) and
-   disables hover transitions. Framer-motion is gated separately via
-   useReducedMotion() in each motion component. */
+   disables hover transitions. New Track 2 framer-motion hover/transition
+   paths use the local usePrefersReducedMotion() hook to avoid framer's
+   noisy dev warning while preserving reduced-motion behavior. */
 @media (prefers-reduced-motion: reduce) {
   .heartbeat,
   .tick-bar.live,

@@ -3,10 +3,11 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
-import { motion, LayoutGroup, useReducedMotion } from "framer-motion";
+import { motion, LayoutGroup } from "framer-motion";
 import { LayoutGrid, Target, BookOpen, Search } from "lucide-react";
 import { APP_VERSION_LABEL } from "@/lib/appVersion";
 import { accentFor } from "@/lib/accent";
+import { usePrefersReducedMotion } from "@/lib/usePrefersReducedMotion";
 import AgentAvatar from "./AgentAvatar";
 
 interface AgentNav {
@@ -105,7 +106,7 @@ function NavLink({ href, label, icon, accent, isAgent = false, active }: NavLink
   // Skip the spring layout transition when the user prefers reduced motion
   // — the bar still appears on the active row, just without the cross-row
   // slide animation.
-  const prefersReducedMotion = useReducedMotion();
+  const prefersReducedMotion = usePrefersReducedMotion();
   return (
     <Link
       href={href}

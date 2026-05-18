@@ -7,14 +7,15 @@
 
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
-import { motion, useReducedMotion } from "framer-motion";
+import { motion } from "framer-motion";
 import { resolveTitle } from "@/lib/titles";
+import { usePrefersReducedMotion } from "@/lib/usePrefersReducedMotion";
 
 export default function TopBar() {
   const pathname = usePathname() ?? "/";
   const t = resolveTitle(pathname);
   const [time, setTime] = useState<string>("");
-  const prefersReducedMotion = useReducedMotion();
+  const prefersReducedMotion = usePrefersReducedMotion();
 
   useEffect(() => {
     const setNow = () =>
@@ -34,8 +35,8 @@ export default function TopBar() {
     <motion.header
       // SSR-safe: initial={false} prevents framer-motion from injecting
       // entrance styles into the server-rendered HTML. The previous
-      // `useReducedMotion()`-gated initial caused a Next.js hydration
-      // mismatch because useReducedMotion returns null on SSR and may
+      // reduced-motion-gated initial caused a Next.js hydration
+      // mismatch because the preference can differ between SSR and
       // resolve to a different value during client hydration — server
       // HTML ended up with opacity:0/translateY(6px) while client had
       // opacity:1/translateY(0). Trade-off: no entrance fade on first

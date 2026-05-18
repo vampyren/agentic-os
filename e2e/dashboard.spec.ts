@@ -323,6 +323,24 @@ test.describe("Mission Control dashboard", () => {
     await expect(page.getByPlaceholder(/Type a prompt/i)).toBeVisible({ timeout: 10_000 });
   });
 
+  test("reduced-motion users do not get framer-motion dev warning spam", async ({ page }) => {
+    // Regression: framer-motion's useReducedMotion() and MotionConfig
+    // reducedMotion="user" both emit a dev warning when the OS setting is
+    // reduce. Track 2 uses a local matchMedia hook for explicit motion gates
+    // so reduced-motion users get the behavior without console spam.
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    const warnings: string[] = [];
+    page.on("console", (msg) => {
+      const text = msg.text();
+      if (/Reduced Motion enabled|reduced-motion-disabled/i.test(text)) warnings.push(text);
+    });
+
+    await page.goto("/");
+    await expect(page.getByRole("heading", { name: /Mission Control/i })).toBeVisible();
+
+    expect(warnings).toEqual([]);
+  });
+
   test("sidebar aggregate status chip reflects tone — degraded vitals → label is NOT 'All systems'", async ({ page }) => {
     // Slice 2 / review item B2: the chip label was hardcoded "All
     // systems" regardless of aggregate vitals tone. Fix introduced
