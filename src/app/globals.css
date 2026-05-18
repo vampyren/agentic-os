@@ -182,11 +182,12 @@ body > * { position: relative; z-index: 1; }
   background: currentColor;
   border-radius: 1px;
   opacity: 0.4;
+  transform-origin: bottom;
 }
 .tick-bar.live { animation: tick-bar 1.4s ease-in-out infinite; }
 @keyframes tick-bar {
-  0%, 100% { transform: scaleY(0.4); opacity: 0.4; }
-  50%      { transform: scaleY(1);   opacity: 1; }
+  0%, 100% { transform: scaleY(0.3); opacity: 0.35; }
+  50%      { transform: scaleY(1.15); opacity: 1; }
 }
 
 /* Glow-dot heartbeat — 8px filled circle with currentColor glow that
