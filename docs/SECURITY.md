@@ -163,22 +163,24 @@ Since v0.2.7 the dashboard mirrors each agent's chat session to the browser's `l
 | Two browser tabs open to the same agent | Both subscribe to the same `chatStore` singleton (within a tab) but separate tabs have separate stores. Send-from-tab-A doesn't appear in tab-B. Both tabs DO read/write the same localStorage on commit, so reloading either tab eventually converges. Multi-tab simultaneity isn't a supported workflow yet. |
 | Kernel-side audit on aborted streams | The aborted run still writes `agent.invoke.complete` with the actual exit/duration (or `agent.invoke.error` with `errorClass: "killed"` if the signal terminated the subprocess). |
 
-## Known limitations (current release candidate)
+## Known limitations and residual risks
 
-### `originOk` accepts no-Origin requests on side-effecting endpoints
+### Localhost trust model for non-browser callers
 
-`src/app/api/_lib/cors.ts`'s `originOk` returns `true` when there is no `Origin` header on a request. The intent is to keep server-side / curl flows working (browsers omit `Origin` on simple GET navigations and `<img>` requests but always send it on cross-origin XHR/fetch, so CORS catches the common XSS-style call shape).
+`src/app/api/_lib/cors.ts` combines two browser-facing checks:
+- `Origin` allowlist: only `http://127.0.0.1:3000` and `http://localhost:3000` are accepted when an `Origin` header is present.
+- `Sec-Fetch-Site` gate: browser requests from `same-site` or `cross-site` contexts are rejected, including simple cross-origin GET shapes that may omit `Origin`.
 
-The residual risk: a malicious local page running on the same machine (e.g. a different local dev tool at `http://localhost:8080`) can trigger a no-Origin GET against `http://127.0.0.1:3000/api/agents/<name>/actions/<id>` via `<img>` / browser fetch shapes the browser does not stamp with `Origin`. The attacker cannot READ the JSON response (Same-Origin Policy still blocks it without explicit Access-Control-Allow-Origin), but they CAN trigger side effects — most notably a Control Room action invocation, which spawns a subprocess. Repeated triggers could DOS the operator's machine via slow `hermes insights` runs.
+The remaining intentional allowance is for non-browser local callers such as curl or local scripts. Those clients usually send neither `Origin` nor `Sec-Fetch-Site`, so they pass under the Phase 1 localhost-single-operator trust model.
 
 Scope:
-- Highest-risk surface: `GET /api/agents/[name]/actions/[action]` (side-effecting, allow-no-Origin).
-- Lower-risk: `GET /api/memory/note?path=` (read-only; SOP blocks the response body).
-- Lowest-risk: `POST /api/agents/[name]/run`, `POST /api/goals`, `POST /api/journal`, `POST /api/goals/toggle` — browsers send `Origin` on cross-origin XHR/fetch, so CORS rejects them; only same-origin tools see no `Origin`.
+- Highest-risk surface: `GET /api/agents/[name]/actions/[action]` because it spawns read-only subprocess actions. Browser cross-site/same-site triggers are blocked by the `Sec-Fetch-Site` gate; local non-browser tools remain trusted.
+- Lower-risk: `GET /api/memory/note?path=` is read-only and still protected by path traversal checks plus same-origin response protections.
+- POST endpoints rely on the same Origin/Sec-Fetch-Site gate and input validation.
 
-Planned hardening (a future release): a stricter `originOkStrict()` for side-effecting endpoints that requires either `Origin` in the allowlist, or `Sec-Fetch-Site: same-origin | none` (browsers always send this metadata header on fetches; curl does not), or a `Host` header in the allowlist. Curl operators can opt in via `--header "Origin: http://127.0.0.1:3000"`.
+Possible future hardening: split browser endpoints from local automation endpoints, require a local bearer token for side-effecting non-browser calls, or add a stricter action-only gate if Agentic OS moves beyond single-operator localhost use.
 
-Until that lands, the operator's mitigations are:
+Operator mitigations:
 - Don't run untrusted local dev tools on other ports while the dashboard is up.
 - Treat the dashboard as a localhost-only single-tenant tool (which is already the Phase 1 posture per the threat model above).
 

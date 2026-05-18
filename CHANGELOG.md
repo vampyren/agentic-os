@@ -23,6 +23,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 Queued for v0.2.12+:
+- v0.2.12 Track 2 UI/UX pass starts with Slice 1: Sidebar redesign from the released v0.2.11 baseline.
+- Track 2 follow-on slices: TopBar redesign, Mission Control rebuild, chat surface declutter, Control Room polish, Memory tabs as chips, and small `globals.css` extensions.
 - "Send last prompt to agent X" action in the command palette.
 - Voice input on the journal page (chat box already has it).
 - Vault search results inside the command palette.
@@ -80,7 +82,7 @@ Hermes v0.2.8 review called out that the unmount cleanup behavior in v0.2.10 nee
 3. Navigates to `/agents/hermes` → asserts Stop is NOT visible in the new room, textarea is enabled, marker text from the prior agent is NOT visible.
 4. Navigates back to `/agents/claude-code` → asserts the user message is still there (persistence works), Stop is still hidden, textarea enabled, and crucially **no `(no output)` orphan** got committed by the aborted run's `finally` block.
 
-A second new case exercises the action rail end-to-end (Status chip → API call → result pill) and asserts the chat textarea stays enabled regardless of action outcome — encodes the fail-soft contract as a test.
+A second new case exercises Control Room actions end-to-end (Status row → API call → result pill) and asserts the chat textarea stays enabled regardless of action outcome — encodes the fail-soft contract as a test.
 
 ### Fixed — HIGH: `(no output)` orphan committed on full-page navigation during streaming
 
@@ -159,11 +161,11 @@ SECURITY.md's "Aborts, races, and reloads" table updated to match the now-honest
 
 None. The top-row picker is purely additive — sidebar nav still works. AgentRoom unmount cleanup is invisible to operators except for the now-correct behavior (no ghost messages from prior agents).
 
-### Known limitations remaining (v0.2.11+)
+### Known limitations remaining (v0.2.12+)
 
 - "Clear all chat cache" UI affordance — still queued.
 - localStorage opt-out toggle — still queued.
-- Per-agent action rail (`Status / Sessions / Insights` tabs) — queued for v0.2.11 UI continued.
+- Track 2 visual polish — Sidebar redesign starts v0.2.12; later slices cover TopBar, Mission Control, chat, Control Room, Memory chips, and shared CSS utilities.
 
 ---
 

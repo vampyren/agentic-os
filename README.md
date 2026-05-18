@@ -2,7 +2,7 @@
 
 A local-first mission control for your AI agents. Single dashboard. Pluggable brains. Your knowledge stays in your vault.
 
-> **Status: v0.2.11 — Phase 1B feature: per-agent action rail + Memory page UX.** Runnable. Two built-in agents (Claude Code, Hermes) work end-to-end. Mission Control UI, top-row agent picker, action rail with Hermes Status/Sessions/Insights chips, Memory page with tabs + filter chips + right-pane preview, vault inbox-first writes, SQLite FTS5 search, setup wizard, JSONL audit log with full prompt redaction (argv, filenames, stderr, AND action output). See [`CHANGELOG.md`](CHANGELOG.md) for version history.
+> **Status: v0.2.11 released — Phase 1B baseline, preparing v0.2.12 Track 2 UI/UX.** Runnable. Two built-in agents (Claude Code, Hermes) work end-to-end. Mission Control UI, top-row agent picker, per-agent Chat ⇄ Control Room toggle with Hermes Status/Sessions/Insights actions, Memory page with tabs + filter chips + right-pane preview, vault inbox-first writes, SQLite FTS5 search, setup wizard, JSONL audit log with full prompt redaction (argv, filenames, stderr, AND action output). Next focus: v0.2.12 Track 2 Sidebar redesign. See [`CHANGELOG.md`](CHANGELOG.md) for version history.
 
 ---
 
@@ -12,7 +12,7 @@ One process on your laptop that gives you:
 
 - A **dashboard** showing the live status of every brain you've connected (Claude Code, Hermes, OpenClaw, ChatGPT, OpenRouter, local Ollama, anything CLI- or HTTP-callable).
 - An **agent registry** so adding a new brain is one YAML/TS manifest, not a code refactor.
-- A **streaming chat surface** for every agent, plus an action panel for that agent's CLI verbs.
+- A **streaming chat surface** for every agent, plus a Control Room for manifest-declared read-only CLI verbs.
 - A **scheduler** for missions (overnight research, daily summary, weekly review).
 - A **knowledge layer** that respects your existing Obsidian vault rules: writes land in the inbox first, promotion is gated, frontmatter carries metadata, tags stay broad.
 

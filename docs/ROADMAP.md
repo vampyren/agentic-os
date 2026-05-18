@@ -65,6 +65,8 @@ Split into three slices so each is small enough to review end-to-end. See ADR-00
 
 ### Phase 1B — Operator UX (port Julian's aesthetic, add the SELF layer)
 
+**Current status:** v0.2.11 released the Phase 1B baseline: Mission Control UI, top-row agent picker, per-agent Chat ⇄ Control Room mode, read-only Hermes actions, Memory UX, setup wizard, FTS5 search, and security hardening. v0.2.12 remains in Phase 1B as Track 2 UI/UX polish, starting with Sidebar redesign. Phase 1C scheduler/missions starts only after the operator signs off on the UX baseline.
+
 **Goal:** The dashboard looks like Mission Control and the operator can do their daily SOP from it. Still no scheduler.
 
 **In scope**
