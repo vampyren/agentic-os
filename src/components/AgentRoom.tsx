@@ -45,6 +45,7 @@ export default function AgentRoom({ name }: { name: string }) {
   const [streaming, setStreaming] = useState(false);
   const [partial, setPartial] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [mounted, setMounted] = useState(false);
   const ctrlRef = useRef<AbortController | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const promptRef = useRef<HTMLTextAreaElement | null>(null);
@@ -57,6 +58,10 @@ export default function AgentRoom({ name }: { name: string }) {
   const sendGenRef = useRef(0);
 
   // Load manifest + vitals.
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
   useEffect(() => {
     const tick = async () => {
       try {
@@ -247,7 +252,7 @@ export default function AgentRoom({ name }: { name: string }) {
               onClick={newSession}
               title="New session — clears this agent's chat history (vault notes are untouched)"
               className="!px-2 !py-1.5 text-[11px] text-[var(--fg-dim)] hover:text-[var(--fg)]"
-              disabled={msgs.length === 0 && !streaming}
+              disabled={!mounted || (msgs.length === 0 && !streaming)}
             >
               <span className="flex items-center gap-1.5">
                 <RotateCcw size={12} />

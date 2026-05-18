@@ -30,7 +30,8 @@ export default function CommandPalette() {
   const [agents, setAgents] = useState<AgentRow[]>([]);
   const router = useRouter();
 
-  // Keyboard toggle.
+  // Keyboard toggle + window event open (lets the TopBar ⌘K chip open the
+  // same palette without lifting the open-state into a global store).
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "k" && (e.metaKey || e.ctrlKey)) {
@@ -42,8 +43,13 @@ export default function CommandPalette() {
         setOpen(false);
       }
     };
+    const onOpenEvent = () => setOpen(true);
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    window.addEventListener("open-command-palette", onOpenEvent);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("open-command-palette", onOpenEvent);
+    };
   }, [open]);
 
   // Lazy-load agent list when palette opens (so it stays fresh if you add

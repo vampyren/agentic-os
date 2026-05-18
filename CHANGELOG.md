@@ -22,9 +22,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-Queued for v0.2.12+:
-- v0.2.12 Track 2 UI/UX pass starts with Slice 1: Sidebar redesign from the released v0.2.11 baseline.
-- Track 2 follow-on slices: TopBar redesign, Mission Control rebuild, chat surface declutter, Control Room polish, Memory tabs as chips, and small `globals.css` extensions.
+### v0.2.12 Track 2 — UI/UX shell + Mission Control rebuild (in branch, not yet released)
+
+Three Track 2 slices are implemented on `feature/v0.2.12-sidebar-redesign`. All UI-only; no backend, security, or vault-write contract changes.
+
+**Slice 1 — Sidebar redesign.** `Sidebar.tsx` reshaped into three semantic groups with section overlines: `Workspace` (Mission Control), `Agents` (runtime-loaded from `/api/agents`, sorted by display name), and `Self` (Goals / Journal / Memory). Active item gets accent-tinted background + animated left accent bar via `motion.layoutId="nav-indicator"`. Per-agent identity rendered via new `AgentAvatar.tsx` (runtime-agnostic circular tile with the agent's first initial, full accent gradient + glow ring in the active state). New `--panel`, `--panel-border`, `--panel-border-hot` tokens in `globals.css` give the rail its purple-navy translucent character + subtle right-edge glow. Brand block top: `LOCAL · 127.0.0.1` overline + gradient `Agentic OS` wordmark.
+
+**Slice 2 — TopBar + shell control relocation.** New `src/lib/titles.ts` per-route page-identity registry (static map + `/agents/[name]` slug-to-title fallback). `TopBar.tsx` is now title-only: `HH:MM · Local` overline + 34px page title + 14px subtitle, fades in (y: 6 → 0) on every route change. Page-identity `<h2>`s removed from `goals`, `journal`, `memory`, `events`, `agents` route files (sidebar active row + TopBar h1 own identity now). Home-page section h2s (`Agents`, `Live activity`) preserved.
+
+Shell controls moved into the sidebar bottom block (no waste of vertical space in the main content area): `⌘K Command palette` button, `All systems` pill (border-tinted by aggregate tone from `/api/vitals`), and a single micro footer line with clock-left / version-right. The `⌘K` chip dispatches a `CustomEvent("open-command-palette")` that `CommandPalette.tsx` listens for alongside its existing keyboard shortcut — no global store refactor needed.
+
+New CSS primitives in `globals.css`: `.tick-bar` (4×12 vertical bars for the ALL SYSTEMS cluster, distinct from the existing `.tick` dots used in Pill), `.heartbeat` (8px glow-dot for vitals/portal status), `.metric` (tabular-numeric monospace for headline numbers), `.panel-hover` (transition + hover lift).
+
+**Slice 3 — Mission Control rebuild.** `src/app/page.tsx` rebuilt to match the reference design.
+- New `Vitals.tsx` — N per-agent tiles (auto-adapts to whatever the registry has loaded) + Heartbeat tile (poll-tick counter, 4s interval) + Latency tile (combined ms across loaded agents). Each tile has an accent-coloured outer glow, lucide icon + label overline, LIVE/WARN/DOWN heartbeat indicator, `.metric` primary value, sub line.
+- New `AgentPortal.tsx` — portal card with a large accent glow blob behind the top-right corner (intensifies on hover), accent-tinted identity tile (top-left) with its own glow ring, status text with `.heartbeat` dot (top-right), accent-coloured title, manifest-description tagline, 2-metric grid (Version, Latency), `Open control room →` CTA. Card is the link; lifts ~3px on hover. Internal spacing tightened in a post-review pass to keep cards compact.
+- New `SelfCard.tsx` — smaller card for Goals/Journal/Memory, accent glow at bottom-right corner, accent-tinted icon tile + accent title + tagline + single stat line.
+- Pointless `all agents →` link removed from the Agents section header (whole card is the link; redundant chevron deleted).
+- Live activity stream preserved at bottom.
+
+**Shell layout.** Main content container has `mx-auto` removed so content hugs the sidebar (no dead horizontal space). `max-w-[1400px]` cap retained for line-length sanity on ultra-wide monitors.
+
+**Background.** `body` background now layers a top cyan light haze + five corner aurora pools (cyan top-left, magenta top-right, amber mid-right, purple bottom-left, deep magenta bottom-right) + a centre-bottom deep-purple pool for depth under the live activity area + a navy lift over the obsidian `--bg`. New `body::before` blueprint grid overlay (56px lines, ~2.4% white, ellipse-mask centred at 38%·50% so the grid fades through the content column and reappears on the empty right gutter). New `body::after` soft inner vignette (radial dark ring from 55% out to 45% opacity) gently focuses the eye toward content. All layers static — `prefers-reduced-motion` automatically satisfied.
+
+**E2E.** `e2e/dashboard.spec.ts` updates: heading-existence assertions for `/goals`, `/journal`, `/events` (which no longer have route-level identity h2s) replaced with page-specific input-placeholder presence checks. Sidebar link clicks scoped to `page.locator("aside")` to disambiguate from the new SelfCard links on the home page. Event Log link click swapped to `page.goto("/events")` since Event Log was removed from the sidebar nav.
+
+**Independent of Track 2 (carried in this branch):** chat `New session` button SSR/CSR hydration fix in `src/components/AgentRoom.tsx` (added a `mounted` state to gate the `disabled` prop) — prevents a hydration-mismatch warning on first paint.
+
+### Queued for v0.2.12+ (not in branch)
+
+- Track 2 follow-on slices: chat surface declutter (Slice 4), Control Room polish (Slice 5), Memory tabs as chips (Slice 6).
+- Future: secure inline audio playback in chat messages (allowlisted `/api/audio?path=` route with strict path-traversal + MIME guards).
 - "Send last prompt to agent X" action in the command palette.
 - Voice input on the journal page (chat box already has it).
 - Vault search results inside the command palette.

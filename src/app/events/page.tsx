@@ -37,8 +37,7 @@ export default function EventsPage() {
 
   return (
     <div className="flex flex-col gap-4 min-h-[60vh]">
-      <header className="flex items-baseline justify-between">
-        <h2 className="text-[20px] font-medium tracking-tight">Event log</h2>
+      <header className="flex items-baseline justify-end">
         <div className="flex items-center gap-3">
           <input
             type="text"

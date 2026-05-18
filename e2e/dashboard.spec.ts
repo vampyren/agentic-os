@@ -11,22 +11,35 @@ test.describe("Mission Control dashboard", () => {
   });
 
   test("the sidebar links route correctly", async ({ page }) => {
+    // v0.2.12 Slice 2 revised: page-identity h1/h2s were removed (sidebar
+    // active nav owns identity). Each assertion now verifies the URL
+    // changed AND a page-specific input/content element is visible —
+    // which proves the page actually rendered, not just that we navigated.
+    //
+    // Slice 3: SelfCard links on the Mission Control home page also match
+    // /^Goals/, /^Journal/, /^Memory/. Scope clicks to the sidebar <aside>
+    // to disambiguate.
     await page.goto("/");
-    await page.getByRole("link", { name: /^Goals/ }).click();
+    const sidebar = page.locator("aside");
+
+    await sidebar.getByRole("link", { name: /^Goals/ }).click();
     await expect(page).toHaveURL(/\/goals$/);
-    await expect(page.getByRole("heading", { name: /^Goals/ })).toBeVisible();
+    await expect(page.getByPlaceholder("What's the goal?")).toBeVisible();
 
-    await page.getByRole("link", { name: /^Journal/ }).click();
+    await sidebar.getByRole("link", { name: /^Journal/ }).click();
     await expect(page).toHaveURL(/\/journal$/);
-    await expect(page.getByRole("heading", { name: /Journal —/ })).toBeVisible();
+    await expect(page.getByPlaceholder(/What's on your mind/i)).toBeVisible();
 
-    await page.getByRole("link", { name: /^Memory/ }).click();
+    await sidebar.getByRole("link", { name: /^Memory/ }).click();
     await expect(page).toHaveURL(/\/memory$/);
     await expect(page.getByPlaceholder("search notes…")).toBeVisible();
 
-    await page.getByRole("link", { name: /Event Log/ }).click();
+    // Event Log was removed from the sidebar in v0.2.12 Track 2 Slice 1 —
+    // the route remains, navigate to it directly to keep coverage of the
+    // page rendering.
+    await page.goto("/events");
     await expect(page).toHaveURL(/\/events$/);
-    await expect(page.getByRole("heading", { name: /Event log/i })).toBeVisible();
+    await expect(page.getByPlaceholder("filter…")).toBeVisible();
   });
 
   test("/api/agents responds with JSON shape", async ({ request }) => {

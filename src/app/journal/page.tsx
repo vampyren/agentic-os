@@ -59,14 +59,14 @@ export default function JournalPage() {
   return (
     <div className="grid lg:grid-cols-[1fr_220px] gap-6">
       <div className="flex flex-col gap-4 max-w-3xl">
-        <header>
-          <h2 className="text-[20px] font-medium tracking-tight">
-            Journal — {date}{isToday && <span className="text-[var(--fg-dim)] text-[14px] ml-2">(today)</span>}
-          </h2>
+        <div>
+          <div className="text-[11px] uppercase tracking-[0.22em] text-[var(--fg-dimmer)]">
+            Entries for {date}{isToday && <span className="ml-2 normal-case tracking-normal text-[var(--fg-dim)]">(today)</span>}
+          </div>
           <p className="text-[12px] text-[var(--fg-dim)] mt-1">
             One file per day under <code>00_Inbox/agentic-os/journal/</code>. Each entry is timestamped.
           </p>
-        </header>
+        </div>
 
         {isToday && (
           <div className="panel p-4 flex gap-2">

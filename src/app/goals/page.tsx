@@ -67,13 +67,10 @@ export default function GoalsPage() {
 
   return (
     <div className="flex flex-col gap-6 max-w-3xl">
-      <header>
-        <h2 className="text-[20px] font-medium tracking-tight">Goals</h2>
-        <p className="text-[12px] text-[var(--fg-dim)] mt-1">
-          One file per goal under <code>00_Inbox/agentic-os/goals/</code>.
-          Promote to <code>10_Projects/</code> manually in Obsidian when ready.
-        </p>
-      </header>
+      <p className="text-[12px] text-[var(--fg-dim)]">
+        One file per goal under <code>00_Inbox/agentic-os/goals/</code>.
+        Promote to <code>10_Projects/</code> manually in Obsidian when ready.
+      </p>
 
       {/* Add new */}
       <div className="panel p-4 flex gap-2">
