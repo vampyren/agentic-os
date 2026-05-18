@@ -5,9 +5,10 @@
 // at the bottom-right corner.
 
 import Link from "next/link";
-import { motion, useReducedMotion } from "framer-motion";
+import { motion } from "framer-motion";
 import { ArrowUpRight } from "lucide-react";
 import type { ReactNode } from "react";
+import { usePrefersReducedMotion } from "@/lib/usePrefersReducedMotion";
 
 interface Props {
   href: string;
@@ -19,7 +20,7 @@ interface Props {
 }
 
 export default function SelfCard({ href, title, tagline, icon, accent, stat }: Props) {
-  const prefersReducedMotion = useReducedMotion();
+  const prefersReducedMotion = usePrefersReducedMotion();
   return (
     <Link href={href} className="block group">
       <motion.div

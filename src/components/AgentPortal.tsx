@@ -5,9 +5,10 @@
 // "Open agent workspace →" CTA. Whole card is a Link to the agent room.
 
 import Link from "next/link";
-import { motion, useReducedMotion } from "framer-motion";
+import { motion } from "framer-motion";
 import { ArrowUpRight } from "lucide-react";
 import type { ReactNode } from "react";
+import { usePrefersReducedMotion } from "@/lib/usePrefersReducedMotion";
 
 type PortalStatus = "ok" | "warn" | "err" | "unknown";
 
@@ -49,7 +50,7 @@ export default function AgentPortal({
   status,
   metrics,
 }: Props) {
-  const prefersReducedMotion = useReducedMotion();
+  const prefersReducedMotion = usePrefersReducedMotion();
   return (
     <Link href={href} className="block group">
       <motion.div

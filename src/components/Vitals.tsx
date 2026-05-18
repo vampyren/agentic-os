@@ -8,9 +8,10 @@
 // agents the registry has loaded — no hardcoded shape.
 
 import { useEffect, useState } from "react";
-import { motion, useReducedMotion } from "framer-motion";
+import { motion } from "framer-motion";
 import { Activity, Bot, Zap, type LucideIcon } from "lucide-react";
 import { accentFor } from "@/lib/accent";
+import { usePrefersReducedMotion } from "@/lib/usePrefersReducedMotion";
 
 interface AgentVital {
   name: string;
@@ -59,13 +60,13 @@ interface TileProps {
 }
 
 function Tile({ accentColor, label, icon: Icon, primary, sub, tone }: TileProps) {
-  const prefersReducedMotion = useReducedMotion();
+  const prefersReducedMotion = usePrefersReducedMotion();
   return (
     <motion.div
       // SSR-safe: initial={false} so framer-motion does not inject the
       // initial transform/opacity into server-rendered HTML. Otherwise
-      // useReducedMotion()'s null→bool resolution during hydration
-      // causes a "server-rendered HTML attributes did not match client"
+      // reduced-motion preference resolution during hydration causes a
+      // "server-rendered HTML attributes did not match client"
       // error. Heartbeat and Latency tiles always SSR-render. Hover
       // motion (whileHover) is unaffected and stays gated by reduced-
       // motion preference.
