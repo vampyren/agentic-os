@@ -424,7 +424,14 @@ test.describe("Mission Control dashboard", () => {
     await expect(firstBar).toHaveCSS("animation-name", "none");
   });
 
-  test("reduced-motion disables live sidebar signal-bar animation", async ({ page }) => {
+  test("reduced-motion: live sidebar signal-bar animation is INTENTIONALLY preserved", async ({ page }) => {
+    // Deliberate accessibility trade-off (Rex direction, 2026-05-19):
+    // .tick-bar.live keeps animating even under prefers-reduced-motion: reduce
+    // because the gentle 1.4s pulse IS the live signal. Other autonomous
+    // animations (.heartbeat dot, .tick.live pill dot) remain disabled
+    // under reduced motion — those are decorative. This test pins the
+    // intentional exception so a future "respect reduced motion everywhere"
+    // refactor doesn't silently strip the only motion signal in the chip.
     await page.emulateMedia({ reducedMotion: "reduce" });
     await page.route("**/api/vitals", async (route) => {
       await route.fulfill({
@@ -451,7 +458,7 @@ test.describe("Mission Control dashboard", () => {
 
     await expect(sidebar.getByText(/^All systems$/i)).toBeVisible({ timeout: 5_000 });
     const firstBar = sidebar.locator(".tick-bar").first();
-    await expect(firstBar).toHaveCSS("animation-name", "none");
+    await expect(firstBar).toHaveCSS("animation-name", "tick-bar");
   });
 
   test("Slice 4 chat declutter — chat surface has no right-rail Vitals/About/Tokens panels", async ({ page }) => {
@@ -480,42 +487,13 @@ test.describe("Mission Control dashboard", () => {
     await expect(page.getByTestId("chat-usage-strip")).toHaveCount(0);
   });
 
-  test("reduced-motion: live bars stay visibly distinguishable from non-live (static brightness)", async ({ page }) => {
-    // Regression: when the user has prefers-reduced-motion enabled, the
-    // @media block disables `.tick-bar.live` animation — without an
-    // explicit static base opacity on `.tick-bar.live`, live bars fell
-    // back to the same dim opacity as non-live and the chip lost its
-    // signal entirely. Pins the contract: live bars are brighter than
-    // non-live (animation off, but signal preserved via opacity).
-    await page.emulateMedia({ reducedMotion: "reduce" });
-    await page.route("**/api/vitals", async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify({
-          ts: Date.now(),
-          agents: [
-            {
-              name: "claude-code",
-              displayName: "Claude Code",
-              transport: "streamJson",
-              status: "live",
-              version: "2.0.0",
-              latencyMs: 80,
-            },
-          ],
-        }),
-      });
-    });
-
-    await page.goto("/");
-    const sidebar = page.locator("aside");
-    await expect(sidebar.getByText(/^All systems$/i)).toBeVisible({ timeout: 5_000 });
-
-    const liveBar = sidebar.locator(".tick-bar.live").first();
-    await expect(liveBar).toHaveCSS("animation-name", "none");
-
-    const liveOpacity = await liveBar.evaluate((el) => parseFloat(getComputedStyle(el).opacity));
-    expect(liveOpacity).toBeGreaterThan(0.8);
-  });
+  // (Removed 2026-05-19) Earlier test "reduced-motion: live bars stay
+  // visibly distinguishable from non-live (static brightness)" pinned the
+  // previous design where reduced-motion killed the live animation but
+  // pinned opacity:1 + scaleY(1) as a bright-static fallback. That design
+  // was reverted at Rex's direction — the live bars now animate even
+  // under reduced motion (see the immediately-preceding test). Without
+  // the static pin the assertion `opacity > 0.8` is no longer meaningful
+  // (opacity oscillates 0.35 ↔ 1 with the running animation). The contract
+  // is now covered by the preserved-animation test above.
 });

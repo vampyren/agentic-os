@@ -39,10 +39,13 @@ const STATIC: Record<string, PageIdentity> = {
 
 /**
  * Convert a manifest-style slug like `claude-code` into a display-friendly
- * title like `Claude Code`. Used as the per-agent fallback when no static
- * entry exists.
+ * title like `Claude Code`. Used as:
+ *   - the per-agent fallback when no static `resolveTitle` entry exists, and
+ *   - the synchronous header fallback in `AgentRoom` while the manifest
+ *     fetch is still in flight (avoids a brief "hermes"/"claude-code"
+ *     slug flash on first paint).
  */
-function slugToTitle(slug: string): string {
+export function slugToTitle(slug: string): string {
   return slug
     .split("-")
     .filter(Boolean)
