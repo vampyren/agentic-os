@@ -3,11 +3,9 @@
 import { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Send, Square, Sparkles, RotateCcw } from "lucide-react";
-import Pill, { type PillTone } from "./Pill";
 import Markdown from "./Markdown";
 import VoiceButton from "./VoiceButton";
 import { accentFor } from "@/lib/accent";
-import { resolveModel, contextBreakdown } from "@/lib/models";
 import { chatStore } from "@/lib/chatStore";
 import { useChatSession } from "@/lib/useChatSession";
 
@@ -18,16 +16,11 @@ interface Agent {
   transport: string;
 }
 
-interface Vitals {
-  status: PillTone;
-  version?: string;
-  latencyMs?: number;
-  checkedAt?: number;
-}
-
-// Local aliases — actual types live in chatStore.ts / types.ts.
+// Local alias — actual type lives in chatStore.ts / types.ts. Used by
+// the streaming partial usage capture and ChatBubble's per-message
+// footer. SessionUsage isn't aliased separately; its fields are read
+// directly from session.sessionUsage which is typed via inference.
 type Usage = NonNullable<ReturnType<typeof chatStore.get>["lastUsage"]>;
-type SessionUsage = ReturnType<typeof chatStore.get>["sessionUsage"];
 
 export default function AgentRoom({ name }: { name: string }) {
   const accent = accentFor(name);
@@ -40,7 +33,6 @@ export default function AgentRoom({ name }: { name: string }) {
   const sessionUsage = session.sessionUsage;
 
   const [agent, setAgent] = useState<Agent | null>(null);
-  const [vitals, setVitals] = useState<Vitals | null>(null);
   const [prompt, setPrompt] = useState("");
   const [streaming, setStreaming] = useState(false);
   const [partial, setPartial] = useState("");
@@ -57,32 +49,25 @@ export default function AgentRoom({ name }: { name: string }) {
   // assistant message in the cleared chat (Hermes review of v0.2.7).
   const sendGenRef = useRef(0);
 
-  // Load manifest + vitals.
   useEffect(() => {
     setMounted(true);
   }, []);
 
+  // Slice 4: agent fetch reduced to one-shot — we only need the
+  // displayName for the chat header. Vitals are owned by the sidebar's
+  // ALL SYSTEMS chip + Mission Control vitals row now, so no per-agent
+  // status polling lives in the chat surface anymore.
   useEffect(() => {
-    const tick = async () => {
+    let cancelled = false;
+    const fetchAgent = async () => {
       try {
-        const [list, vit] = await Promise.all([
-          fetch("/api/agents", { cache: "no-store" }).then((r) => r.json()),
-          fetch("/api/vitals", { cache: "no-store" }).then((r) => r.json()),
-        ]);
-        const a = list.agents.find((x: Agent) => x.name === name);
-        if (a) setAgent(a);
-        const v = vit.agents.find((x: { name: string }) => x.name === name);
-        if (v) setVitals({
-          status: v.status,
-          version: v.version,
-          latencyMs: v.latencyMs,
-          checkedAt: v.checkedAt,
-        });
-      } catch { /* ignore */ }
+        const list = await fetch("/api/agents", { cache: "no-store" }).then((r) => r.json());
+        const a = (list.agents as Agent[]).find((x) => x.name === name);
+        if (!cancelled && a) setAgent(a);
+      } catch { /* ignore — displayName falls back to the slug */ }
     };
-    tick();
-    const id = setInterval(tick, 15_000);
-    return () => clearInterval(id);
+    void fetchAgent();
+    return () => { cancelled = true; };
   }, [name]);
 
   // Autoscroll on new content.
@@ -222,44 +207,38 @@ export default function AgentRoom({ name }: { name: string }) {
     promptRef.current?.focus();
   }
 
+  // Slice 4: token/cost status strip below the composer. Replaces the
+  // old right-rail Tokens panel. Single horizontal line, mono, hidden
+  // when there's no usage to report.
+  const hasAnyUsage =
+    Boolean(usage && (usage.inputTokens || usage.outputTokens)) ||
+    sessionUsage.turns > 0;
+
   return (
-    <div className="flex flex-col gap-4 min-h-[60vh]">
-      <div className="grid lg:grid-cols-[1fr_280px] gap-6 flex-1 min-h-0">
-      {/* Chat surface */}
-      <section className="panel flex flex-col min-h-0">
+    <div className="flex flex-col min-h-[60vh]">
+      <section className="panel flex flex-col min-h-0 flex-1">
+        {/* Slim chat header — agent avatar + name + small New session.
+            The aggregate status signal lives in the sidebar's ALL SYSTEMS
+            chip; per-agent vitals are accessible from Mission Control and
+            /agents. Chat surface no longer carries them. */}
         <header className="px-5 py-4 border-b border-[var(--border)] flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <span
-              className="w-2.5 h-2.5 rounded-full"
-              style={{ background: accent, boxShadow: `0 0 12px -2px ${accent}` }}
-            />
-            <div className="leading-tight">
-              <div className="text-[14px] font-medium">
-                {agent?.displayName ?? name}
-              </div>
-              <div className="text-[10px] uppercase tracking-widest text-[var(--fg-dimmer)]">
-                {name} · {agent?.transport ?? "…"}
-              </div>
+            <Avatar name={name} accent={accent} side="assistant" />
+            <div className="text-[14px] font-medium" style={{ color: accent }}>
+              {agent?.displayName ?? name}
             </div>
           </div>
-          <div className="flex items-center gap-2">
-            {vitals && (
-              <Pill tone={vitals.status} pulse={vitals.status === "live"}>
-                {vitals.status}
-              </Pill>
-            )}
-            <button
-              onClick={newSession}
-              title="New session — clears this agent's chat history (vault notes are untouched)"
-              className="!px-2 !py-1.5 text-[11px] text-[var(--fg-dim)] hover:text-[var(--fg)]"
-              disabled={!mounted || (msgs.length === 0 && !streaming)}
-            >
-              <span className="flex items-center gap-1.5">
-                <RotateCcw size={12} />
-                New session
-              </span>
-            </button>
-          </div>
+          <button
+            onClick={newSession}
+            title="New session — clears this agent's chat history (vault notes are untouched)"
+            className="!px-2 !py-1.5 text-[11px] text-[var(--fg-dim)] hover:text-[var(--fg)]"
+            disabled={!mounted || (msgs.length === 0 && !streaming)}
+          >
+            <span className="flex items-center gap-1.5">
+              <RotateCcw size={12} />
+              New session
+            </span>
+          </button>
         </header>
 
         <div ref={scrollRef} className="scroll flex-1 min-h-0 overflow-y-auto p-5 space-y-4">
@@ -367,115 +346,44 @@ export default function AgentRoom({ name }: { name: string }) {
             </button>
           )}
         </div>
-      </section>
 
-      {/* Vitals rail */}
-      <aside className="flex flex-col gap-4">
-        <div className="panel p-5">
-          <h3 className="text-[10px] uppercase tracking-widest text-[var(--fg-dimmer)] mb-3">
-            Vitals
-          </h3>
-          {vitals ? (
-            <dl className="space-y-2.5 text-[12px]">
-              <Row label="status">
-                <Pill tone={vitals.status} pulse={vitals.status === "live"}>
-                  {vitals.status}
-                </Pill>
-              </Row>
-              <Row label="version">{vitals.version ?? "—"}</Row>
-              <Row label="probe latency">
-                {vitals.latencyMs !== undefined ? `${vitals.latencyMs}ms` : "—"}
-              </Row>
-              <Row label="checked">
-                {vitals.checkedAt
-                  ? new Date(vitals.checkedAt).toLocaleTimeString("en-GB", { hour12: false })
-                  : "—"}
-              </Row>
-            </dl>
-          ) : (
-            <div className="text-[12px] text-[var(--fg-dimmer)]">probe pending</div>
-          )}
-        </div>
-
-        {/* Tokens / cost card — only shown when the transport reports usage. */}
-        {(usage || sessionUsage.turns > 0) && (
-          <div className="panel p-5">
-            <h3 className="text-[10px] uppercase tracking-widest text-[var(--fg-dimmer)] mb-3 flex items-baseline justify-between">
-              <span>Tokens</span>
-              {usage?.model && (
-                <span className="text-[10px] normal-case tracking-normal text-[var(--fg-dim)]">
-                  {usage.model}
-                </span>
-              )}
-            </h3>
-
-            {usage && (
-              usage.inputTokens || usage.outputTokens ||
-              usage.cacheReadInputTokens || usage.cacheCreationInputTokens
-            ) && (
+        {/* Slim usage/cost strip — replaces the old Tokens panel. Renders
+            only when the transport has reported usage at least once this
+            session. Single horizontal mono line. */}
+        {hasAnyUsage && (
+          <div
+            data-testid="chat-usage-strip"
+            className="border-t border-[var(--border)] px-5 py-2 text-[11px] font-mono text-[var(--fg-dimmer)] flex items-center gap-x-3 gap-y-1 flex-wrap"
+          >
+            {usage?.model && (
+              <span className="text-[var(--fg-dim)]">{usage.model}</span>
+            )}
+            {usage?.inputTokens !== undefined && usage.inputTokens > 0 && (
+              <span>last in <span className="text-[var(--fg-dim)]">{formatK(usage.inputTokens)}</span></span>
+            )}
+            {usage?.outputTokens !== undefined && usage.outputTokens > 0 && (
+              <span>last out <span className="text-[var(--fg-dim)]">{formatK(usage.outputTokens)}</span></span>
+            )}
+            {sessionUsage.turns > 0 && (
               <>
-                <ContextBar usage={usage} accent={accent} />
-                <dl className="space-y-2 text-[12px] mt-3">
-                  {usage.inputTokens !== undefined && (
-                    <Row label="last in">{formatK(usage.inputTokens)}</Row>
-                  )}
-                  {usage.outputTokens !== undefined && (
-                    <Row label="last out">{formatK(usage.outputTokens)}</Row>
-                  )}
-                  {usage.cacheReadInputTokens !== undefined && usage.cacheReadInputTokens > 0 && (
-                    <Row label="cache hit">{formatK(usage.cacheReadInputTokens)}</Row>
-                  )}
-                  {usage.totalCostUsd !== undefined && (
-                    <Row label="last cost">${usage.totalCostUsd.toFixed(4)}</Row>
-                  )}
-                </dl>
+                <span className="opacity-50">·</span>
+                <span>
+                  session <span className="text-[var(--fg-dim)]">{sessionUsage.turns} {sessionUsage.turns === 1 ? "turn" : "turns"}</span>
+                </span>
+                {sessionUsage.inputTokens !== undefined && sessionUsage.inputTokens > 0 && (
+                  <span>in <span className="text-[var(--fg-dim)]">{formatK(sessionUsage.inputTokens)}</span></span>
+                )}
+                {sessionUsage.outputTokens !== undefined && sessionUsage.outputTokens > 0 && (
+                  <span>out <span className="text-[var(--fg-dim)]">{formatK(sessionUsage.outputTokens)}</span></span>
+                )}
+                {sessionUsage.totalCostUsd !== undefined && sessionUsage.totalCostUsd > 0 && (
+                  <span className="text-[var(--fg-dim)]">${sessionUsage.totalCostUsd.toFixed(4)}</span>
+                )}
               </>
             )}
-
-            {sessionUsage.turns > 0 && (
-              <div className="mt-3 pt-3 border-t border-[var(--border)]">
-                <div className="text-[10px] uppercase tracking-widest text-[var(--fg-dimmer)] mb-2">
-                  Session ({sessionUsage.turns} {sessionUsage.turns === 1 ? "turn" : "turns"})
-                </div>
-                <dl className="space-y-1.5 text-[12px]">
-                  {sessionUsage.inputTokens !== undefined && sessionUsage.inputTokens > 0 && (
-                    <Row label="in">{formatK(sessionUsage.inputTokens)}</Row>
-                  )}
-                  {sessionUsage.outputTokens !== undefined && sessionUsage.outputTokens > 0 && (
-                    <Row label="out">{formatK(sessionUsage.outputTokens)}</Row>
-                  )}
-                  {sessionUsage.totalCostUsd !== undefined && sessionUsage.totalCostUsd > 0 && (
-                    <Row label="cost">${sessionUsage.totalCostUsd.toFixed(4)}</Row>
-                  )}
-                </dl>
-              </div>
-            )}
           </div>
         )}
-
-        {agent?.description && (
-          <div className="panel p-5">
-            <h3 className="text-[10px] uppercase tracking-widest text-[var(--fg-dimmer)] mb-2">
-              About
-            </h3>
-            <p className="text-[12px] text-[var(--fg-dim)] leading-relaxed">
-              {agent.description}
-            </p>
-          </div>
-        )}
-      </aside>
-      </div>
-    </div>
-  );
-}
-
-function Row({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div className="flex items-center justify-between gap-3">
-      <dt className="text-[var(--fg-dimmer)] uppercase tracking-widest text-[10px]">
-        {label}
-      </dt>
-      <dd className="text-right">{children}</dd>
+      </section>
     </div>
   );
 }
@@ -590,109 +498,6 @@ function Avatar({
       aria-hidden
     >
       {letter}
-    </div>
-  );
-}
-
-/**
- * Context-window fill bar — shows what fraction of the model's max context
- * the last turn consumed. Replaces the old in/out ratio bar, which got
- * visually swamped by cache hits (a 6-in / 86-out call with 18k cache
- * read rendered as "all orange" and told you nothing).
- *
- * The bar visualizes used / max where:
- *   used = input + cacheRead + cacheCreation + output
- *   max  = model's context-window size (e.g. 1M for claude-opus-4-7[1m],
- *          272k for gpt-5.5)
- *
- * Inside the bar, two segments distinguish "context" (the prompt we sent,
- * including cache hits) from "generated" (the model's output) so the
- * operator can see roughly how the budget is split. Hover for the full
- * breakdown.
- */
-function ContextBar({
-  usage,
-  accent,
-}: {
-  usage: Usage;
-  accent: string;
-}) {
-  const breakdown = contextBreakdown(usage);
-  const model = resolveModel(usage.model ?? "");
-  const max = model.contextTokens;
-  const fillPct = Math.min(100, (breakdown.usedTotal / max) * 100);
-
-  // Within the filled portion, what fraction is generated output (vs.
-  // context)? Used to render the small accent-colored tip at the end.
-  const filledTokens = Math.max(1, breakdown.usedTotal);
-  const outputShareOfFill =
-    breakdown.outputTokens > 0
-      ? (breakdown.outputTokens / filledTokens) * fillPct
-      : 0;
-  const contextShareOfFill = fillPct - outputShareOfFill;
-
-  const tip = [
-    `${formatK(breakdown.usedTotal)} of ${formatK(max)} (${fillPct.toFixed(1)}%)`,
-    breakdown.inputTokens          ? `in: ${formatK(breakdown.inputTokens)}` : "",
-    breakdown.cacheReadTokens      ? `cache read: ${formatK(breakdown.cacheReadTokens)}` : "",
-    breakdown.cacheCreationTokens  ? `cache create: ${formatK(breakdown.cacheCreationTokens)}` : "",
-    breakdown.outputTokens         ? `out: ${formatK(breakdown.outputTokens)}` : "",
-  ].filter(Boolean).join(" · ");
-
-  const pctText = fillPct >= 10 ? Math.round(fillPct).toString()
-    : fillPct >= 1 ? fillPct.toFixed(1)
-    : fillPct.toFixed(2);
-
-  return (
-    <div className="flex flex-col gap-2" title={tip}>
-      {/* Header line: "USED / MAX" left, percentage right (big). */}
-      <div className="flex items-baseline justify-between gap-3">
-        <div className="text-[12px] text-[var(--fg-dim)] tabular-nums">
-          <span className="text-[var(--fg)] font-medium">{formatK(breakdown.usedTotal)}</span>
-          <span className="text-[var(--fg-dimmer)] mx-1">/</span>
-          <span>{formatK(max)}</span>
-        </div>
-        <div className="text-[14px] font-medium tabular-nums" style={{ color: accent }}>
-          {pctText}<span className="text-[10px] text-[var(--fg-dimmer)] ml-0.5">%</span>
-        </div>
-      </div>
-
-      {/* The bar itself — thicker, rounded, two segments with a subtle gap. */}
-      <div
-        className="w-full h-2.5 rounded-full overflow-hidden flex"
-        style={{
-          background: "rgba(255,255,255,0.06)",
-          boxShadow: "inset 0 0 0 1px rgba(255,255,255,0.04)",
-        }}
-      >
-        <div
-          style={{
-            width: `${contextShareOfFill}%`,
-            background: "color-mix(in srgb, var(--fg-dim) 60%, transparent)",
-            transition: "width 240ms ease-out",
-          }}
-        />
-        <div
-          style={{
-            width: `${outputShareOfFill}%`,
-            background: accent,
-            boxShadow: `0 0 8px -2px ${accent}`,
-            transition: "width 240ms ease-out",
-          }}
-        />
-      </div>
-
-      {/* Tiny legend so the two segments are explained without a tooltip. */}
-      <div className="flex items-center gap-3 text-[10px] text-[var(--fg-dimmer)] uppercase tracking-widest">
-        <span className="flex items-center gap-1.5">
-          <span className="inline-block w-1.5 h-1.5 rounded-sm" style={{ background: "color-mix(in srgb, var(--fg-dim) 60%, transparent)" }} />
-          context {formatK(breakdown.contextTotal)}
-        </span>
-        <span className="flex items-center gap-1.5">
-          <span className="inline-block w-1.5 h-1.5 rounded-sm" style={{ background: accent }} />
-          out {formatK(breakdown.outputTokens)}
-        </span>
-      </div>
     </div>
   );
 }
