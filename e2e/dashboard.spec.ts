@@ -454,6 +454,32 @@ test.describe("Mission Control dashboard", () => {
     await expect(firstBar).toHaveCSS("animation-name", "none");
   });
 
+  test("Slice 4 chat declutter — chat surface has no right-rail Vitals/About/Tokens panels", async ({ page }) => {
+    // Slice 4 spec: in Chat mode the right rail (Vitals card, About card,
+    // and the rich Tokens panel) is gone. Tokens still surface — but as a
+    // slim horizontal strip BELOW the composer when usage exists, not as
+    // a side card. This test pins the structural declutter so a future
+    // change doesn't silently re-introduce the side panels.
+    await page.goto("/agents/hermes");
+    await page.getByPlaceholder(/Type a prompt/i).waitFor({ state: "visible", timeout: 10_000 });
+
+    // The three Slice-3-era right-rail panel headings must not be present
+    // anywhere on the chat surface.
+    await expect(page.getByRole("heading", { name: /^Vitals$/i })).toHaveCount(0);
+    await expect(page.getByRole("heading", { name: /^About$/i })).toHaveCount(0);
+    await expect(page.getByRole("heading", { name: /^Tokens$/i })).toHaveCount(0);
+
+    // Chat surface essentials still present.
+    await expect(page.getByPlaceholder(/Type a prompt/i)).toBeVisible();
+    await expect(page.getByRole("button", { name: /^Send/ })).toBeVisible();
+    await expect(page.getByRole("button", { name: /New session/i })).toBeVisible();
+
+    // The usage strip is hidden until usage is reported by the transport;
+    // a fresh chat session with no completed turns must not show it. Test
+    // the test-id is absent (the strip is only rendered when hasAnyUsage).
+    await expect(page.getByTestId("chat-usage-strip")).toHaveCount(0);
+  });
+
   test("reduced-motion: live bars stay visibly distinguishable from non-live (static brightness)", async ({ page }) => {
     // Regression: when the user has prefers-reduced-motion enabled, the
     // @media block disables `.tick-bar.live` animation — without an

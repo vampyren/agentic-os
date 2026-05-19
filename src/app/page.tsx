@@ -12,6 +12,7 @@ import AgentPortal from "@/components/AgentPortal";
 import SelfCard from "@/components/SelfCard";
 import AgentAvatar from "@/components/AgentAvatar";
 import { accentFor } from "@/lib/accent";
+import { extractVersion } from "@/lib/agentVersion";
 
 interface AgentSummary {
   name: string;
@@ -128,7 +129,7 @@ export default function MissionControl() {
                 accent={accentFor(a.name)}
                 status={portalStatusFor(a.status)}
                 metrics={[
-                  { label: "Version", value: a.version?.split(" ")[0] ?? "—" },
+                  { label: "Version", value: extractVersion(a.version) },
                   { label: "Latency", value: a.latencyMs != null ? `${a.latencyMs}ms` : "—" },
                 ]}
               />
