@@ -11,6 +11,7 @@ import Vitals from "@/components/Vitals";
 import AgentPortal from "@/components/AgentPortal";
 import SelfCard from "@/components/SelfCard";
 import AgentAvatar from "@/components/AgentAvatar";
+import HermesMemoryBars from "@/components/HermesMemoryBars";
 import { accentFor } from "@/lib/accent";
 import { extractVersion } from "@/lib/agentVersion";
 
@@ -132,6 +133,7 @@ export default function MissionControl() {
                   { label: "Version", value: extractVersion(a.version) },
                   { label: "Latency", value: a.latencyMs != null ? `${a.latencyMs}ms` : "—" },
                 ]}
+                extras={a.name === "hermes" ? <HermesMemoryBars variant="compact" /> : undefined}
               />
             ))}
           </div>

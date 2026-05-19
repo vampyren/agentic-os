@@ -24,6 +24,10 @@ interface Props {
   accent: string;
   status: PortalStatus;
   metrics: [Metric, Metric];
+  /** Optional extra slot rendered between the metrics grid and the
+   *  "Open agent workspace" CTA. Used by Hermes to surface its
+   *  MEMORY.md / USER.md character-budget bars. */
+  extras?: ReactNode;
 }
 
 const STATUS_COLOR: Record<PortalStatus, string> = {
@@ -48,6 +52,7 @@ export default function AgentPortal({
   accent,
   status,
   metrics,
+  extras,
 }: Props) {
   return (
     <Link href={href} className="block group">
@@ -121,6 +126,8 @@ export default function AgentPortal({
             </div>
           ))}
         </div>
+
+        {extras && <div className="relative mt-3">{extras}</div>}
 
         {/* Cards link to /agents/[name] which boots in Chat mode by
             default; the Control Room is one click away inside that

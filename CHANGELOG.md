@@ -55,6 +55,12 @@ New CSS primitives in `globals.css`: `.tick-bar` (4×12 vertical bars for the ag
 
 **Independent of Track 2 (carried in this branch):** chat `New session` button SSR/CSR hydration fix in `src/components/AgentRoom.tsx` (added a `mounted` state to gate the `disabled` prop) — prevents a hydration-mismatch warning on first paint.
 
+**Hermes memory bars.** New `GET /api/hermes/memory-usage` route reads character counts from `~/.hermes/memories/MEMORY.md` and `~/.hermes/memories/USER.md`, parses the caps from `~/.hermes/config.yaml` (`memory.memory_char_limit` / `memory.user_char_limit`, default 5000 each per [Hermes docs](https://hermes-agent.nousresearch.com/docs/integrations/#memory--personalization)), and returns `{ available, memory: { chars, cap }, user: { chars, cap } }`. Fail-soft if Hermes isn't installed on the host (`available: false` → bars hidden). Fixed paths only — no traversal surface; reuses the same `originOk` CSRF gate as the other API routes.
+
+New `HermesMemoryBars.tsx` component renders two thin bars (Brain icon for MEMORY, User icon for USER) with accent fill, a subtle color shift at 80% → amber and 95% → red, and a hover tooltip showing `N / cap chars · XX%`. Two variants: `compact` (4px bars, no labels) for the Mission Control portal card, and `full` (6px bars, labelled rows) for a new Hermes-only `Memory` card in the per-agent Control Room left rail (under Vitals, above Actions). `AgentPortal.tsx` gained an optional `extras` slot rendered between the metrics grid and the CTA; only the Hermes card uses it.
+
+**Polish — severity scanner + avatar a11y.** `detectSeverity` (Slice 5) now scans output line-by-line and suppresses zero-count / negated summary lines such as `0 ERRORS`, `NO WARNINGS`, `ERRORS: 0`, `ERROR = none`, `FAILURES: NONE`. A clean status report no longer trips a false WARN pill, while a real `ERROR:` line on a later row still wins (`err` outranks `warn`). Two new tests in `tests/severity.test.ts` cover the zero-count suppression and the mixed-line (clean summary + later error) case. `AgentAvatar` swaps `aria-label` for `aria-hidden="true"` so screen readers don't double-announce the agent name (the visible text label adjacent to the avatar already carries the name); hover `title=` preserved.
+
 ### Queued for v0.2.12+ (not in branch)
 
 - Track 2 follow-on slices: Memory tabs as chips (Slice 6) and any remaining shared CSS utility cleanup.
