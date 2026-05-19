@@ -7,14 +7,12 @@
 //   [Folder icon button]  ~/Documents · default
 //
 // Click the icon → popover with the current path + text input + Save +
-// Reset (revert to default). Path is persisted server-side under
+// Use default (revert to the per-agent default). Path is persisted server-side under
 // ~/.agentic-os/agent-cwd.json via PUT /api/agents/<name>/cwd; the
 // kernel reads it pre-spawn (see src/kernel/agentCwd.ts).
 //
-// The portal card is wrapped in a Next.js <Link>, so every clickable /
-// editable surface in this component stopPropagation + preventDefault
-// on its pointer events — otherwise the card's parent Link navigates
-// to the agent workspace.
+// AgentPortal renders this slot outside the card's navigation Link so
+// interactive controls here do not get nested inside an <a>.
 //
 // Renders nothing until the initial snapshot fetch resolves, so it
 // never flashes a placeholder path.
@@ -25,9 +23,9 @@ import { Folder, RotateCcw, Check, AlertTriangle } from "lucide-react";
 
 interface Snapshot {
   agent: string;
-  cwd: string;
+  cwd: string | null;
   persisted: boolean;
-  defaultCwd: string;
+  defaultCwd: string | null;
 }
 
 interface Props {
@@ -60,8 +58,9 @@ export default function AgentCwdPicker({ agent, accent }: Props) {
       const r = await fetch(`/api/agents/${encodeURIComponent(agent)}/cwd`, { cache: "no-store" });
       if (r.ok) {
         const data = (await r.json()) as Snapshot;
+        const effective = data.cwd ?? data.defaultCwd ?? "";
         setSnap(data);
-        setInput(data.cwd);
+        setInput(effective);
       }
     } catch {
       /* leave snap null — caption disappears, popover button hides */
@@ -158,8 +157,10 @@ export default function AgentCwdPicker({ agent, accent }: Props) {
       if (!r.ok || !data?.ok) {
         setError(data?.error ?? `HTTP ${r.status}`);
       } else {
-        setSnap(data.snapshot ?? null);
-        setInput((data.snapshot?.cwd as string | undefined) ?? input.trim());
+        const snapshot = (data.snapshot as Snapshot | undefined) ?? null;
+        const effective = snapshot?.cwd ?? snapshot?.defaultCwd ?? input.trim();
+        setSnap(snapshot);
+        setInput(effective);
         if (data.warning) setWarning(data.warning);
         else setOpen(false);
       }
@@ -193,6 +194,13 @@ export default function AgentCwdPicker({ agent, accent }: Props) {
 
   if (!snap) return null;
 
+  const shownCwd = snap.cwd ?? snap.defaultCwd;
+  if (!shownCwd) return null;
+
+  const defaultLabel = snap.defaultCwd
+    ? prettyHome(snap.defaultCwd)
+    : "manifest/process default";
+
   const buttonStyle = {
     background: open
       ? `color-mix(in srgb, ${accent} 16%, transparent)`
@@ -209,7 +217,7 @@ export default function AgentCwdPicker({ agent, accent }: Props) {
         <button
           ref={triggerRef}
           type="button"
-          aria-label={`Working directory: ${snap.cwd}`}
+          aria-label={`Working directory: ${shownCwd}`}
           title={`Working directory · click to change`}
           onClick={(e) => { stopAll(e); setOpen((v) => !v); setError(null); setWarning(null); }}
           onMouseDown={stopAll}
@@ -220,8 +228,8 @@ export default function AgentCwdPicker({ agent, accent }: Props) {
         </button>
 
         <div className="flex items-center gap-1.5 text-[10px] font-mono text-[var(--fg-dimmer)] min-w-0">
-          <span className="truncate" title={snap.cwd}>
-            {prettyHome(snap.cwd)}
+          <span className="truncate" title={shownCwd}>
+            {prettyHome(shownCwd)}
           </span>
           {!snap.persisted && (
             <span className="opacity-60 shrink-0">· default</span>
@@ -263,7 +271,7 @@ export default function AgentCwdPicker({ agent, accent }: Props) {
             </div>
             <div className="text-[11px] text-[var(--fg-dim)] mb-2">
               Spawned process cwd for <code>{snap.agent}</code>. Default:{" "}
-              <code>{prettyHome(snap.defaultCwd)}</code>
+              <code>{defaultLabel}</code>
             </div>
             <input
               ref={inputRef}
@@ -284,7 +292,7 @@ export default function AgentCwdPicker({ agent, accent }: Props) {
               style={{ borderColor: "var(--border)", color: "var(--fg)" }}
             />
             <div className="mt-1.5 text-[10px] text-[var(--fg-dimmer)]">
-              Invalid paths revert to <code>{prettyHome(snap.defaultCwd)}</code> at spawn time.
+              Invalid paths revert to <code>{defaultLabel}</code> at spawn time.
             </div>
             {error && (
               <div className="mt-2 text-[11px] text-rose-300 flex items-start gap-1.5">
@@ -304,7 +312,7 @@ export default function AgentCwdPicker({ agent, accent }: Props) {
                 onClick={onReset}
                 onMouseDown={(e) => e.stopPropagation()}
                 disabled={pending || !snap.persisted}
-                title={`Revert to system default (${snap.defaultCwd}). Does NOT affect your chat — only switches the cwd back to ~/Documents.`}
+                title={`Revert to system default (${defaultLabel}). Does NOT affect your chat — only changes the cwd fallback.`}
                 className="!px-2 !py-1 text-[11px] flex items-center gap-1.5 disabled:opacity-40 whitespace-nowrap"
                 style={{ color: "var(--fg-dim)" }}
               >
@@ -315,7 +323,7 @@ export default function AgentCwdPicker({ agent, accent }: Props) {
                 type="button"
                 onClick={onSave}
                 onMouseDown={(e) => e.stopPropagation()}
-                disabled={pending || input.trim() === snap.cwd}
+                disabled={pending || input.trim() === shownCwd}
                 className="!px-3 !py-1.5 text-[11px] flex items-center gap-1.5 rounded-md disabled:opacity-40"
                 style={{
                   borderColor: `color-mix(in srgb, ${accent} 40%, var(--border))`,
