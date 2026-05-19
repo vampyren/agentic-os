@@ -53,11 +53,16 @@ export async function POST(
     return Response.json({ error: `config error: ${String(e)}` }, { status: 500 });
   }
 
-  // Resolve the per-agent cwd (the directory the operator wants this
-  // agent to operate from — e.g. a Claude Code project root). Falls
-  // back to $HOME/Documents when no override is persisted, never
-  // throws. Both subprocess + streamJson transports honor opts.cwd ??
-  // cfg.cwd, so passing it via StreamOpts is the right insertion point.
+  // Resolve the per-agent cwd. `getAgentCwd` returns:
+  //   - the persisted value (if set + still a valid directory), OR
+  //   - the per-agent default (Claude → ~/Documents-or-$HOME), OR
+  //   - undefined (Hermes / agents with no configured default).
+  // We only pass `cwd` in StreamOpts when it's defined — otherwise the
+  // transport's `opts.cwd ?? cfg.cwd` chain correctly falls through to
+  // the manifest's own cwd (or the parent process's cwd). The earlier
+  // Slice E implementation always returned a path, which silently
+  // overrode every agent's transport-level cwd and was caught in
+  // Jarvis's review.
   const cwd = await getAgentCwd(name);
 
   const enc = new TextEncoder();
@@ -69,7 +74,11 @@ export async function POST(
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
       try {
-        for await (const evt of registry.stream(name, { prompt, cwd, signal: req.signal })) {
+        // Pass `cwd` only when defined — see comment above for why.
+        const streamOpts = cwd !== undefined
+          ? { prompt, cwd, signal: req.signal }
+          : { prompt, signal: req.signal };
+        for await (const evt of registry.stream(name, streamOpts)) {
           if (evt.kind === "token") fullText += evt.text;
           send(controller, evt);
         }
