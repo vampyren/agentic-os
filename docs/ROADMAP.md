@@ -65,7 +65,7 @@ Split into three slices so each is small enough to review end-to-end. See ADR-00
 
 ### Phase 1B — Operator UX (port Julian's aesthetic, add the SELF layer)
 
-**Current status:** v0.2.11 released the Phase 1B baseline: Mission Control UI, top-row agent picker, per-agent Chat ⇄ Control Room mode, read-only Hermes actions, Memory UX, setup wizard, FTS5 search, and security hardening. v0.2.12 remains in Phase 1B as Track 2 UI/UX polish; Slices 1–5 plus the PR #5 polish bundle are implemented on `main` (Sidebar, TopBar/shell controls, Mission Control rebuild, Chat surface declutter, Control Room polish, Hermes memory bars, context-fill chat usage strip, and per-agent working-directory picker). Current active follow-on work is Slice 6 Memory tabs as chips before Phase 1C scheduler/missions. Phase 1C starts only after the operator signs off on the UX baseline.
+**Current status:** v0.2.11 released the Phase 1B baseline: Mission Control UI, top-row agent picker, per-agent Chat ⇄ Control Room mode, read-only Hermes actions, Memory UX, setup wizard, FTS5 search, and security hardening. v0.2.12 remains in Phase 1B as Track 2 UI/UX polish; Slices 1–6 plus the PR #5 polish bundle are implemented or in review (Sidebar, TopBar/shell controls, Mission Control rebuild, Chat surface declutter, Control Room polish, Hermes memory bars, context-fill chat usage strip, per-agent working-directory picker, and Memory tabs-as-chips/rendered-preview polish). Current active follow-on work is review/acceptance of Slice 6 before Phase 1C scheduler/missions. Phase 1C starts only after the operator signs off on the UX baseline.
 
 **Goal:** The dashboard looks like Mission Control and the operator can do their daily SOP from it. Still no scheduler.
 
