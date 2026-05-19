@@ -37,9 +37,15 @@ async function ensureKnown(name: string): Promise<boolean> {
   return Boolean(registry.get(name));
 }
 
-function internalError(e: unknown): Response {
+// Keep unexpected I/O details out of the response body. This route is
+// localhost-only, but cwd paths can expose private filesystem layout.
+function internalError(_e: unknown): Response {
   return Response.json(
-    { ok: false, error: `internal error: ${String(e)}` },
+    {
+      ok: false,
+      error: "internal cwd persistence error",
+      errorClass: "cwd-persistence-error",
+    },
     { status: 500 },
   );
 }
