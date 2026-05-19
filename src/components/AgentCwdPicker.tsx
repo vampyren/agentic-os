@@ -20,6 +20,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Folder, RotateCcw, Check, AlertTriangle } from "lucide-react";
+import { prettyHome } from "@/lib/prettyHome";
 
 interface Snapshot {
   agent: string;
@@ -340,16 +341,4 @@ export default function AgentCwdPicker({ agent, accent }: Props) {
         )}
     </>
   );
-}
-
-/**
- * Collapse $HOME → '~' for display only. We can't read process.env on
- * the client, but every system we target uses /home/<user> or
- * /Users/<user>, so a regex match on the first two path segments is
- * accurate without coupling to a server-fetched $HOME value.
- */
-function prettyHome(p: string): string {
-  const m = p.match(/^(\/home\/[^/]+|\/Users\/[^/]+)(\/.*)?$/);
-  if (m) return "~" + (m[2] ?? "");
-  return p;
 }

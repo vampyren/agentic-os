@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Search, X, Loader2, Brain } from "lucide-react";
 import { highlightTerms, parseSnippet, type HighlightSegment } from "@/lib/highlight";
 import Markdown from "@/components/Markdown";
+import { prettyHome } from "@/lib/prettyHome";
 
 interface Hit {
   path: string;
@@ -464,17 +465,6 @@ function renderHighlightSegments(segments: HighlightSegment[]): React.ReactNode 
       <span key={i}>{seg.text}</span>
     ),
   );
-}
-
-// Collapse $HOME → '~' for display. We can't read process.env on the
-// client, but every supported platform uses /home/<user> or
-// /Users/<user>, so a regex match on the first two segments works
-// without coupling to a server-fetched HOME. Same shape as the
-// helper in src/components/AgentCwdPicker.tsx.
-function prettyHome(p: string): string {
-  const m = p.match(/^(\/home\/[^/]+|\/Users\/[^/]+)(\/.*)?$/);
-  if (m) return "~" + (m[2] ?? "");
-  return p;
 }
 
 function formatFmValue(v: unknown): string {
