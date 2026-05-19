@@ -68,9 +68,30 @@ describe("chatStore — newSession + subscribe", () => {
     chatStore.newSession("beta");
     expect(chatStore.get("beta").msgs).toEqual([]);
     expect(chatStore.get("beta").sessionUsage.turns).toBe(0);
+    // No `model` was attached to beta's prior usage, so lastUsage
+    // reverts to null (nothing to preserve).
     expect(chatStore.get("beta").lastUsage).toBeNull();
     // Alpha untouched.
     expect(chatStore.get("alpha").msgs).toHaveLength(1);
+  });
+
+  it("newSession preserves the model name so the usage strip can render an empty/reset bar", () => {
+    // The operator's expectation: clicking 'New session' shouldn't make
+    // the bottom usage strip disappear entirely — it should reset to an
+    // EMPTY bar. The strip's null-render gate ignores it as long as
+    // lastUsage.model is truthy, so chatStore must preserve the model
+    // identity across the reset (token counts + cost ARE discarded).
+    chatStore.appendUserMessage("gamma", "prompt");
+    chatStore.appendAssistantMessage("gamma", {
+      role: "assistant", text: "x", ts: Date.now(),
+      usage: { model: "gpt-5.5", inputTokens: 42, outputTokens: 7, totalCostUsd: 0.001 },
+    });
+    chatStore.newSession("gamma");
+    const after = chatStore.get("gamma");
+    expect(after.msgs).toEqual([]);
+    expect(after.sessionUsage.turns).toBe(0);
+    // Model identity survives; token counts and cost do not.
+    expect(after.lastUsage).toEqual({ model: "gpt-5.5" });
   });
 
   it("subscribers are notified on append and on newSession", () => {

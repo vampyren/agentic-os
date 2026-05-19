@@ -31,6 +31,7 @@ import { RefreshCw, Cpu, Loader2, AlertTriangle, CheckCircle2 } from "lucide-rea
 import { type PillTone } from "./Pill";
 import type { AgentActionConfig } from "@/kernel/types";
 import { detectSeverity, type Severity } from "@/lib/severity";
+import HermesMemoryBars from "./HermesMemoryBars";
 
 /**
  * Defense-in-depth wrapper around detectSeverity — guarantees this UI
@@ -257,6 +258,17 @@ export default function ControlRoom({
             </div>
           )}
         </div>
+
+        {/* Hermes-only: MEMORY.md / USER.md character-budget bars.
+            Renders null on non-Hermes hosts (no Hermes install). */}
+        {name === "hermes" && (
+          <div className="panel p-4 space-y-2.5">
+            <div className="text-[10px] uppercase tracking-widest text-[var(--fg-dimmer)]">
+              Memory
+            </div>
+            <HermesMemoryBars variant="full" />
+          </div>
+        )}
 
         <div className="text-[10px] uppercase tracking-[0.2em] text-[var(--fg-dimmer)] px-1 mt-1">
           Actions

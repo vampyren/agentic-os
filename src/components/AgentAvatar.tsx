@@ -102,7 +102,7 @@ export default function AgentAvatar({ name, displayName, size = 32, active = fal
           background: known.gradient,
           boxShadow: `0 0 ${size}px -${size / 3}px ${known.accent}, inset 0 0 0 1px rgba(255,255,255,0.12)`,
         }}
-        aria-label={label}
+        aria-hidden="true"
         title={label}
       >
         {known.glyph(size)}

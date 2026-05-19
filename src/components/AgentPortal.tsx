@@ -2,7 +2,17 @@
 
 // Mission Control agent portal card (Slice 3). Accent glow behind the
 // identity tile, status indicator with heartbeat dot, two-metric grid,
-// "Open agent workspace →" CTA. Whole card is a Link to the agent room.
+// "Open agent workspace →" CTA. The main card body is a Link to the
+// agent room.
+//
+// HTML validity (Slice E review fix): the `extras` slot may contain
+// interactive controls (e.g. AgentCwdPicker's Folder button). The
+// WHATWG content model forbids interactive content nested inside an
+// <a>, so we render the Link to wrap ONLY the main card body and slot
+// `extras` as a sibling INSIDE the motion.div but OUTSIDE the Link.
+// The whole card still lifts on hover (motion.div owns the hover
+// state) and the visual layout is unchanged for non-Hermes / non-
+// Claude cards (which pass no extras).
 
 import Link from "next/link";
 import { motion } from "framer-motion";
@@ -24,6 +34,12 @@ interface Props {
   accent: string;
   status: PortalStatus;
   metrics: [Metric, Metric];
+  /** Optional extra slot rendered OUTSIDE the navigation Link (so its
+   *  contents may include interactive elements without violating the
+   *  HTML content model). Visually sits at the bottom of the card,
+   *  below the "Open agent workspace" CTA. Used by Hermes for the
+   *  MEMORY.md / USER.md bars and by Claude for the cwd picker. */
+  extras?: ReactNode;
 }
 
 const STATUS_COLOR: Record<PortalStatus, string> = {
@@ -48,29 +64,30 @@ export default function AgentPortal({
   accent,
   status,
   metrics,
+  extras,
 }: Props) {
   return (
-    <Link href={href} className="block group">
-      <motion.div
-        // SSR-safe: initial={false} prevents framer-motion from
-        // injecting the initial transform/opacity into server-rendered
-        // HTML. AgentPortal currently only renders after the client
-        // fetches /api/vitals (so it doesn't hit SSR in practice), but
-        // the same pattern is applied across Slice 3 motion components
-        // for consistency and to prevent regressions if a future change
-        // ever renders these on the server. Hover motion stays gated.
-        initial={false}
-        animate={{ opacity: 1, y: 0 }}
-        whileHover={{ y: -3 }}
-        transition={{ duration: 0.35 }}
-        className="panel panel-hover relative h-full p-5 overflow-hidden"
-      >
-        {/* Accent glow blob behind the identity tile. Intensifies on hover. */}
-        <div
-          className="pointer-events-none absolute -top-20 -right-20 w-64 h-64 rounded-full opacity-30 blur-3xl transition group-hover:opacity-60"
-          style={{ background: accent }}
-        />
+    <motion.div
+      // SSR-safe: initial={false} prevents framer-motion from injecting
+      // the initial transform/opacity into server-rendered HTML.
+      // AgentPortal currently only renders after the client fetches
+      // /api/vitals (so it doesn't hit SSR in practice), but the same
+      // pattern is applied across Slice 3 motion components for
+      // consistency and to prevent regressions if a future change
+      // ever renders these on the server. Hover motion stays gated.
+      initial={false}
+      animate={{ opacity: 1, y: 0 }}
+      whileHover={{ y: -3 }}
+      transition={{ duration: 0.35 }}
+      className="panel panel-hover relative h-full p-5 overflow-hidden flex flex-col group"
+    >
+      {/* Accent glow blob behind the identity tile. Intensifies on hover. */}
+      <div
+        className="pointer-events-none absolute -top-20 -right-20 w-64 h-64 rounded-full opacity-30 blur-3xl transition group-hover:opacity-60"
+        style={{ background: accent }}
+      />
 
+      <Link href={href} className="block">
         <div className="relative flex items-start justify-between mb-3">
           <div
             className="grid place-items-center w-10 h-10 rounded-xl"
@@ -130,7 +147,16 @@ export default function AgentPortal({
         <div className="relative mt-4 text-[11px] uppercase tracking-[0.2em] text-[var(--fg-dimmer)] group-hover:text-[var(--fg-dim)] transition">
           Open agent workspace →
         </div>
-      </motion.div>
-    </Link>
+      </Link>
+
+      {/* `extras` sits OUTSIDE the navigation Link so it can host
+          interactive controls (a folder picker button, a popover
+          trigger) without nesting interactive content inside an <a>
+          (HTML content-model violation flagged in Jarvis's Slice E
+          review). The whole card still lifts on hover because
+          motion.div is the hover anchor; only NAVIGATION is gated to
+          the upper block. */}
+      {extras && <div className="relative mt-3 pt-3 border-t border-[var(--panel-border)]">{extras}</div>}
+    </motion.div>
   );
 }

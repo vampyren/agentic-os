@@ -59,4 +59,16 @@ describe("detectSeverity", () => {
     expect(detectSeverity("checking modules... [WARN] slow probe")).toBe("warn");
     expect(detectSeverity("status check pass\n[ERROR] missing key")).toBe("err");
   });
+
+  it("does NOT trip on zero-count / negated summary lines", () => {
+    expect(detectSeverity("0 ERRORS, 0 WARNINGS")).toBeNull();
+    expect(detectSeverity("NO ERRORS found")).toBeNull();
+    expect(detectSeverity("ERRORS: 0")).toBeNull();
+    expect(detectSeverity("ERROR = none")).toBeNull();
+    expect(detectSeverity("checks complete — FAILURES: NONE")).toBeNull();
+  });
+
+  it("still trips on a real error even when a clean summary line is also present", () => {
+    expect(detectSeverity("0 WARNINGS\nERROR: missing dependency")).toBe("err");
+  });
 });
