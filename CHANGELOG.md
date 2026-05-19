@@ -20,9 +20,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [0.2.12] — 2026-05-18 — Track 2 UI/UX shell + Mission Control rebuild
+## [0.2.12] — 2026-05-18 — Track 2 UI/UX shell + Mission Control rebuild + Chat/Control polish
 
-Three Track 2 slices are implemented on `feature/v0.2.12-sidebar-redesign`. All UI-only; no backend, security, or vault-write contract changes.
+Five Track 2 slices are implemented across PR #2, PR #3, and the Slice 5 Control Room polish branch. All UI-only except the Hermes-version parsing helper; no backend, security, or vault-write contract changes.
 
 **Slice 1 — Sidebar redesign.** `Sidebar.tsx` reshaped into three semantic groups with section overlines: `Workspace` (Mission Control), `Agents` (runtime-loaded from `/api/agents`, sorted by display name), and `Self` (Goals / Journal / Memory). Active item gets accent-tinted background + animated left accent bar via `motion.layoutId="nav-indicator"`. Per-agent identity rendered via new `AgentAvatar.tsx` (runtime-agnostic circular tile with the agent's first initial, full accent gradient + glow ring in the active state). New `--panel`, `--panel-border`, `--panel-border-hot` tokens in `globals.css` give the rail its purple-navy translucent character + subtle right-edge glow. Brand block top: `LOCAL · 127.0.0.1` overline + gradient `Agentic OS` wordmark.
 
@@ -43,13 +43,21 @@ New CSS primitives in `globals.css`: `.tick-bar` (4×12 vertical bars for the ag
 
 **Background.** `body` background now layers a top cyan light haze + five corner aurora pools (cyan top-left, magenta top-right, amber mid-right, purple bottom-left, deep magenta bottom-right) + a centre-bottom deep-purple pool for depth under the live activity area + a navy lift over the obsidian `--bg`. New `body::before` blueprint grid overlay (56px lines, ~2.4% white, ellipse-mask centred at 38%·50% so the grid fades through the content column and reappears on the empty right gutter). New `body::after` soft inner vignette (radial dark ring from 55% out to 45% opacity) gently focuses the eye toward content. All layers static — `prefers-reduced-motion` automatically satisfied.
 
+**Slice 4 — Chat surface declutter.** `AgentRoom.tsx` is now a single-column chat surface: the right rail/Vitals/About cards are removed from Chat mode, token usage collapses into a slim strip below the composer when usage exists, and the header focuses on accent identity + agent name + compact `New session`. Chat persistence, route-switch abort/orphan guards, Alt+1/Alt+2 agent shortcuts, and Control Room behavior are preserved. Header first paint now uses the exported `slugToTitle()` fallback so `/agents/hermes` shows `Hermes` instead of a lowercase slug before the manifest fetch resolves.
+
+**Hermes version display.** New `src/lib/agentVersion.ts` extracts versions from richer CLI strings such as `Hermes Agent v0.14.0 (2026.5.16)`, so Mission Control shows `v0.14.0` instead of an arbitrary fallback.
+
+**Reduced-motion live signal decision.** The sidebar `.tick-bar.live` pulse is intentionally preserved even when `prefers-reduced-motion: reduce` is enabled, because the gentle 1.4s pulse is the live status signal for the `All systems` chip. Decorative `.heartbeat` and `.tick.live` animations remain disabled under reduced motion. CSS comments and Playwright coverage pin this explicit UX trade-off.
+
+**Slice 5 — Control Room polish + agent branding.** `ControlRoom.tsx` now presents the left rail as agent identity → vitals → `Actions`, strengthens the active action row with a deeper accent tint and soft glow, and bumps the viewer header label to an accent-coloured 18px semibold anchor. A small fail-soft client-side severity scanner (`src/lib/severity.ts`) adds advisory `WARN` / `ALERT` pills when already-cleaned action output contains conservative uppercase severity tokens; it never affects action success classification, abort behavior, audit, or backend routes. `AgentAvatar.tsx` now renders branded Hermes/Claude glyphs shared across Mission Control, sidebar, and chat surfaces; sidebar Self icons are larger and Memory uses a Brain icon.
+
 **E2E.** `e2e/dashboard.spec.ts` updates: heading-existence assertions for `/goals`, `/journal`, `/events` (which no longer have route-level identity h2s) replaced with page-specific input-placeholder presence checks. Sidebar link clicks scoped to `page.locator("aside")` to disambiguate from the new SelfCard links on the home page. Event Log link click swapped to `page.goto("/events")` since Event Log was removed from the sidebar nav.
 
 **Independent of Track 2 (carried in this branch):** chat `New session` button SSR/CSR hydration fix in `src/components/AgentRoom.tsx` (added a `mounted` state to gate the `disabled` prop) — prevents a hydration-mismatch warning on first paint.
 
 ### Queued for v0.2.12+ (not in branch)
 
-- Track 2 follow-on slices: chat surface declutter (Slice 4), Control Room polish (Slice 5), Memory tabs as chips (Slice 6).
+- Track 2 follow-on slices: Memory tabs as chips (Slice 6) and any remaining shared CSS utility cleanup.
 - Future: secure inline audio playback in chat messages (allowlisted `/api/audio?path=` route with strict path-traversal + MIME guards).
 - "Send last prompt to agent X" action in the command palette.
 - Voice input on the journal page (chat box already has it).

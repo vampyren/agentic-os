@@ -28,8 +28,23 @@
 
 import { useEffect, useRef, useState } from "react";
 import { RefreshCw, Cpu, Loader2, AlertTriangle, CheckCircle2 } from "lucide-react";
-import Pill, { type PillTone } from "./Pill";
+import { type PillTone } from "./Pill";
 import type { AgentActionConfig } from "@/kernel/types";
+import { detectSeverity, type Severity } from "@/lib/severity";
+
+/**
+ * Defense-in-depth wrapper around detectSeverity — guarantees this UI
+ * never fails an action call because of a parser regression. The
+ * helper itself is already pure + non-throwing, but the contract
+ * matters more than the implementation.
+ */
+function safeSeverity(text: string | undefined | null): Severity {
+  try {
+    return detectSeverity(text);
+  } catch {
+    return null;
+  }
+}
 
 interface Agent {
   name: string;
@@ -182,43 +197,63 @@ export default function ControlRoom({
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-[260px_minmax(0,1fr)] gap-5 min-h-[500px]">
-      {/* Left rail: vitals card + actions list */}
+      {/* Left rail: agent identity → vitals → ACTIONS overline → rows
+          (Slice 5 order). Identity and vitals are now distinct cards;
+          previously the vitals card had a "State" header that doubled
+          as a soft identity block, which buried the agent name. */}
       <aside className="flex flex-col gap-3">
-        <div className="panel p-4 space-y-3">
-          <div className="flex items-center gap-2.5">
-            <div
-              className="grid place-items-center w-10 h-10 rounded-xl"
-              style={{
-                background: `color-mix(in srgb, ${accent} 18%, transparent)`,
-                color: accent,
-                boxShadow: `0 0 22px -8px ${accent}`,
-              }}
-            >
-              <Cpu size={18} />
+        {/* Agent identity block. Mirrors the chat-header avatar+name
+            treatment so the operator sees the same identity element
+            regardless of mode. */}
+        <div className="panel p-4 flex items-center gap-3">
+          <div
+            className="grid place-items-center w-10 h-10 rounded-xl shrink-0"
+            style={{
+              background: `color-mix(in srgb, ${accent} 18%, transparent)`,
+              color: accent,
+              boxShadow: `0 0 22px -8px ${accent}`,
+            }}
+          >
+            <Cpu size={18} />
+          </div>
+          <div className="leading-tight min-w-0">
+            <div className="text-sm font-medium truncate" style={{ color: accent }}>
+              {agent?.displayName ?? name}
             </div>
-            <div>
-              <div className="text-[10px] uppercase tracking-widest text-[var(--fg-dimmer)]">
-                State
-              </div>
-              <div className="text-sm font-medium" style={{ color: accent }}>
-                {vitals?.status ?? "unknown"}
-              </div>
+            <div className="text-[10px] uppercase tracking-widest text-[var(--fg-dimmer)] mt-0.5 truncate">
+              {name}
             </div>
           </div>
+        </div>
+
+        {/* Vitals card — status/version/transport rows only (identity
+            moved to the block above). */}
+        <div className="panel p-4 space-y-2.5">
+          <div className="text-[10px] uppercase tracking-widest text-[var(--fg-dimmer)]">
+            Vitals
+          </div>
+          <div className="flex items-baseline justify-between text-[12px]">
+            <span className="text-[var(--fg-dimmer)] uppercase tracking-widest text-[10px]">
+              Status
+            </span>
+            <span className="text-[var(--fg)] capitalize">
+              {vitals?.status ?? "unknown"}
+            </span>
+          </div>
           {vitals?.version && (
-            <div className="rounded-lg border border-[var(--border)] px-2.5 py-2">
-              <div className="text-[10px] uppercase tracking-widest text-[var(--fg-dimmer)]">
+            <div className="flex items-baseline justify-between gap-2 text-[12px]">
+              <span className="text-[var(--fg-dimmer)] uppercase tracking-widest text-[10px] shrink-0">
                 Version
-              </div>
-              <div className="text-sm tabular-nums truncate">{vitals.version}</div>
+              </span>
+              <span className="tabular-nums truncate text-right">{vitals.version}</span>
             </div>
           )}
           {agent?.transport && (
-            <div className="rounded-lg border border-[var(--border)] px-2.5 py-2">
-              <div className="text-[10px] uppercase tracking-widest text-[var(--fg-dimmer)]">
+            <div className="flex items-baseline justify-between text-[12px]">
+              <span className="text-[var(--fg-dimmer)] uppercase tracking-widest text-[10px]">
                 Transport
-              </div>
-              <div className="text-sm truncate">{agent.transport}</div>
+              </span>
+              <span className="truncate text-right">{agent.transport}</span>
             </div>
           )}
         </div>
@@ -237,11 +272,17 @@ export default function ControlRoom({
                 title={`Run \`${a.command.join(" ")}\``}
                 className="w-full text-left flex items-center justify-between !px-3 !py-2.5 !rounded-lg transition"
                 style={{
+                  // Slice 5 polish: active row gets the full accent
+                  // border (was already accent), a deeper 18% accent
+                  // tint (was 12% — read as too subtle next to inactive
+                  // rows on dark bg), and a soft accent glow so the
+                  // selected verb pops without shifting layout.
                   borderColor: active ? accent : "var(--border)",
                   background: active
-                    ? `color-mix(in srgb, ${accent} 12%, transparent)`
+                    ? `color-mix(in srgb, ${accent} 18%, transparent)`
                     : "transparent",
                   color: active ? "var(--fg)" : "var(--fg-dim)",
+                  boxShadow: active ? `0 0 14px -8px ${accent}` : undefined,
                 }}
                 aria-current={active ? "true" : undefined}
               >
@@ -268,27 +309,68 @@ export default function ControlRoom({
 
       {/* Right: viewer panel */}
       <section className="panel flex flex-col min-h-[500px] overflow-hidden">
-        <header className="flex items-center justify-between px-5 py-3 border-b border-[var(--border)]">
-          <div>
+        <header className="flex items-center justify-between gap-3 px-5 py-3 border-b border-[var(--border)]">
+          <div className="min-w-0">
             <div className="text-[10px] uppercase tracking-[0.2em] text-[var(--fg-dimmer)]">
               {name} · {selected?.id}
             </div>
-            <div className="text-base font-medium mt-0.5" style={{ color: accent }}>
+            {/* Slice 5 polish: viewer label bumped to 18px / semibold
+                so the active action's name reads as the page's anchor
+                element. Accent colour preserved. */}
+            <div
+              className="text-[18px] font-semibold tracking-tight mt-0.5 truncate"
+              style={{ color: accent }}
+            >
               {selected?.label ?? "—"}
             </div>
           </div>
-          <button
-            onClick={() => selected && void run(selected)}
-            disabled={state?.status === "running"}
-            className="flex items-center gap-1.5 !px-2.5 !py-1.5 !rounded-md text-[11px] text-[var(--fg-dim)] hover:text-[var(--fg)] disabled:opacity-40"
-            title="Re-run this action"
-          >
-            <RefreshCw
-              size={11}
-              className={state?.status === "running" ? "animate-spin" : ""}
-            />
-            {state?.status === "running" ? "running" : "refresh"}
-          </button>
+          <div className="flex items-center gap-2 shrink-0">
+            {/* Optional advisory severity pill — fail-soft. Scans the
+                already-cleaned stdout/stderr for uppercase WARN/ERROR-
+                family tokens (conservative; prose like "warning" in a
+                sentence does not trip it). NEVER affects the action's
+                ok/error classification or the audit envelope. */}
+            {(() => {
+              const r = state?.result;
+              if (!r) return null;
+              const stdoutTone = safeSeverity(r.stdout);
+              const stderrTone = safeSeverity(r.stderr);
+              // Preserve severity precedence across streams too: ERROR
+              // in stderr must outrank WARN in stdout, just like
+              // detectSeverity() does within a single text chunk.
+              const tone = stdoutTone === "err" || stderrTone === "err"
+                ? "err"
+                : stdoutTone ?? stderrTone;
+              if (!tone) return null;
+              const tag = tone === "err" ? "ALERT" : "WARN";
+              const colour = tone === "err" ? "var(--status-offline)" : "var(--status-degraded)";
+              return (
+                <span
+                  className="text-[10px] uppercase tracking-[0.18em] px-2 py-1 rounded-md border"
+                  style={{
+                    borderColor: `color-mix(in srgb, ${colour} 45%, transparent)`,
+                    background: `color-mix(in srgb, ${colour} 10%, transparent)`,
+                    color: colour,
+                  }}
+                  title="Output contains uppercase severity keywords (advisory only — does not affect the action's success classification)"
+                >
+                  {tag}
+                </span>
+              );
+            })()}
+            <button
+              onClick={() => selected && void run(selected)}
+              disabled={state?.status === "running"}
+              className="flex items-center gap-1.5 !px-2.5 !py-1.5 !rounded-md text-[11px] text-[var(--fg-dim)] hover:text-[var(--fg)] disabled:opacity-40"
+              title="Re-run this action"
+            >
+              <RefreshCw
+                size={11}
+                className={state?.status === "running" ? "animate-spin" : ""}
+              />
+              {state?.status === "running" ? "running" : "refresh"}
+            </button>
+          </div>
         </header>
 
         {/* Viewer scroll container. Both axes scroll: vertical for

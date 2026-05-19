@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
 import { motion, LayoutGroup } from "framer-motion";
-import { LayoutGrid, Target, BookOpen, Search } from "lucide-react";
+import { LayoutGrid, Target, BookOpen, Brain } from "lucide-react";
 import { APP_VERSION_LABEL } from "@/lib/appVersion";
 import { accentFor } from "@/lib/accent";
 import AgentAvatar from "./AgentAvatar";
@@ -77,9 +77,11 @@ const WORKSPACE: NavItem[] = [
 // to a shared map if Mission Control's SelfCards end up sharing the same
 // palette.
 const SELF: NavItem[] = [
-  { href: "/goals",   label: "Goals",   icon: <Target size={16} />,   accent: "#fbbf24" },
-  { href: "/journal", label: "Journal", icon: <BookOpen size={16} />, accent: "#a3e635" },
-  { href: "/memory",  label: "Memory",  icon: <Search size={16} />,   accent: "#22d3ee" },
+  { href: "/goals",   label: "Goals",   icon: <Target size={18} />,   accent: "#fbbf24" },
+  { href: "/journal", label: "Journal", icon: <BookOpen size={18} />, accent: "#a3e635" },
+  // Memory now uses Brain (was Search) — matches the Julian reference
+  // and reads more clearly than a magnifier next to the other Self icons.
+  { href: "/memory",  label: "Memory",  icon: <Brain size={18} />,    accent: "#22d3ee" },
 ];
 
 function dimFor(accent: string): string {
@@ -125,10 +127,12 @@ function NavLink({ href, label, icon, accent, isAgent = false, active }: NavLink
         // its own background + active treatment).
         <span className="shrink-0">{icon}</span>
       ) : (
-        // Module rows: wrap the lucide icon in a neutral 7x7 tile that
-        // tints with the accent when active.
+        // Module rows: wrap the lucide icon in a neutral 32×32 tile so
+        // the Self icons (18 px Target / BookOpen / Brain) carry the
+        // same visual weight as the agent avatars (32 px AgentAvatar).
+        // Tint with the accent when active.
         <span
-          className="shrink-0 grid place-items-center w-7 h-7 rounded-lg transition"
+          className="shrink-0 grid place-items-center w-8 h-8 rounded-lg transition"
           style={{
             background: active ? "rgba(255,255,255,0.05)" : "transparent",
             color: active ? accent : "var(--fg-dim)",
@@ -214,7 +218,7 @@ export default function Sidebar() {
     return {
       href: `/agents/${a.name}`,
       label: a.displayName ?? a.name,
-      icon: <AgentAvatar name={a.name} displayName={a.displayName} size={22} active={active} />,
+      icon: <AgentAvatar name={a.name} displayName={a.displayName} size={28} active={active} />,
       accent,
       isAgent: true,
     };
