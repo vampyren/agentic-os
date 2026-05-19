@@ -9,6 +9,7 @@ import { accentFor } from "@/lib/accent";
 import { chatStore } from "@/lib/chatStore";
 import { useChatSession } from "@/lib/useChatSession";
 import { slugToTitle } from "@/lib/titles";
+import AgentAvatar from "./AgentAvatar";
 
 interface Agent {
   name: string;
@@ -224,7 +225,10 @@ export default function AgentRoom({ name }: { name: string }) {
             /agents. Chat surface no longer carries them. */}
         <header className="px-5 py-4 border-b border-[var(--border)] flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <Avatar name={name} accent={accent} side="assistant" />
+            {/* Shared AgentAvatar — renders the per-agent brand glyph
+                (Claude star / Hermes wing) for known manifests, first-
+                letter fallback for any future agent. */}
+            <AgentAvatar name={name} displayName={agent?.displayName} size={32} />
             <div className="text-[14px] font-medium" style={{ color: accent }}>
               {/* Synchronous fallback prettifies the slug ("hermes" →
                   "Hermes", "claude-code" → "Claude Code") while the
@@ -272,6 +276,7 @@ export default function AgentRoom({ name }: { name: string }) {
                 key={i}
                 msg={m}
                 agentName={name}
+                agentDisplayName={agent?.displayName}
                 accent={accent}
               />
             ))}
@@ -281,7 +286,7 @@ export default function AgentRoom({ name }: { name: string }) {
                 initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }}
                 className="flex gap-3 max-w-full"
               >
-                <Avatar name={name} accent={accent} side="assistant" />
+                <AgentAvatar name={name} displayName={agent?.displayName} size={32} />
                 <div className="flex flex-col gap-1 min-w-0 flex-1">
                   <div className="text-[10px] tracking-widest uppercase text-[var(--fg-dimmer)] flex items-center gap-2">
                     {name}
@@ -408,10 +413,12 @@ function formatK(n: number): string {
 function ChatBubble({
   msg,
   agentName,
+  agentDisplayName,
   accent,
 }: {
   msg: { role: "user" | "assistant"; text: string; ts: number; savedPath?: string; usage?: Usage };
   agentName: string;
+  agentDisplayName?: string;
   accent: string;
 }) {
   const isUser = msg.role === "user";
@@ -421,7 +428,11 @@ function ChatBubble({
       animate={{ opacity: 1, y: 0 }}
       className={`flex gap-3 max-w-full ${isUser ? "flex-row-reverse" : ""}`}
     >
-      <Avatar name={isUser ? "you" : agentName} accent={isUser ? "var(--fg-dim)" : accent} side={isUser ? "user" : "assistant"} />
+      {isUser ? (
+        <UserAvatar />
+      ) : (
+        <AgentAvatar name={agentName} displayName={agentDisplayName} size={32} />
+      )}
       <div className={`flex flex-col gap-1 min-w-0 max-w-[88%] ${isUser ? "items-end" : "items-start"}`}>
         <div className="text-[10px] tracking-widest uppercase text-[var(--fg-dimmer)] flex items-center gap-2">
           <span>{isUser ? "you" : agentName}</span>
@@ -472,38 +483,24 @@ function ChatBubble({
 }
 
 /**
- * Small circular avatar derived from the agent name's first letter, tinted
- * with the agent's accent color. Operator-side ("you") uses a neutral dim
- * tone. Keeps the chat surface scannable without per-agent image assets.
+ * Operator-side ("you") avatar — small neutral circle with a "Y"
+ * letter. Used for user-authored chat bubbles only. The assistant
+ * side renders the shared <AgentAvatar /> (per-agent brand glyph) so
+ * the chat reflects the same identity treatment as the sidebar and
+ * Mission Control portal cards.
  */
-function Avatar({
-  name,
-  accent,
-  side,
-}: {
-  name: string;
-  accent: string;
-  side: "user" | "assistant";
-}) {
-  const letter = (name || "?").trim()[0]?.toUpperCase() ?? "?";
+function UserAvatar() {
   return (
     <div
       className="shrink-0 w-8 h-8 rounded-full flex items-center justify-center text-[12px] font-semibold select-none"
       style={{
-        background: side === "assistant"
-          ? `color-mix(in srgb, ${accent} 18%, transparent)`
-          : "rgba(255,255,255,0.06)",
-        color: side === "assistant" ? accent : "var(--fg-dim)",
-        border: `1px solid ${side === "assistant"
-          ? `color-mix(in srgb, ${accent} 35%, transparent)`
-          : "var(--border)"}`,
-        boxShadow: side === "assistant"
-          ? `0 0 12px -4px ${accent}`
-          : undefined,
+        background: "rgba(255,255,255,0.06)",
+        color: "var(--fg-dim)",
+        border: "1px solid var(--border)",
       }}
       aria-hidden
     >
-      {letter}
+      Y
     </div>
   );
 }
