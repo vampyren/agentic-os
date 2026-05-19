@@ -159,9 +159,22 @@ class ChatStore {
     this.notify(agent);
   }
 
-  /** Start a fresh conversation for one agent. Clears storage too. */
+  /** Start a fresh conversation for one agent. Clears storage too.
+   *
+   * The agent's model identity is preserved across the reset — the
+   * conversation is wiped, but the operator hasn't changed which model
+   * this agent talks to. Keeping `lastUsage.model` lets the chat
+   * usage strip stay visible as an EMPTY/reset bar after the click
+   * (rather than disappearing entirely and re-appearing once the next
+   * turn's usage event arrives). Token counts and cost are still
+   * discarded — only the model name survives. */
   newSession(agent: string): void {
-    this.sessions.set(agent, emptySession());
+    const preservedModel = this.sessions.get(agent)?.lastUsage?.model;
+    const fresh = emptySession();
+    if (preservedModel) {
+      fresh.lastUsage = { model: preservedModel };
+    }
+    this.sessions.set(agent, fresh);
     // Mark hydrated so a stale localStorage payload can't repopulate the
     // just-cleared session on a subsequent hydrate() call this tab.
     this.hydrated.add(agent);

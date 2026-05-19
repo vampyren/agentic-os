@@ -10,6 +10,7 @@ import { chatStore } from "@/lib/chatStore";
 import { useChatSession } from "@/lib/useChatSession";
 import { slugToTitle } from "@/lib/titles";
 import AgentAvatar from "./AgentAvatar";
+import ChatUsageStrip from "./ChatUsageStrip";
 
 interface Agent {
   name: string;
@@ -43,6 +44,11 @@ export default function AgentRoom({ name }: { name: string }) {
   const ctrlRef = useRef<AbortController | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const promptRef = useRef<HTMLTextAreaElement | null>(null);
+  // Track whether the panel has performed its initial bottom-anchor for
+  // the current agent. First scroll is instant (no animation visible on
+  // entry); subsequent scrolls smooth-follow new content. Reset on
+  // agent change so jumping between agents lands at the bottom again.
+  const didInitialScrollRef = useRef(false);
   // Generation counter that newSession bumps. send() captures the current
   // generation on entry and skips its finally-block commit if the value
   // has changed by then — i.e. the operator clicked New session (or
@@ -72,9 +78,25 @@ export default function AgentRoom({ name }: { name: string }) {
     return () => { cancelled = true; };
   }, [name]);
 
-  // Autoscroll on new content.
+  // Reset the initial-scroll guard when the agent changes so the next
+  // msgs effect (re-fired with the new agent's chat history) lands at
+  // the bottom without an animation pass through the old position.
   useEffect(() => {
-    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
+    didInitialScrollRef.current = false;
+  }, [name]);
+
+  // Anchor to the latest message. First scroll for an agent is instant
+  // (we want the operator to land at the bottom, not watch the panel
+  // animate from top → bottom on entry); subsequent scrolls smooth-
+  // follow as new content streams in.
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    el.scrollTo({
+      top: el.scrollHeight,
+      behavior: didInitialScrollRef.current ? "smooth" : "instant",
+    });
+    didInitialScrollRef.current = true;
   }, [msgs, partial]);
 
   // Unmount/agent-change cleanup: abort any in-flight stream and bump the
@@ -209,15 +231,14 @@ export default function AgentRoom({ name }: { name: string }) {
     promptRef.current?.focus();
   }
 
-  // Slice 4: token/cost status strip below the composer. Replaces the
-  // old right-rail Tokens panel. Single horizontal line, mono, hidden
-  // when there's no usage to report.
-  const hasAnyUsage =
-    Boolean(usage && (usage.inputTokens || usage.outputTokens)) ||
-    sessionUsage.turns > 0;
-
   return (
-    <div className="flex flex-col min-h-[60vh]">
+    // AgentWorkspace caps the outer height to the viewport so the
+    // chat panel scrolls INTERNALLY — composer always pinned at the
+    // bottom of the panel, latest message visible on entry. Outer
+    // wrapper just claims that available height (flex-1 min-h-0
+    // cascades down so the message scroll-container inside the panel
+    // can use its own overflow-y-auto without the parents collapsing).
+    <div className="flex flex-col flex-1 min-h-0">
       <section className="panel flex flex-col min-h-0 flex-1">
         {/* Slim chat header — agent avatar + name + small New session.
             The aggregate status signal lives in the sidebar's ALL SYSTEMS
@@ -358,42 +379,17 @@ export default function AgentRoom({ name }: { name: string }) {
           )}
         </div>
 
-        {/* Slim usage/cost strip — replaces the old Tokens panel. Renders
-            only when the transport has reported usage at least once this
-            session. Single horizontal mono line. */}
-        {hasAnyUsage && (
-          <div
-            data-testid="chat-usage-strip"
-            className="border-t border-[var(--border)] px-5 py-2 text-[11px] font-mono text-[var(--fg-dimmer)] flex items-center gap-x-3 gap-y-1 flex-wrap"
-          >
-            {usage?.model && (
-              <span className="text-[var(--fg-dim)]">{usage.model}</span>
-            )}
-            {usage?.inputTokens !== undefined && usage.inputTokens > 0 && (
-              <span>last in <span className="text-[var(--fg-dim)]">{formatK(usage.inputTokens)}</span></span>
-            )}
-            {usage?.outputTokens !== undefined && usage.outputTokens > 0 && (
-              <span>last out <span className="text-[var(--fg-dim)]">{formatK(usage.outputTokens)}</span></span>
-            )}
-            {sessionUsage.turns > 0 && (
-              <>
-                <span className="opacity-50">·</span>
-                <span>
-                  session <span className="text-[var(--fg-dim)]">{sessionUsage.turns} {sessionUsage.turns === 1 ? "turn" : "turns"}</span>
-                </span>
-                {sessionUsage.inputTokens !== undefined && sessionUsage.inputTokens > 0 && (
-                  <span>in <span className="text-[var(--fg-dim)]">{formatK(sessionUsage.inputTokens)}</span></span>
-                )}
-                {sessionUsage.outputTokens !== undefined && sessionUsage.outputTokens > 0 && (
-                  <span>out <span className="text-[var(--fg-dim)]">{formatK(sessionUsage.outputTokens)}</span></span>
-                )}
-                {sessionUsage.totalCostUsd !== undefined && sessionUsage.totalCostUsd > 0 && (
-                  <span className="text-[var(--fg-dim)]">${sessionUsage.totalCostUsd.toFixed(4)}</span>
-                )}
-              </>
-            )}
-          </div>
-        )}
+        {/* Usage strip with context-fill bar — replaces the Slice 4
+            slim strip with a two-row, model-aware visualisation that
+            mirrors what Hermes shows in its own TUI (model · used /
+            max · %%). Renders nothing until the transport has reported
+            at least one usage event for the session (preserves the
+            e2e contract). */}
+        <ChatUsageStrip
+          accent={accent}
+          lastUsage={usage ?? null}
+          sessionUsage={sessionUsage}
+        />
       </section>
     </div>
   );
