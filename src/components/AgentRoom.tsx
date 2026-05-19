@@ -8,6 +8,7 @@ import VoiceButton from "./VoiceButton";
 import { accentFor } from "@/lib/accent";
 import { chatStore } from "@/lib/chatStore";
 import { useChatSession } from "@/lib/useChatSession";
+import { slugToTitle } from "@/lib/titles";
 
 interface Agent {
   name: string;
@@ -225,7 +226,12 @@ export default function AgentRoom({ name }: { name: string }) {
           <div className="flex items-center gap-3">
             <Avatar name={name} accent={accent} side="assistant" />
             <div className="text-[14px] font-medium" style={{ color: accent }}>
-              {agent?.displayName ?? name}
+              {/* Synchronous fallback prettifies the slug ("hermes" →
+                  "Hermes", "claude-code" → "Claude Code") while the
+                  /api/agents fetch is in flight, so the chat header
+                  never momentarily renders the raw lowercase slug. Once
+                  the manifest resolves, displayName takes over. */}
+              {agent?.displayName ?? slugToTitle(name)}
             </div>
           </div>
           <button

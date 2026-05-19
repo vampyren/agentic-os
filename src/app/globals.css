@@ -242,18 +242,20 @@ body > * { position: relative; z-index: 1; }
 /* Motion note: match Julian's reference build by avoiding framer-motion's
    reduced-motion helpers or MotionConfig reducedMotion="user" because those
    emit noisy dev console warnings when the OS setting is reduce. Accessibility
-   still belongs in CSS: this media query has no SSR/hydration footprint and
-   keeps live-only animations honest for reduced-motion users. */
+   still belongs in CSS.
+   .heartbeat and .tick.live are aggressive scale pulses (≥45% size swing)
+   on glow dots used as decorative status accents — disabled here under
+   prefers-reduced-motion: reduce. The sidebar .tick-bar.live signal bars
+   are an intentional exception: at Rex's explicit direction they keep
+   animating even under reduced-motion, because the gentle 1.4s breath
+   (scaleY 0.3 ↔ 1.15) IS the live signal — no equivalent non-motion
+   indicator exists in the chip apart from the "All systems" label. This
+   is a deliberate trade-off favouring information clarity over strict
+   motion-reduction compliance; document if revisited. */
 @media (prefers-reduced-motion: reduce) {
   .heartbeat,
-  .tick.live,
-  .tick-bar.live {
+  .tick.live {
     animation: none !important;
-  }
-
-  .tick-bar.live {
-    opacity: 1 !important;
-    transform: scaleY(1) !important;
   }
 
   .panel-hover,
