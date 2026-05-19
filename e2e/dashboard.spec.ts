@@ -453,4 +453,43 @@ test.describe("Mission Control dashboard", () => {
     const firstBar = sidebar.locator(".tick-bar").first();
     await expect(firstBar).toHaveCSS("animation-name", "none");
   });
+
+  test("reduced-motion: live bars stay visibly distinguishable from non-live (static brightness)", async ({ page }) => {
+    // Regression: when the user has prefers-reduced-motion enabled, the
+    // @media block disables `.tick-bar.live` animation — without an
+    // explicit static base opacity on `.tick-bar.live`, live bars fell
+    // back to the same dim opacity as non-live and the chip lost its
+    // signal entirely. Pins the contract: live bars are brighter than
+    // non-live (animation off, but signal preserved via opacity).
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await page.route("**/api/vitals", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          ts: Date.now(),
+          agents: [
+            {
+              name: "claude-code",
+              displayName: "Claude Code",
+              transport: "streamJson",
+              status: "live",
+              version: "2.0.0",
+              latencyMs: 80,
+            },
+          ],
+        }),
+      });
+    });
+
+    await page.goto("/");
+    const sidebar = page.locator("aside");
+    await expect(sidebar.getByText(/^All systems$/i)).toBeVisible({ timeout: 5_000 });
+
+    const liveBar = sidebar.locator(".tick-bar.live").first();
+    await expect(liveBar).toHaveCSS("animation-name", "none");
+
+    const liveOpacity = await liveBar.evaluate((el) => parseFloat(getComputedStyle(el).opacity));
+    expect(liveOpacity).toBeGreaterThan(0.8);
+  });
 });

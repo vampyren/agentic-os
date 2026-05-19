@@ -184,7 +184,18 @@ body > * { position: relative; z-index: 1; }
   opacity: 0.4;
   transform-origin: bottom;
 }
-.tick-bar.live { animation: tick-bar 1.4s ease-in-out infinite; }
+.tick-bar.live {
+  /* Brighter static base than the dim 0.4 of .tick-bar, so live still
+     reads as a visible signal when the user has prefers-reduced-motion
+     enabled (the @media block below disables the animation, and the
+     bars then fall back to whatever opacity is set directly on the
+     element — without this, live and non-live both ended up at 0.4
+     and the chip became un-readable). Under normal motion, the
+     keyframe's opacity range overrides this base and the pulse plays
+     as designed. */
+  opacity: 1;
+  animation: tick-bar 1.4s ease-in-out infinite;
+}
 @keyframes tick-bar {
   0%, 100% { transform: scaleY(0.3); opacity: 0.35; }
   50%      { transform: scaleY(1.15); opacity: 1; }
@@ -238,6 +249,11 @@ body > * { position: relative; z-index: 1; }
   .tick.live,
   .tick-bar.live {
     animation: none !important;
+  }
+
+  .tick-bar.live {
+    opacity: 1 !important;
+    transform: scaleY(1) !important;
   }
 
   .panel-hover,
