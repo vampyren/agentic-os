@@ -2,7 +2,7 @@
 
 A local-first mission control for your AI agents. Single dashboard. Pluggable brains. Your knowledge stays in your vault.
 
-> **Status: v0.2.12 — Track 2 UI/UX shell + Mission Control rebuild.** Runnable. Two built-in agents (Claude Code, Hermes) work end-to-end. Mission Control UI, sidebar command palette, per-agent Chat ⇄ Control Room toggle with Hermes Status/Sessions/Insights actions, Memory page with tabs + filter chips + right-pane preview, vault inbox-first writes, SQLite FTS5 search, setup wizard, JSONL audit log with full prompt redaction (argv, filenames, stderr, AND action output). See [`CHANGELOG.md`](CHANGELOG.md) for version history.
+> **Status: v0.2.12 — Track 2 UI/UX polish.** Runnable. Two built-in agents (Claude Code, Hermes) work end-to-end. Mission Control UI, sidebar command palette, per-agent Chat ⇄ Control Room toggle with Hermes Status/Sessions/Insights actions, Hermes memory bars, context-fill chat usage strip, per-agent working-directory picker, Memory page with tabs + filter chips + right-pane preview, vault inbox-first writes, SQLite FTS5 search, setup wizard, JSONL audit log with full prompt redaction (argv, filenames, stderr, AND action output). See [`CHANGELOG.md`](CHANGELOG.md) for version history.
 
 ---
 

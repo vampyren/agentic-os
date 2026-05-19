@@ -20,9 +20,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [0.2.12] — 2026-05-18 — Track 2 UI/UX shell + Mission Control rebuild + Chat/Control polish
+## [0.2.12] — 2026-05-18 — Track 2 UI/UX polish: shell, chat, control room, Hermes memory, usage, cwd
 
-Five Track 2 slices are implemented across PR #2, PR #3, and the Slice 5 Control Room polish branch. All UI-only except the Hermes-version parsing helper; no backend, security, or vault-write contract changes.
+Track 2 UI/UX polish is implemented across PR #2, PR #3, PR #4, and PR #5. The line now includes shell/Mission Control polish, chat and Control Room polish, Hermes memory bars, a context-fill chat usage strip, and per-agent working-directory persistence. Backend changes are additive and local-only: Hermes memory usage is read-only, cwd persistence is origin-gated and path-validated, and no vault-write contract changes.
 
 **Slice 1 — Sidebar redesign.** `Sidebar.tsx` reshaped into three semantic groups with section overlines: `Workspace` (Mission Control), `Agents` (runtime-loaded from `/api/agents`, sorted by display name), and `Self` (Goals / Journal / Memory). Active item gets accent-tinted background + animated left accent bar via `motion.layoutId="nav-indicator"`. Per-agent identity rendered via new `AgentAvatar.tsx` (runtime-agnostic circular tile with the agent's first initial, full accent gradient + glow ring in the active state). New `--panel`, `--panel-border`, `--panel-border-hot` tokens in `globals.css` give the rail its purple-navy translucent character + subtle right-edge glow. Brand block top: `LOCAL · 127.0.0.1` overline + gradient `Agentic OS` wordmark.
 
