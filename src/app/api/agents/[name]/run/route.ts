@@ -11,6 +11,7 @@
 
 import { registry } from "@/kernel/registry";
 import { loadConfig } from "@/kernel/config";
+import { getAgentCwd } from "@/kernel/agentCwd";
 import { writeDraft } from "@/vault/writer";
 import { originOk, forbidden } from "../../../_lib/cors";
 
@@ -52,6 +53,13 @@ export async function POST(
     return Response.json({ error: `config error: ${String(e)}` }, { status: 500 });
   }
 
+  // Resolve the per-agent cwd (the directory the operator wants this
+  // agent to operate from — e.g. a Claude Code project root). Falls
+  // back to $HOME/Documents when no override is persisted, never
+  // throws. Both subprocess + streamJson transports honor opts.cwd ??
+  // cfg.cwd, so passing it via StreamOpts is the right insertion point.
+  const cwd = await getAgentCwd(name);
+
   const enc = new TextEncoder();
   const send = (controller: ReadableStreamDefaultController<Uint8Array>, obj: unknown) => {
     controller.enqueue(enc.encode(JSON.stringify(obj) + "\n"));
@@ -61,7 +69,7 @@ export async function POST(
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
       try {
-        for await (const evt of registry.stream(name, { prompt, signal: req.signal })) {
+        for await (const evt of registry.stream(name, { prompt, cwd, signal: req.signal })) {
           if (evt.kind === "token") fullText += evt.text;
           send(controller, evt);
         }
