@@ -1,7 +1,15 @@
 "use client";
 
-// Markdown renderer for agent chat responses. Wraps react-markdown with our
-// dark-theme styling and highlight.js for code blocks.
+// Markdown renderer for agent chat responses and vault-note previews.
+// Wraps react-markdown with our dark-theme styling and highlight.js for
+// code blocks.
+//
+// Security contract:
+// - Do NOT add rehype-raw.
+// - Do NOT enable allowDangerousHtml.
+// Agent output and vault notes can contain untrusted markdown. Keeping raw
+// HTML disabled means tags like <script> or <img onerror=...> render as text
+// instead of executable DOM.
 
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
