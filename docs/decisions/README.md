@@ -45,3 +45,6 @@ Each option and why it was rejected.
 | 0007 | Phase 1 narrow MVP, split into 1A / 1B / 1C | Accepted |
 | 0008 | Internal naming discipline: "kernel" and "registry," not "OS" | Accepted |
 | 0009 | JSONL audit log, one file per day | Accepted |
+| 0010 | Phase 1C registry triad: features, connectors, capabilities | Accepted |
+| 0011 | Missions return outputs; a central runner persists them | Accepted |
+| 0012 | Capability Router returns neutral, non-secret-bearing results | Accepted |

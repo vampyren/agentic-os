@@ -1,6 +1,9 @@
 # Architecture
 
-This document describes the target architecture. Nothing is implemented yet.
+This document describes the target architecture. Phases 1A and 1B, and
+the Phase 1C **foundation** (M1–M3, merged via PR #8), are implemented —
+see the per-phase views below and `ROADMAP.md` for what ships when. The
+Phase 1C scheduler *runtime* (M4) is not yet built.
 
 ## Goals and non-goals
 
@@ -157,6 +160,34 @@ Everything from 1B, plus an in-process `node-cron` scheduler (disabled by defaul
 Audit:  mission.run events on the bus + JSONL log
 ```
 
+### Phase 1C foundation — shipped in M1–M3
+
+The Phase 1C diagram above is the *target*. What has actually merged so
+far (PR #8) is types, schemas, and registries — the integration spine —
+with **no runtime execution yet**:
+
+- **M1 — config/schema foundation.** `configVersion` with a forward
+  guard (absent → 1; `1` → OK; anything else → clear startup error).
+  `~/.agentic-os/config.yaml` gains `features`, `connectors`,
+  `mcpServers`, and `permissions` sections with safe defaults; a
+  pre-1C config still loads unchanged. (`src/kernel/schemas/`)
+- **M2 — registry triad + capability router stub.** Feature, Connector,
+  and Capability registries (in-memory, `globalThis` singletons,
+  `__TEST__` seams). A Capability Router resolves a capability to an
+  enabled connector and delegates — but M2 registers zero production
+  connectors, so the router is a stub. (`src/kernel/{features,
+  connectors,capabilities}/`; see ADR-0010, ADR-0012)
+- **M3 — mission planning + stub missions.** Mission type system,
+  mission registry, an effective-plan resolver (merges a mission
+  definition's defaults with config overrides), and three stub
+  built-in missions (daily-summary, weekly-review, vitals-heartbeat)
+  that return `MissionOutput[]` with no real logic.
+  (`src/features/scheduler/missions/`; see ADR-0011)
+
+Not yet built — **Phase 1C M4**: the `node-cron` scheduler runtime, the
+mission runner, the constrained vault writer, and the manual
+mission-run API. Missions cannot execute until M4 lands.
+
 ## Layer breakdown
 
 ### 1. Agent Registry (Phase 1A)
@@ -200,6 +231,15 @@ interface Transport {
 - Replaces Julian's REST polling for activity + vitals.
 
 ### 4. Scheduler (Phase 1C)
+
+> **Status (M1–M3 merged via PR #8):** the config schema, the registry
+> triad, and mission *planning* — types, registry, effective-plan
+> resolver, and stub missions — are shipped. See "Phase 1C foundation"
+> above and ADR-0010 / 0011 / 0012. The `node-cron` runtime and mission
+> runner described below are Phase 1C **M4**, not yet built. The shipped
+> mission shape is a `MissionDefinition` whose `run()` returns
+> `MissionOutput[]` for a central runner to persist (ADR-0011) — not the
+> self-writing `{ cron, run }` handler sketched below.
 
 - `node-cron` in-process. Cron expressions + JS handlers. Opt-in via `scheduler.enabled: true` in config.
 - Handlers live at `missions/*.ts`, each exporting `{ cron: string, run: (ctx) => Promise<void> }`.

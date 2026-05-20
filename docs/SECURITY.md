@@ -83,6 +83,45 @@ Chats go through a separate transport-specific endpoint (`/api/agents/[name]/run
 - **Never in error messages shown to the user.** Stack traces from `http` transports are sanitized before bus emission.
 - Config files at `~/.agentic-os/` are not, and must not be, committed to the repo. The default `.gitignore` excludes them.
 
+## Phase 1C — integration spine (M1–M3)
+
+The Phase 1C foundation adds config sections for connectors, MCP
+servers, and missions. New security contracts:
+
+- **`authRef`-only secret handling.** A connector config carries a
+  secret *reference*, never the secret. `authRef` is a string matching
+  `env:VAR_NAME` or `none`, validated by regex at config-parse time and
+  never resolved into the in-memory config object. The referenced env
+  var is read later, at use time, in the connector runtime layer.
+- **No opaque connector config bag.** A connector entry's schema is
+  `.strict()` and has *no* free-form `config` field. An arbitrary
+  `z.unknown()` dictionary would let raw secrets (`apiKey`, `token`,
+  `password`) live in plain YAML — exactly what `authRef` exists to
+  prevent. Typed, named connector-specific settings get added per
+  connector when real connectors land; until then any `config:` key is
+  rejected. (PR #8 review blocker B1; ADR-0010.)
+- **Capability Router neutral failure contract.** The router never
+  passes a connector's failure detail through. A thrown error and a
+  returned `{ status: "failed" }` are both collapsed to a generic
+  `errorCode` + message — the connector's own `message` / `errorCode` /
+  `metadata` is dropped, since none of it is trusted to be secret-free.
+  `success` results still carry `output` / `metadata`. (ADR-0012; tests
+  in `tests/capability-router.test.ts`.)
+- **Vault output allowlist.** A mission's output folder must be one of a
+  fixed allowlist of `00_Inbox/agentic-os/...` roots
+  (`src/lib/vaultPaths.ts`, branded `VaultRelativePath`). The check is
+  lexical — relative path, no `..`, no backslash, path-segment-boundary
+  match — and runs at config-parse time and in the effective-plan
+  resolver.
+- **M4 constrained-writer expectation (not yet built).** Missions
+  return output objects; a central runner (M4) writes vault notes
+  through a *constrained writer*. That writer must, at write time,
+  re-resolve the target with `fs.realpath` and reject any path that
+  escapes an allowlisted root via a symlink — the same realpath-escape
+  pattern as the v0.2.12 cwd picker. The lexical M3 allowlist is
+  necessary but not sufficient alone; the realpath check is mandatory
+  before the first real mission write.
+
 ## Audit log
 
 Append-only, one file per UTC day, JSONL format:
