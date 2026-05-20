@@ -129,7 +129,8 @@ export interface BusEvent {
   payload?: unknown;
 }
 
-export interface AppConfig {
-  vault: { root: string };
-  agents: { default?: string };
-}
+// AppConfig is derived from the Zod schema in schemas/appConfig.ts (the
+// single source of truth for the config shape). Re-exported here so
+// existing `import { AppConfig } from "@/kernel/types"` call-sites keep
+// working.
+export type { AppConfig } from "./schemas/appConfig";
