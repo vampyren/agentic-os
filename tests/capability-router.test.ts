@@ -184,6 +184,54 @@ describe("createCapabilityRouter — invoke", () => {
     expect(serialised).not.toContain("a private prompt body");
   });
 
+  it("collapses a RETURNED failed connector result to a neutral result (B2)", async () => {
+    // A connector that returns { status: "failed" } (rather than
+    // throwing) must also be neutralised — its message / errorCode /
+    // metadata may carry a secret, a path, or echoed input.
+    const reg = connectorTest.newRegistry();
+    reg.register(
+      fakeConnector({
+        id: "leaky",
+        capabilities: ["chat.generate"],
+        invoke: async (): Promise<ConnectorResult> => ({
+          status: "failed",
+          errorCode: "auth-failed",
+          message: "failed with token sk-SECRET at /home/spawn/private.json",
+          metadata: { token: "sk-SECRET", path: "/home/spawn/private.json" },
+        }),
+      }),
+    );
+    const router = createCapabilityRouter(reg, { leaky: { enabled: true } });
+    const result = await router.invoke("chat.generate", { prompt: "a private prompt body" });
+    expect(result.status).toBe("failed");
+    expect(result.errorCode).toBe("connector-returned-failure");
+    const serialised = JSON.stringify(result);
+    expect(serialised).not.toContain("sk-SECRET");
+    expect(serialised).not.toContain("/home/spawn");
+    expect(serialised).not.toContain("auth-failed");
+    expect(serialised).not.toContain("a private prompt body");
+  });
+
+  it("passes through output + metadata on a RETURNED success result", async () => {
+    const reg = connectorTest.newRegistry();
+    reg.register(
+      fakeConnector({
+        id: "ok",
+        capabilities: ["chat.generate"],
+        invoke: async (): Promise<ConnectorResult> => ({
+          status: "success",
+          output: { text: "hello" },
+          metadata: { tokens: 12 },
+        }),
+      }),
+    );
+    const router = createCapabilityRouter(reg, { ok: { enabled: true } });
+    const result = await router.invoke("chat.generate", {});
+    expect(result.status).toBe("success");
+    expect(result.output).toEqual({ text: "hello" });
+    expect(result.metadata).toEqual({ tokens: 12 });
+  });
+
   it("skipped results do not echo raw input", async () => {
     const router = createCapabilityRouter(connectorTest.newRegistry(), {});
     const result = await router.invoke("chat.generate", { apiKey: "sk-LEAK-me" });

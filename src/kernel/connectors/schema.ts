@@ -39,8 +39,11 @@ export const connectorSettingsSchema = z
       .string()
       .regex(SLUG, "mcpServer must be a kebab-case slug")
       .optional(),
-    // Connector-specific settings — opaque at the config layer.
-    config: z.record(z.string(), z.unknown()).optional(),
+    // NOTE: no opaque `config` field. An arbitrary `z.unknown()` config
+    // bag would let raw secrets (apiKey / token / password) live in
+    // plain YAML — exactly what `authRef` exists to prevent. Connector-
+    // specific settings get a typed, named schema when real connectors
+    // land; until then `.strict()` rejects any `config:` key.
   })
   .strict();
 

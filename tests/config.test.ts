@@ -290,6 +290,18 @@ describe("loadConfig — connectors / mcpServers schema (M2)", () => {
     await expect(loadConfig()).rejects.toThrow(/failed validation/i);
   });
 
+  it("rejects a connector `config` block carrying raw secret-like fields (B1)", async () => {
+    // There is no opaque `config` field on a connector entry — a
+    // z.unknown() bag would let raw secrets live in plain YAML, which
+    // is exactly what authRef exists to prevent. `.strict()` rejects it.
+    await writeConfig(
+      `vault:\n  root: ${tmpDir}\n` +
+      `connectors:\n  gemini:\n    enabled: true\n` +
+      `    config:\n      apiKey: sk-raw-secret\n`,
+    );
+    await expect(loadConfig()).rejects.toThrow(/failed validation/i);
+  });
+
   it("rejects a malformed authRef (raw secret, not env:NAME / none)", async () => {
     await writeConfig(
       `vault:\n  root: ${tmpDir}\n` +

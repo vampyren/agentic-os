@@ -96,14 +96,25 @@ export function createCapabilityRouter(
 
     try {
       const result = await chosen.invoke(capability, input);
+      if (result.status === "success") {
+        return {
+          status: "success",
+          capability,
+          connectorId: chosen.id,
+          output: result.output as T | undefined,
+          metadata: result.metadata,
+        };
+      }
+      // A RETURNED failure is neutralised the same as a thrown one: the
+      // connector's own message / errorCode / metadata may carry a
+      // secret, a path, or echoed input, so none of it is passed
+      // through. Generic code + message only.
       return {
-        status: result.status === "success" ? "success" : "failed",
+        status: "failed",
         capability,
         connectorId: chosen.id,
-        output: result.output as T | undefined,
-        errorCode: result.errorCode,
-        message: result.message,
-        metadata: result.metadata,
+        errorCode: "connector-returned-failure",
+        message: `connector reported a failure for ${capability}`,
       };
     } catch {
       // Neutral failure: the thrown error may carry a path, an arg, or
