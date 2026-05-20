@@ -32,6 +32,8 @@ Phase → version mapping (from `CHANGELOG.md`):
 - [ ] Working tree clean: `git status --short` (no output)
 - [ ] Pulled latest: `git fetch && git rev-parse @ = $(git rev-parse @{u})`
 - [ ] Previous release's CI is green: `gh run list --limit 1`
+- [ ] If the release comes from a PR, verify PR CI before merge, then verify main-branch CI after merge before tagging.
+- [ ] Review CI annotations/warnings and either fix them or record a non-blocking follow-up.
 
 ---
 
@@ -128,6 +130,7 @@ gh run watch                          # blocks until CI completes
 
 - [ ] CI green: typecheck + vitest + Playwright all pass
 - [ ] If CI fails: fix on `main` with new commits, **do not amend the published commit**
+- [ ] If post-merge release hygiene or docs sync commits land on `main`, wait for CI again before tagging.
 
 ---
 
@@ -161,6 +164,19 @@ Only after CI is green.
   ```
 - [ ] Verify in browser: `gh release view vX.Y.Z --web`
 - [ ] Markdown renders cleanly (code blocks, tables, links resolve)
+
+---
+
+## 9.5. Obsidian/project handoff sync
+
+Use the generic vault template at `/home/spawn/Documents/Obsidian/Rex-Knowledge/50_Templates/Release Checklist.md` as the cross-project checklist. For Agentic OS specifically:
+
+- [ ] Update the project MOC/current-state note.
+- [ ] Update the canonical `Session Handoff.md` with branch/tag/release URL/commit, verification, CI warnings, and resume prompt.
+- [ ] Update affected project specs/plans, not only the repo changelog.
+- [ ] Update `/home/spawn/Temp/output.txt` so Claude/Jarvis coordination does not continue from stale branch/task context.
+- [ ] Search the Agentic OS project folder for stale current-state wording before saying done.
+- [ ] List updated Obsidian notes in the final report.
 
 ---
 

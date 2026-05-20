@@ -22,7 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.2.12] — 2026-05-18 — Track 2 UI/UX polish: shell, chat, control room, Hermes memory, usage, cwd
 
-Track 2 UI/UX polish is implemented across PR #2, PR #3, PR #4, and PR #5. The line now includes shell/Mission Control polish, chat and Control Room polish, Hermes memory bars, a context-fill chat usage strip, and per-agent working-directory persistence. Backend changes are additive and local-only: Hermes memory usage is read-only, cwd persistence is origin-gated and path-validated, and no vault-write contract changes.
+Track 2 UI/UX polish is implemented across PR #2, PR #3, PR #4, PR #5, and PR #6. The line now includes shell/Mission Control polish, chat and Control Room polish, Hermes memory bars, a context-fill chat usage strip, per-agent working-directory persistence, and Memory page chip/preview polish. Backend changes are additive and local-only: Hermes memory usage is read-only, cwd persistence is origin-gated and path-validated, vault metadata is exposed through a read-only origin-gated endpoint, and no vault-write contract changes.
 
 **Slice 1 — Sidebar redesign.** `Sidebar.tsx` reshaped into three semantic groups with section overlines: `Workspace` (Mission Control), `Agents` (runtime-loaded from `/api/agents`, sorted by display name), and `Self` (Goals / Journal / Memory). Active item gets accent-tinted background + animated left accent bar via `motion.layoutId="nav-indicator"`. Per-agent identity rendered via new `AgentAvatar.tsx` (runtime-agnostic circular tile with the agent's first initial, full accent gradient + glow ring in the active state). New `--panel`, `--panel-border`, `--panel-border-hot` tokens in `globals.css` give the rail its purple-navy translucent character + subtle right-edge glow. Brand block top: `LOCAL · 127.0.0.1` overline + gradient `Agentic OS` wordmark.
 
@@ -69,7 +69,7 @@ New `HermesMemoryBars.tsx` component renders two thin bars (Brain icon for MEMOR
 
 **Slice 6 — Memory tabs as chips + rendered preview.** `/memory` now uses compact accent-tinted scope chips instead of underline tabs, renders search-term highlights as React `<mark>` nodes (no `dangerouslySetInnerHTML`), and shows an empty preview state with Brain icon, vault root, and indexed-note count via a small origin-gated read-only `GET /api/vault/info` endpoint. The preview pane now renders note bodies through the existing safe Markdown renderer (GFM tables/code/headings/lists; no raw HTML) and widens responsively at `xl` widths while stacking below that breakpoint to avoid horizontal overflow. New `src/lib/highlight.ts` plus `tests/highlight.test.ts` add 21 unit cases for query highlighting, FTS5 `«...»` marker parsing, regex escaping, malformed marker fail-soft behavior, and Unicode preservation. `/api/memory/note` path traversal guard is unchanged.
 
-### Queued for v0.2.12+ (not in branch)
+### Queued after v0.2.12
 
 - Future: secure inline audio playback in chat messages (allowlisted `/api/audio?path=` route with strict path-traversal + MIME guards).
 - "Send last prompt to agent X" action in the command palette.
