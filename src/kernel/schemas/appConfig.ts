@@ -24,6 +24,7 @@ import {
   connectorsConfigSchema,
   mcpServersConfigSchema,
 } from "../connectors/schema";
+import { schedulerFeatureSchema } from "./scheduler";
 
 /**
  * The highest `configVersion` this build understands. A config declaring
@@ -33,17 +34,10 @@ import {
 export const SUPPORTED_CONFIG_VERSION = 1;
 
 // ── features.scheduler ──────────────────────────────────────────────
-// M1: the scheduler feature exists with an enable flag and an (empty)
-// mission map. Per-mission config shape lands in M3 — until then a
-// mission entry is accepted but not validated internally.
-const schedulerFeatureSchema = z
-  .object({
-    enabled: z.boolean().default(false),
-    missions: z.record(z.string(), z.unknown()).default({}),
-  })
-  .strict()
-  .default({});
-
+// M3: the scheduler feature config (enable flag, timezone, and a real
+// per-mission schema) is owned by src/kernel/schemas/scheduler.ts —
+// imported above. M1's loose `missions: z.record(z.unknown())` is
+// replaced there with cron + outputFolder validation.
 const featuresSchema = z
   .object({
     scheduler: schedulerFeatureSchema,

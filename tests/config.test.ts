@@ -360,3 +360,62 @@ describe("loadConfig — connectors / mcpServers schema (M2)", () => {
     expect(cfg.mcpServers).toEqual({});
   });
 });
+
+describe("loadConfig — scheduler missions config (M3)", () => {
+  it("accepts a valid scheduler.missions block", async () => {
+    await writeConfig(
+      `vault:\n  root: ${tmpDir}\n` +
+      `features:\n  scheduler:\n    enabled: true\n    timezone: Europe/Stockholm\n` +
+      `    missions:\n` +
+      `      daily-summary:\n` +
+      `        enabled: true\n` +
+      `        cron: "0 20 * * *"\n` +
+      `        outputFolder: 00_Inbox/agentic-os/summaries\n`,
+    );
+    const cfg = await loadConfig();
+    expect(cfg.features.scheduler.timezone).toBe("Europe/Stockholm");
+    expect(cfg.features.scheduler.missions["daily-summary"]?.cron).toBe("0 20 * * *");
+  });
+
+  it("defaults scheduler.timezone to UTC when omitted", async () => {
+    await writeConfig(`vault:\n  root: ${tmpDir}\n`);
+    const cfg = await loadConfig();
+    expect(cfg.features.scheduler.timezone).toBe("UTC");
+  });
+
+  it("rejects an invalid cron in a mission entry", async () => {
+    await writeConfig(
+      `vault:\n  root: ${tmpDir}\n` +
+      `features:\n  scheduler:\n    missions:\n` +
+      `      daily-summary:\n        cron: "every day"\n`,
+    );
+    await expect(loadConfig()).rejects.toThrow(/failed validation/i);
+  });
+
+  it("rejects a sub-minute (6-field) cron in a mission entry", async () => {
+    await writeConfig(
+      `vault:\n  root: ${tmpDir}\n` +
+      `features:\n  scheduler:\n    missions:\n` +
+      `      daily-summary:\n        cron: "* * * * * *"\n`,
+    );
+    await expect(loadConfig()).rejects.toThrow(/failed validation/i);
+  });
+
+  it("rejects a mission outputFolder outside the allowlist", async () => {
+    await writeConfig(
+      `vault:\n  root: ${tmpDir}\n` +
+      `features:\n  scheduler:\n    missions:\n` +
+      `      daily-summary:\n        outputFolder: 00_Inbox/agentic-os/chats\n`,
+    );
+    await expect(loadConfig()).rejects.toThrow(/failed validation/i);
+  });
+
+  it("rejects an unknown key inside a mission entry (strict)", async () => {
+    await writeConfig(
+      `vault:\n  root: ${tmpDir}\n` +
+      `features:\n  scheduler:\n    missions:\n` +
+      `      daily-summary:\n        bogusField: 1\n`,
+    );
+    await expect(loadConfig()).rejects.toThrow(/failed validation/i);
+  });
+});
