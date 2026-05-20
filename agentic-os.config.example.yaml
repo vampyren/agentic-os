@@ -5,12 +5,35 @@
 #   AGENTIC_OS_CONFIG  alternate config file path
 #   AGENTIC_OS_VAULT   override vault.root
 
+# Config schema version. Optional — an omitted version is treated as 1.
+# A version higher than this build supports causes a clear startup error.
+configVersion: 1
+
 vault:
   # Absolute path to your Obsidian vault root.
-  root: /home/spawn/Documents/Obsidian/Rex-Knowledge
+  root: /path/to/your/obsidian/vault
 
 agents:
   # Optional: which agent the dashboard selects by default. Must match a
   # `name:` field from a manifest in agents/builtin/*.yaml or
   # ~/.agentic-os/agents/*.yaml. If omitted, the first loaded agent is used.
   default: claude-code
+
+# The sections below are optional and all default to safe, disabled values.
+# They are placeholders for Phase 1C integration work — leaving them out is
+# equivalent to the defaults shown.
+#
+# features:
+#   scheduler:
+#     enabled: false        # master switch for scheduled missions
+#     missions: {}          # per-mission config arrives in a later milestone
+#
+# connectors: {}            # external systems Agentic OS can talk to
+# mcpServers: {}            # MCP subprocess definitions
+#
+# permissions:
+#   defaults:
+#     externalApi: prompt           # prompt | allow | deny
+#     localProcess: deny            # allow | deny
+#     vaultWrite: inbox-only        # inbox-only | full-vault | deny
+#     network: deny-localhost-private

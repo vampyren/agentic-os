@@ -93,4 +93,20 @@ describe("release hygiene — version consistency", () => {
     expect(install, "INSTALL.md must declare `Current shipped version: **vX.Y.Z**` matching package.json")
       .toMatch(re);
   });
+
+  it("agentic-os.config.example.yaml declares configVersion matching SUPPORTED_CONFIG_VERSION", async () => {
+    // Phase 1C / M1: the example config and the code constant must not
+    // drift. If a future milestone bumps SUPPORTED_CONFIG_VERSION, this
+    // forces the example file to be bumped in the same change.
+    const { SUPPORTED_CONFIG_VERSION } = await import("../src/kernel/schemas/appConfig");
+    const example = await fs.readFile(
+      path.join(REPO_ROOT, "agentic-os.config.example.yaml"),
+      "utf8",
+    );
+    const re = new RegExp(`^configVersion:\\s*${SUPPORTED_CONFIG_VERSION}\\s*$`, "m");
+    expect(
+      example,
+      `example config must declare \`configVersion: ${SUPPORTED_CONFIG_VERSION}\``,
+    ).toMatch(re);
+  });
 });
