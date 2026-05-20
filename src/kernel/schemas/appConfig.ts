@@ -20,6 +20,10 @@
 // type carries `configVersion: 1`.
 
 import { z } from "zod";
+import {
+  connectorsConfigSchema,
+  mcpServersConfigSchema,
+} from "../connectors/schema";
 
 /**
  * The highest `configVersion` this build understands. A config declaring
@@ -48,11 +52,15 @@ const featuresSchema = z
   .default({});
 
 // ── connectors / mcpServers ─────────────────────────────────────────
-// M1: declared as empty maps. Item schemas (kind, transport, authRef,
-// capabilities, …) land with the connector registry in M2. Loose record
-// here so a user who hand-adds a connectors block doesn't break loading.
-const connectorsSchema = z.record(z.string(), z.unknown()).default({});
-const mcpServersSchema = z.record(z.string(), z.unknown()).default({});
+// M2: the loose `z.record(z.unknown())` placeholders from M1 are
+// replaced with the real item schemas (connectors/schema.ts). These
+// describe operator SETTINGS (enabled / authRef / trust override /
+// config references); connector definitions themselves are registered
+// in code.
+//
+// connectors/schema.ts is the schema home, imported here so a single
+// `connectors:` / `mcpServers:` block is validated as part of the
+// whole-config parse.
 
 // ── permissions ─────────────────────────────────────────────────────
 // Declarative shape only — runtime enforcement comes in a later phase.
@@ -97,16 +105,35 @@ export const appConfigSchema = z
       .default({}),
 
     features: featuresSchema,
-    connectors: connectorsSchema,
-    mcpServers: mcpServersSchema,
+    connectors: connectorsConfigSchema,
+    mcpServers: mcpServersConfigSchema,
     permissions: permissionsSchema,
   })
-  .strict();
+  .strict()
+  // Cross-section validation: every connector that references an MCP
+  // server by name must point at a server actually declared under
+  // `mcpServers`. A dangling reference is an operator typo that would
+  // otherwise only surface much later — fail it at config-load time.
+  .superRefine((cfg, ctx) => {
+    const declared = new Set(Object.keys(cfg.mcpServers));
+    for (const [connectorId, settings] of Object.entries(cfg.connectors)) {
+      const ref = settings.mcpServer;
+      if (ref !== undefined && !declared.has(ref)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["connectors", connectorId, "mcpServer"],
+          message:
+            `connector "${connectorId}" references mcpServer "${ref}", ` +
+            `which is not declared under mcpServers`,
+        });
+      }
+    }
+  });
 
 /**
- * The loaded, defaulted application config. Note: M1 does NOT resolve
- * secrets / `authRef`s — that transform (and a distinct `ResolvedAppConfig`
- * type) lands with the connector registry. For now this single type is
- * what `loadConfig()` returns.
+ * The loaded, defaulted application config. M2 validates connector
+ * operator settings but still does NOT resolve secrets / `authRef`s —
+ * secret resolution belongs to the later runtime connector/auth layer.
+ * For now this single type is what `loadConfig()` returns.
  */
 export type AppConfig = z.infer<typeof appConfigSchema>;

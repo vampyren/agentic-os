@@ -256,3 +256,107 @@ describe("loadConfig — error surfaces", () => {
     await expect(loadConfig()).rejects.toThrow(/not valid YAML/i);
   });
 });
+
+describe("loadConfig — connectors / mcpServers schema (M2)", () => {
+  it("accepts a valid connectors block", async () => {
+    await writeConfig(
+      `vault:\n  root: ${tmpDir}\n` +
+      `connectors:\n` +
+      `  gemini:\n` +
+      `    enabled: true\n` +
+      `    authRef: env:GEMINI_API_KEY\n` +
+      `    trust: community\n`,
+    );
+    const cfg = await loadConfig();
+    expect(cfg.connectors.gemini?.enabled).toBe(true);
+    expect(cfg.connectors.gemini?.authRef).toBe("env:GEMINI_API_KEY");
+    expect(cfg.connectors.gemini?.trust).toBe("community");
+  });
+
+  it("defaults connector.enabled to false when omitted", async () => {
+    await writeConfig(
+      `vault:\n  root: ${tmpDir}\n` +
+      `connectors:\n  gemini:\n    authRef: env:GEMINI_API_KEY\n`,
+    );
+    const cfg = await loadConfig();
+    expect(cfg.connectors.gemini?.enabled).toBe(false);
+  });
+
+  it("rejects a connector entry with an unknown key (strict)", async () => {
+    await writeConfig(
+      `vault:\n  root: ${tmpDir}\n` +
+      `connectors:\n  gemini:\n    enabled: true\n    bogusKey: 1\n`,
+    );
+    await expect(loadConfig()).rejects.toThrow(/failed validation/i);
+  });
+
+  it("rejects a malformed authRef (raw secret, not env:NAME / none)", async () => {
+    await writeConfig(
+      `vault:\n  root: ${tmpDir}\n` +
+      `connectors:\n  gemini:\n    enabled: true\n    authRef: just-a-raw-secret\n`,
+    );
+    await expect(loadConfig()).rejects.toThrow(/failed validation/i);
+  });
+
+  it("rejects an invalid trust value", async () => {
+    await writeConfig(
+      `vault:\n  root: ${tmpDir}\n` +
+      `connectors:\n  gemini:\n    enabled: true\n    trust: super-trusted\n`,
+    );
+    await expect(loadConfig()).rejects.toThrow(/failed validation/i);
+  });
+
+  it("rejects a non-slug connector id", async () => {
+    await writeConfig(
+      `vault:\n  root: ${tmpDir}\n` +
+      `connectors:\n  "Bad Id":\n    enabled: true\n`,
+    );
+    await expect(loadConfig()).rejects.toThrow(/failed validation/i);
+  });
+
+  it("accepts a valid mcpServers block and defaults args to []", async () => {
+    await writeConfig(
+      `vault:\n  root: ${tmpDir}\n` +
+      `mcpServers:\n` +
+      `  notebooklm-local:\n` +
+      `    enabled: false\n` +
+      `    command: notebooklm-mcp\n`,
+    );
+    const cfg = await loadConfig();
+    expect(cfg.mcpServers["notebooklm-local"]?.command).toBe("notebooklm-mcp");
+    expect(cfg.mcpServers["notebooklm-local"]?.args).toEqual([]);
+  });
+
+  it("rejects an mcpServer entry with no command", async () => {
+    await writeConfig(
+      `vault:\n  root: ${tmpDir}\n` +
+      `mcpServers:\n  notebooklm-local:\n    enabled: true\n`,
+    );
+    await expect(loadConfig()).rejects.toThrow(/failed validation/i);
+  });
+
+  it("accepts a connector referencing a declared mcpServer", async () => {
+    await writeConfig(
+      `vault:\n  root: ${tmpDir}\n` +
+      `connectors:\n  notebooklm:\n    enabled: false\n    mcpServer: notebooklm-local\n` +
+      `mcpServers:\n  notebooklm-local:\n    enabled: false\n    command: notebooklm-mcp\n`,
+    );
+    const cfg = await loadConfig();
+    expect(cfg.connectors.notebooklm?.mcpServer).toBe("notebooklm-local");
+  });
+
+  it("rejects a connector referencing an undefined mcpServer (superRefine)", async () => {
+    await writeConfig(
+      `vault:\n  root: ${tmpDir}\n` +
+      `connectors:\n  notebooklm:\n    enabled: false\n    mcpServer: ghost-server\n`,
+    );
+    await expect(loadConfig()).rejects.toThrow(/failed validation/i);
+  });
+
+  it("still defaults connectors and mcpServers to {} when absent", async () => {
+    await writeConfig(`vault:\n  root: ${tmpDir}\n`);
+    const cfg = await loadConfig();
+    expect(cfg.connectors).toEqual({});
+    expect(cfg.mcpServers).toEqual({});
+  });
+});
