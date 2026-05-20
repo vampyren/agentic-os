@@ -210,4 +210,32 @@ export async function auditVaultWrite(input: {
   });
 }
 
+/**
+ * Audit one mission run (Phase 1C — M4). Records counts + status only:
+ * NO vault paths, NO mission options, NO note content — a mission's
+ * options or output path could carry operator-private strings.
+ */
+export async function auditMissionRun(input: {
+  missionId: string;
+  runId: string;
+  trigger: string;
+  status: "success" | "skipped" | "failed";
+  durationMs: number;
+  outputsPersisted: number;
+  outputsEmitted: number;
+  errorClass?: string;
+}): Promise<void> {
+  await writeLine({
+    kind: "mission.run",
+    missionId: input.missionId,
+    runId: input.runId,
+    trigger: input.trigger,
+    status: input.status,
+    durationMs: input.durationMs,
+    outputsPersisted: input.outputsPersisted,
+    outputsEmitted: input.outputsEmitted,
+    ...(input.errorClass ? { errorClass: input.errorClass } : {}),
+  });
+}
+
 export const AUDIT_TEST_HELPERS = { auditDir, todayUtc };
