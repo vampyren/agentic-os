@@ -79,6 +79,19 @@ If you added new features in this release:
 
 ---
 
+## 3.5. Security and secret exposure audit
+
+Treat any possible credential leak as a release blocker. Verify before tagging:
+
+- [ ] `git status --short --ignored` — confirm no `.env`, local config, vault export, private scratch file, token dump, session log, generated secret, or other private artifact is staged or unexpectedly present.
+- [ ] `git diff --cached --name-status` and `git diff --name-status HEAD` — confirm the release contains only intended files.
+- [ ] `git diff --cached` and/or `git diff HEAD` — review changed content for API keys, passwords, bearer tokens, cookies, private keys, seed phrases, webhook URLs, internal-only hostnames, personal paths, and private Obsidian/vault data.
+- [ ] Run a secret scanner if available, for example `gitleaks detect --source . --no-git --redact` or an equivalent repo-approved scanner. Record if the scanner is unavailable.
+- [ ] If any new config/env example changed, verify it uses placeholders only and does not include real secrets or personal paths.
+- [ ] If any release artifact is uploaded, inspect the artifact contents before publishing.
+
+---
+
 ## 4. End-to-end smoke
 
 Open a dev server in another terminal: `npm run dev`. Verify against the operator's actual vault:
