@@ -65,9 +65,9 @@ Split into three slices so each is small enough to review end-to-end. See ADR-00
 
 ### Phase 1B — Operator UX (port Julian's aesthetic, add the SELF layer)
 
-**Current status:** v0.2.12 released the Phase 1B Track 2 UI/UX polish line. Phase 1C M1–M4 is now merged on `main`: config/schema foundation, registry triad, capability router, mission planning, stub missions, mission runner, constrained writer, manual mission-run API, and mission audit entries. The remaining Phase 1C work is the actual scheduled firing/runtime (`node-cron`) plus real mission logic beyond the current stubs.
+**Current status:** v0.2.12 released the Phase 1B Track 2 UI/UX polish line. Phase 1C M1–M4 is merged on `main`, and the local working tree now contains the final Phase 1C runtime slice: `node-cron` scheduled firing, useful built-in mission drafts/events, and `/api/scheduler/status` visibility. This slice is not yet committed, tagged, or released.
 
-**Goal:** The dashboard looks like Mission Control and the operator can do their daily SOP from it. Still no scheduler.
+**Goal:** The dashboard looks like Mission Control and the operator can do their daily SOP from it.
 
 **In scope**
 
@@ -100,18 +100,19 @@ Split into three slices so each is small enough to review end-to-end. See ADR-00
 
 **Goal:** The OS does work for the operator on a schedule.
 
-**Current status:** M1–M4 are merged on `main` through PR #8 and PR #9. Manual mission runs are possible through `POST /api/missions/[id]/run`; vault-note outputs are persisted only through the constrained writer. The in-process scheduler loop (`node-cron`) is still not wired, so automatic scheduled firing remains future Phase 1C work.
+**Current status:** M1–M4 are merged on `main` through PR #8 and PR #9. The local working tree now finishes the Phase 1C runtime slice: `src/instrumentation.ts` starts an opt-in in-process `node-cron` scheduler, enabled mission plans fire through the existing `runMission({ trigger: "scheduled" })` path, built-in missions now return useful summary/review drafts or heartbeat events instead of placeholder stubs, and `GET /api/scheduler/status` exposes a neutral scheduler snapshot. This work is not yet committed, tagged, or released.
 
 **In scope**
 
 - Config/schema foundation for `features.scheduler`, connectors, MCP server references, permissions, and safe config defaults.
 - Registry triad: features, connectors, capabilities, plus a neutral-result capability router.
 - Mission registry + effective-plan resolver. Each mission definition declares defaults, strict options schema, permissions, output kind, and `run(ctx)`.
-- Built-in stub missions: `daily-summary` (20:00 daily), `weekly-review` (Sundays 18:00), `vitals-heartbeat` (only fires events when state changes, not every tick).
+- Built-in missions: `daily-summary` (20:00 daily), `weekly-review` (Sundays 18:00), and `vitals-heartbeat` (every 15 minutes by default, event-only).
 - Manual mission runner + `POST /api/missions/[id]/run` API.
+- Automatic in-process scheduled firing via `node-cron`, disabled by default and opt-in via `features.scheduler.enabled: true`.
+- Scheduler status visibility via `GET /api/scheduler/status`.
 - Mission output writes to `00_Inbox/agentic-os/summaries/`, `reviews/`, `missions/`, `studio/`, or `kanban/` via the constrained writer only.
 - Mission audit entries in the JSONL log (`kind: "mission.run"`).
-- Remaining: `node-cron` scheduler in-process, disabled by default and opt-in via `scheduler.enabled: true` in config.
 
 **Exit criteria for 1C**
 

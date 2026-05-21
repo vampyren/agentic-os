@@ -1,10 +1,11 @@
 # Architecture
 
 This document describes the target architecture. Phases 1A and 1B, and
-the Phase 1C M1–M4 integration spine (PR #8 + PR #9), are implemented —
-see the per-phase views below and `ROADMAP.md` for what ships when. The
-remaining Phase 1C gap is automatic scheduled firing (`node-cron`) and
-real mission logic beyond the current stubs.
+the Phase 1C M1–M4 integration spine (PR #8 + PR #9), are implemented.
+The local working tree now adds the final Phase 1C runtime slice:
+automatic scheduled firing through `node-cron`, useful built-in mission
+outputs, and scheduler status visibility. This slice is not yet committed,
+tagged, or released.
 
 ## Goals and non-goals
 
@@ -135,9 +136,9 @@ Everything from 1A, plus: Julian's aesthetic ported (Tailwind + Framer Motion + 
 Setup wizard: npm run setup (auto-detect agents, build initial index)
 ```
 
-### Phase 1C view — missions and scheduler target
+### Phase 1C view — missions and scheduler runtime
 
-Everything from 1B, plus a mission registry/planner/runner, constrained mission writer, manual-run API, and eventually an in-process `node-cron` scheduler (disabled by default) that fires the registered missions automatically.
+Everything from 1B, plus a mission registry/planner/runner, constrained mission writer, manual-run API, and an opt-in in-process `node-cron` scheduler that fires registered missions automatically when `features.scheduler.enabled` is true.
 
 ```
 [Everything from 1B, plus:]
@@ -148,7 +149,7 @@ Everything from 1B, plus a mission registry/planner/runner, constrained mission 
 │  missions/                                                        │
 │  ├── daily-summary.ts    (cron: "0 20 * * *")                    │
 │  ├── weekly-review.ts    (cron: "0 18 * * 0")                    │
-│  └── vitals-heartbeat.ts (fires events only on state change)     │
+│  └── vitals-heartbeat.ts (cron: "*/15 * * * *", event-only)      │
 └──────────────────────────┬───────────────────────────────────────┘
                            │
                            ▼
@@ -161,39 +162,27 @@ Everything from 1B, plus a mission registry/planner/runner, constrained mission 
 Audit:  mission.run events on the bus + JSONL log
 ```
 
-### Phase 1C integration spine — shipped in M1–M4
+### Phase 1C runtime slice — local working tree
 
-The Phase 1C diagram above is the *target*. What has merged so far is
-the integration spine: schemas/registries/planning in PR #8 and manual
-mission execution in PR #9. Automatic scheduled firing is still future
-work, but missions can now execute manually through the runner/API:
+M1–M4 are merged on `main`. The local working tree now adds the runtime
+slice that finishes Phase 1C, pending commit/release:
 
-- **M1 — config/schema foundation.** `configVersion` with a forward
-  guard (absent → 1; `1` → OK; anything else → clear startup error).
-  `~/.agentic-os/config.yaml` gains `features`, `connectors`,
-  `mcpServers`, and `permissions` sections with safe defaults; a
-  pre-1C config still loads unchanged. (`src/kernel/schemas/`)
-- **M2 — registry triad + capability router stub.** Feature, Connector,
-  and Capability registries (in-memory, `globalThis` singletons,
-  `__TEST__` seams). A Capability Router resolves a capability to an
-  enabled connector and delegates — but M2 registers zero production
-  connectors, so the router is a stub. (`src/kernel/{features,
-  connectors,capabilities}/`; see ADR-0010, ADR-0012)
-- **M3 — mission planning + stub missions.** Mission type system,
-  mission registry, an effective-plan resolver (merges a mission
-  definition's defaults with config overrides), and three stub
-  built-in missions (daily-summary, weekly-review, vitals-heartbeat)
-  that return `MissionOutput[]` with no real logic.
-  (`src/features/scheduler/missions/`; see ADR-0011)
-- **M4 — mission runner + constrained writer + manual API.**
-  `runMission()` resolves effective plans, strict-parses each mission's
-  own options, builds `MissionContext`, permission-gates event/capability
-  use, writes vault-note outputs only through `src/vault/constrainedWriter.ts`,
-  emits event outputs through the scheduler bus source, records neutral
-  `mission.run` audit entries, and exposes `POST /api/missions/[id]/run`.
+- **Scheduler runtime.** `src/features/scheduler/runtime.ts` resolves
+  effective plans, skips disabled/invalid/no-cron missions neutrally,
+  schedules enabled plans through `node-cron`, and fires ticks through
+  the same `runMission({ trigger: "scheduled" })` path used by manual
+  execution.
+- **Process bootstrap.** `src/instrumentation.ts` starts the global
+  scheduler only in the Node.js server runtime. The feature remains
+  disabled unless `features.scheduler.enabled: true` is set in config.
+- **Built-in mission logic.** `daily-summary` and `weekly-review` now
+  return useful dated inbox drafts; `vitals-heartbeat` emits a real
+  heartbeat payload and has a 15-minute default cron.
+- **Visibility.** `GET /api/scheduler/status` returns a neutral runtime
+  snapshot with status, scheduled mission refs, and diagnostics.
 
-Not yet built — automatic `node-cron` scheduled firing. Manual execution
-is available; scheduled runtime wiring remains the next Phase 1C step.
+The manual M4 runner remains the side-effect chokepoint: scheduled ticks
+do not write files or emit events directly; they invoke `runMission()`.
 
 ## Layer breakdown
 
@@ -239,20 +228,20 @@ interface Transport {
 
 ### 4. Scheduler (Phase 1C)
 
-> **Status (M1–M4 merged via PR #8 + PR #9):** config schema,
-> registry triad, mission planning, stub missions, manual mission runner,
-> constrained writer, manual-run API, and `mission.run` audit entries are
-> shipped. The `node-cron` scheduled firing loop is still future Phase 1C
-> work. The shipped mission shape is a `MissionDefinition` whose `run()`
-> returns `MissionOutput[]` for the central runner to persist (ADR-0011)
-> — not a self-writing `{ cron, run }` handler.
+> **Status (local Phase 1C runtime slice):** config schema,
+> registry triad, mission planning, mission runner, constrained writer,
+> manual-run API, `node-cron` scheduled firing, scheduler status API, and
+> `mission.run` audit entries are implemented locally. The mission shape
+> is a `MissionDefinition` whose `run()` returns `MissionOutput[]` for the
+> central runner to persist (ADR-0011) — not a self-writing `{ cron, run }`
+> handler.
 
-- Future `node-cron` in-process scheduler. Cron expressions + JS handlers. Opt-in via `scheduler.enabled: true` in config.
+- In-process `node-cron` scheduler, opt-in via `features.scheduler.enabled: true` in config.
 - Handlers live as registered `MissionDefinition`s under `src/features/scheduler/missions/`; each `run(ctx)` returns `MissionRunResult` / `MissionOutput[]`.
 - Built-in missions:
-  - `daily-summary` — at 20:00, summarize today's chats + journal into `00_Inbox/agentic-os/summaries/YYYY-MM-DD.md`.
-  - `weekly-review` — Sundays at 18:00, draft a weekly review note for promotion.
-  - `vitals-heartbeat` — emits bus events only when an agent's health state changes (LIVE → DEGRADED → OFFLINE). Probe cadence itself is per-manifest `intervalSec` (default 300s), not a fixed 60s tick.
+  - `daily-summary` — at 20:00, creates a dated summary draft in `00_Inbox/agentic-os/summaries/` through the constrained writer.
+  - `weekly-review` — Sundays at 18:00, creates a weekly review draft in `00_Inbox/agentic-os/reviews/`.
+  - `vitals-heartbeat` — every 15 minutes by default, emits an event-only heartbeat payload through the runner/bus path.
 - Missions write to the inbox only through `src/vault/constrainedWriter.ts`; promotion is the user's call.
 
 ### 5. Knowledge Layer (Phase 1A writer; 1B reader + FTS5 index)
