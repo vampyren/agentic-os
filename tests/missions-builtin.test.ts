@@ -8,14 +8,12 @@ import type {
 } from "../src/kernel/capabilities/types";
 import { isAllowedMissionOutputFolder } from "../src/lib/vaultPaths";
 
-// Minimal MissionContext fake — the M3 stub missions ignore the
-// context entirely, but run()'s signature requires one.
-function fakeCtx(): MissionContext {
+function fakeCtx(overrides: Partial<MissionContext> = {}): MissionContext {
   return {
     missionId: "test",
     runId: "run-1",
-    now: new Date("2026-01-01T00:00:00Z"),
-    timezone: "UTC",
+    now: new Date("2026-01-01T20:15:00Z"),
+    timezone: "Europe/Stockholm",
     trigger: "manual",
     options: {},
     config: {} as AppConfig,
@@ -30,12 +28,13 @@ function fakeCtx(): MissionContext {
     bus: { emit: () => {} },
     log: { info: () => {}, warn: () => {}, error: () => {} },
     signal: new AbortController().signal,
+    ...overrides,
   };
 }
 
-describe("built-in stub missions", () => {
-  it("daily-summary run() returns success with an allowlisted vault-note output", async () => {
-    const result = await builtinMissions["daily-summary"].run(fakeCtx());
+describe("built-in missions", () => {
+  it("daily-summary produces a useful dated draft without stub wording", async () => {
+    const result = await builtinMissions["daily-summary"].run(fakeCtx({ missionId: "daily-summary" }));
     expect(result.status).toBe("success");
     if (result.status !== "success") throw new Error("unreachable");
     expect(result.outputs).toHaveLength(1);
@@ -43,28 +42,43 @@ describe("built-in stub missions", () => {
     expect(out.kind).toBe("vault-note");
     if (out.kind === "vault-note") {
       expect(isAllowedMissionOutputFolder(out.outputFolder)).toBe(true);
+      expect(out.filenameHint).toContain("daily-summary-2026-01-01");
+      expect(out.content).toContain("# Daily Summary — 2026-01-01");
+      expect(out.content).toContain("Trigger: manual");
+      expect(out.content).not.toMatch(/stub/i);
     }
   });
 
-  it("weekly-review run() returns success with an allowlisted vault-note output", async () => {
-    const result = await builtinMissions["weekly-review"].run(fakeCtx());
+  it("weekly-review produces a useful weekly draft without stub wording", async () => {
+    const result = await builtinMissions["weekly-review"].run(fakeCtx({ missionId: "weekly-review" }));
     expect(result.status).toBe("success");
     if (result.status !== "success") throw new Error("unreachable");
     const out = result.outputs![0]!;
     expect(out.kind).toBe("vault-note");
     if (out.kind === "vault-note") {
       expect(isAllowedMissionOutputFolder(out.outputFolder)).toBe(true);
+      expect(out.filenameHint).toContain("weekly-review-2026-W01");
+      expect(out.content).toContain("# Weekly Review — 2026-W01");
+      expect(out.content).toContain("Review checklist");
+      expect(out.content).not.toMatch(/stub/i);
     }
   });
 
-  it("vitals-heartbeat run() returns success with an event output", async () => {
-    const result = await builtinMissions["vitals-heartbeat"].run(fakeCtx());
+  it("vitals-heartbeat emits a real heartbeat payload", async () => {
+    const result = await builtinMissions["vitals-heartbeat"].run(fakeCtx({ missionId: "vitals-heartbeat" }));
     expect(result.status).toBe("success");
     if (result.status !== "success") throw new Error("unreachable");
     const out = result.outputs![0]!;
     expect(out.kind).toBe("event");
     if (out.kind === "event") {
       expect(out.eventKind).toBe("vitals.heartbeat");
+      expect(out.payload).toMatchObject({
+        missionId: "vitals-heartbeat",
+        runId: "run-1",
+        trigger: "manual",
+        timezone: "Europe/Stockholm",
+      });
+      expect(out.payload).not.toHaveProperty("stub");
     }
   });
 

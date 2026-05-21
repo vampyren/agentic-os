@@ -40,11 +40,12 @@ A central **mission runner** (Phase 1C M4) consumes `MissionOutput[]`:
 router, a bus handle, a logger, and an `AbortSignal` — but no write
 path. The mission cannot write even if it wants to.
 
-Phase 1C M3 ships the mission type system, registry, effective-plan
-resolver, and three **stub** missions whose `run()` returns well-formed
-`MissionOutput[]` with no real logic. Phase 1C M4 implements the runner,
+Phase 1C M3 shipped the mission type system, registry, effective-plan
+resolver, and three placeholder missions. Phase 1C M4 implements the runner,
 constrained writer, manual-run API, and neutral mission audit/response
-contract. The remaining Phase 1C gap is automatic scheduled firing.
+contract. The local runtime slice now adds automatic scheduled firing via
+`node-cron`; scheduled ticks still invoke the same central runner with
+`trigger: "scheduled"`.
 
 ## Consequences
 

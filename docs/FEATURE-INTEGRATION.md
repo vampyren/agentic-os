@@ -1,6 +1,6 @@
 # Feature Integration Guide
 
-Reusable checklist for adding larger Agentic OS capabilities after the Phase 1C M4 foundation, such as Studio, Kanban, NotebookLM, provider integrations, or future workspace panels.
+Reusable checklist for adding larger Agentic OS capabilities after the Phase 1C foundation, such as Studio, Kanban, NotebookLM, provider integrations, or future workspace panels.
 
 This guide exists to prevent one-off feature blobs. New features should plug into the existing config, registry, capability, permission, event, audit, and vault-writing contracts.
 

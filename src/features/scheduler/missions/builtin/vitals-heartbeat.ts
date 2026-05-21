@@ -1,36 +1,40 @@
-// Built-in mission: vitals-heartbeat (Phase 1C — M3 STUB).
+// Built-in mission: vitals-heartbeat (Phase 1C).
 //
-// Will emit a periodic vitals heartbeat event. Unlike the summary
-// missions it produces an `event` output (no vault note, just a bus
-// emission). M3 ships only the definition with a stub `run()`.
-//
-// No defaultCron: a heartbeat is interval-driven; how it ticks is the
-// M5 scheduler runtime's concern. concurrency "queue" so a slow tick
-// never silently drops the next (design §3.2).
+// Emits a periodic scheduler heartbeat event. No vault write is
+// produced; the central runner emits the returned event after enforcing
+// the mission's declared event permission.
 
 import { z } from "zod";
-import type { MissionDefinition, MissionRunResult } from "../types";
+import type { MissionContext, MissionDefinition, MissionRunResult } from "../types";
 
 export const vitalsHeartbeatMission: MissionDefinition = {
   id: "vitals-heartbeat",
   title: "Vitals Heartbeat",
-  description:
-    "Emits a periodic vitals heartbeat event on the bus. Stub — real vitals payload lands in a later milestone.",
+  description: "Emits a periodic vitals heartbeat event on the bus.",
+  defaultCron: "*/15 * * * *",
   enabledByDefault: true,
   manualRunnable: true,
-  concurrency: "queue",
+  // Heartbeats are skip-on-overlap for now; queue semantics are deferred
+  // until a dedicated scheduler queue exists.
+  concurrency: "skip",
   outputKind: "heartbeat",
   optionsSchema: z.object({}).strict(),
   permissions: ["event-emit"],
-  async run(): Promise<MissionRunResult> {
+  async run(ctx: MissionContext): Promise<MissionRunResult> {
     return {
       status: "success",
-      message: "vitals-heartbeat stub — no real vitals payload yet",
+      message: "vitals heartbeat emitted",
       outputs: [
         {
           kind: "event",
           eventKind: "vitals.heartbeat",
-          payload: { stub: true },
+          payload: {
+            missionId: ctx.missionId,
+            runId: ctx.runId,
+            trigger: ctx.trigger,
+            timezone: ctx.timezone,
+            generatedAt: ctx.now.toISOString(),
+          },
         },
       ],
     };
