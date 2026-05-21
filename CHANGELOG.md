@@ -20,28 +20,51 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [Unreleased] — Phase 1C M4: mission runner, constrained writer, manual-run API
+## [Unreleased] — Goal 1: feature foundation
 
-Phase 1C M4 is merged on `main` after PR #9. This is not tagged/released yet; the latest published release remains `v0.2.12`.
+Next planned work: feature lifecycle registry, dynamic UI extension points, and a minimal enabled-state / feature-flag model. Keep Studio, Kanban, NotebookLM-style research, providers, media, and MCP as validation pilots until the shared platform primitives exist.
+
+## [0.3.0] — 2026-05-21 — Phase 1C: scheduler and missions runtime
+
+Phase 1C is now a complete runtime line: the M1–M4 config/registry/mission-runner spine is merged, and the final scheduled runtime slice fires enabled missions automatically through the same safe runner and vault/audit contracts as manual runs. The scheduler is disabled by default and must be explicitly enabled with `features.scheduler.enabled: true`.
 
 ### Added
 
-- Mission runner for manual mission execution: resolves effective mission plans, strict-parses each mission's own `optionsSchema`, builds `MissionContext`, enforces declared permissions before side effects, and returns neutral failure/skipped/success messages.
+- Mission runner for manual and scheduled mission execution: resolves effective mission plans, strict-parses each mission's own `optionsSchema`, builds `MissionContext`, enforces declared permissions before side effects, and returns neutral failure/skipped/success messages.
 - Constrained mission vault writer at `src/vault/constrainedWriter.ts`: URL-decodes path-like inputs, enforces the `00_Inbox/agentic-os/...` output allowlist, rejects traversal and symlink escapes before write-time side effects, applies collision policy, and writes atomically.
 - Manual mission-run API: `POST /api/missions/[id]/run` with origin gate, URL-decoded mission id, strict `{ options?: object }` envelope, builtin-mission registration, and single-object JSON responses.
+- Automatic in-process scheduled firing via `node-cron`, bootstrapped from `src/instrumentation.ts` in the Node.js runtime.
+- `GET /api/scheduler/status` for neutral runtime visibility: disabled/running/degraded state, scheduled mission ids, and diagnostics without exposing private config or mission output.
+- Useful built-in mission implementations: `daily-summary` writes a daily inbox summary draft, `weekly-review` writes a weekly review draft, and `vitals-heartbeat` emits a lightweight scheduler heartbeat event.
 - `mission.run` audit entries with counts/status/errorClass only; no mission options, note content, or vault paths.
 - Feature Integration Guide at `docs/FEATURE-INTEGRATION.md` for adding Studio, Kanban, NotebookLM, providers, media surfaces, or other large feature integrations without bypassing the config/registry/capability/permission/vault contracts.
+
+### Changed
+
+- Built-in mission concurrency now aligns with runtime behavior: `vitals-heartbeat` uses skip semantics until a dedicated queue exists.
+- The scheduler runtime uses a process-wide `globalThis` / `Symbol.for("agentic-os.mission-scheduler")` singleton so status APIs report the same runtime instance that instrumentation started.
+
+### Fixed
+
+- Optional scheduler bootstrap is fail-soft. Missing or invalid operator config no longer crashes `next dev` or Playwright `webServer` startup; the scheduler reports disabled/degraded diagnostics instead.
+- `cron.schedule()` registration failures are caught per mission, recorded as neutral `schedule-failed` diagnostics, and do not prevent other missions or the app server from starting.
 
 ### Security
 
 - Mission vault-note outputs can only persist through the constrained writer; missions themselves still return output objects and receive no write path.
 - Event outputs require `event-emit`; vault-note outputs require `vault-write`; capability invocation requires `external-api`.
-- Failed, skipped, and success runner/API messages are generic and do not echo raw mission text, paths, secrets, options, stacks, provider errors, or connector details.
+- Failed, skipped, and success runner/API/scheduler messages are generic and do not echo raw mission text, paths, secrets, options, stacks, provider errors, connector details, or private config.
+- Scheduled missions call `runMission({ trigger: "scheduled" })`, so automatic execution follows the same permission checks, constrained-writer chokepoint, and neutral audit path as manual runs.
 
 ### Tests
 
-- Vitest: **355 passing** after M4, including constrained writer traversal/symlink tests, mission runner permission/neutrality/audit tests, manual API tests, and mission audit tests.
-- Local gates before merge: `npm run typecheck`, `npm test`, `npm run build`, and `git diff --check` passed. GitHub Actions build passed on PR #9.
+- Vitest: **364 passing** after the Phase 1C runtime slice, including constrained writer traversal/symlink tests, mission runner permission/neutrality/audit tests, manual API tests, built-in mission tests, scheduler singleton/runtime tests, scheduler status API tests, and mission audit tests.
+- Local gates before PR #10 merge: `npm run typecheck`, `npm test`, `npm run build`, and `npm run e2e` (19/19) passed.
+- GitHub Actions PR #10 CI passed on `2a3df43`; main CI run `26237255986` passed after squash merge to `6dfb5bb`.
+
+### Migration
+
+- Existing configs without `features.scheduler.enabled: true` keep the scheduler disabled. To enable scheduled missions, add the scheduler feature block to `~/.agentic-os/config.yaml` and configure/enable the desired mission plans.
 
 ## [0.2.12] — 2026-05-18 — Track 2 UI/UX polish: shell, chat, control room, Hermes memory, usage, cwd
 

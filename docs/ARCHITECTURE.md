@@ -1,11 +1,11 @@
 # Architecture
 
-This document describes the target architecture. Phases 1A and 1B, and
-the Phase 1C M1–M4 integration spine (PR #8 + PR #9), are implemented.
-PR #10 implements the scheduled runtime slice: opt-in `node-cron`
-scheduled firing, useful built-in mission outputs, and scheduler status
-visibility. The scheduler remains disabled by default unless
-`features.scheduler.enabled: true` is set.
+This document describes the target architecture. Phases 1A, 1B, and
+Phase 1C are implemented. Phase 1C includes the M1–M4 integration spine
+(PR #8 + PR #9) plus PR #10's scheduled runtime slice: opt-in
+`node-cron` scheduled firing, useful built-in mission outputs, and
+scheduler status visibility. The scheduler remains disabled by default
+unless `features.scheduler.enabled: true` is set.
 
 ## Goals and non-goals
 
@@ -164,8 +164,8 @@ Audit:  mission.run events on the bus + JSONL log
 
 ### Phase 1C runtime slice — PR #10
 
-M1–M4 are merged on `main`. PR #10 implements the scheduled runtime
-slice that finishes Phase 1C:
+M1–M4 are merged on `main`; PR #10 adds the scheduled runtime slice that
+finishes Phase 1C:
 
 - **Scheduler runtime.** `src/features/scheduler/runtime.ts` resolves
   effective plans, skips disabled/invalid/no-cron missions neutrally,
