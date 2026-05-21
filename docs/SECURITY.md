@@ -83,10 +83,11 @@ Chats go through a separate transport-specific endpoint (`/api/agents/[name]/run
 - **Never in error messages shown to the user.** Stack traces from `http` transports are sanitized before bus emission.
 - Config files at `~/.agentic-os/` are not, and must not be, committed to the repo. The default `.gitignore` excludes them.
 
-## Phase 1C — integration spine (M1–M3)
+## Phase 1C — integration spine (M1–M4)
 
-The Phase 1C foundation adds config sections for connectors, MCP
-servers, and missions. New security contracts:
+The Phase 1C integration spine adds config sections for connectors, MCP
+servers, missions, manual mission execution, and constrained mission
+vault writes. New security contracts:
 
 - **`authRef`-only secret handling.** A connector config carries a
   secret *reference*, never the secret. `authRef` is a string matching
@@ -113,14 +114,27 @@ servers, and missions. New security contracts:
   lexical — relative path, no `..`, no backslash, path-segment-boundary
   match — and runs at config-parse time and in the effective-plan
   resolver.
-- **M4 constrained-writer expectation (not yet built).** Missions
-  return output objects; a central runner (M4) writes vault notes
-  through a *constrained writer*. That writer must, at write time,
-  re-resolve the target with `fs.realpath` and reject any path that
-  escapes an allowlisted root via a symlink — the same realpath-escape
-  pattern as the v0.2.12 cwd picker. The lexical M3 allowlist is
-  necessary but not sufficient alone; the realpath check is mandatory
-  before the first real mission write.
+- **Constrained mission writer.** Missions return output objects; the
+  central runner writes `vault-note` outputs through
+  `src/vault/constrainedWriter.ts` only. The writer URL-decodes
+  path-like inputs, rejects malformed escapes/NULs, enforces the fixed
+  `00_Inbox/agentic-os/...` allowlist, rejects unsafe filename hints,
+  checks the realpath-resolved vault/inbox/target ancestry before
+  `mkdir`, rejects symlink escapes, and writes via sibling tmp + rename.
+- **Mission permission gates.** Runner side effects are declared and
+  enforced before execution where possible: `vault-write` for vault-note
+  outputs, `event-emit` for bus events, and `external-api` for capability
+  invocation. Missions receive no raw filesystem write path.
+- **Manual mission-run API.** `POST /api/missions/[id]/run` is
+  origin-gated, URL-decodes the route id, accepts only a strict
+  `{ options?: object }` envelope, and delegates option validation to
+  the target mission's own strict `optionsSchema`.
+- **Neutral mission responses/audit.** Failed, skipped, and success
+  runner/API messages are generic. They do not echo mission-controlled
+  text, options, paths, secrets, stacks, connector details, or provider
+  errors. `mission.run` audit lines record IDs, trigger, status,
+  duration, output counts, and optional error class only — no note
+  content, mission options, or vault paths.
 
 ## Audit log
 
@@ -140,9 +154,11 @@ Each line is a single JSON object. Example records (real shape from `src/kernel/
 {"ts":"2026-05-17T05:32:11.123Z","id":"...","kind":"agent.action","agent":"hermes","actionId":"sessions","exitCode":0,"durationMs":1652,"stdoutChars":1480,"stderrChars":0,"status":"success"}
 ```
 
-**Kinds (current set):** `agent.invoke`, `agent.invoke.complete`, `agent.invoke.error`, `agent.action`, `vault.write`, `vault.update`. Future kinds reserved: `vault.promote`, `secrets.read`, `verb.run`, `mission.run`, `system.boot`, `system.shutdown`.
+**Kinds (current set):** `agent.invoke`, `agent.invoke.complete`, `agent.invoke.error`, `agent.action`, `vault.write`, `vault.update`, `mission.run`. Future kinds reserved: `vault.promote`, `secrets.read`, `verb.run`, `system.boot`, `system.shutdown`.
 
 **Note on `agent.action`:** neutral metadata only — `agent`, `actionId`, `exitCode`, `durationMs`, `stdoutChars`, `stderrChars`, `status`, optional `errorClass`. **Never carries raw stdout/stderr.** Lengths reflect cleaned text (post `stripAnsi` + `clampLines`). See the Control Room actions section above for the full hardening contract.
+
+**Note on `mission.run`:** neutral metadata only — `missionId`, `runId`, `trigger`, `status`, `durationMs`, `outputsPersisted`, `outputsEmitted`, optional `errorClass`. It intentionally omits vault paths, mission options, note content, mission messages/reasons, and stack traces.
 
 **Note on `agent.invoke.error`:** never carries a raw `message` field. Per the SEC-001 fix in v0.2.4, only neutral metadata is recorded — `errorClass` (one of `non-zero-exit` / `spawn-failed` / `timeout` / `killed` / `transport-error` / `unknown`), `exitCode`, `stderrSha8` (8-char correlation hash), `stderrChars` (length), and `transport`. The raw stderr/error text stays on the in-memory bus for live UI display but never reaches JSONL. This guards against agent CLIs that echo the prompt to stderr.
 

@@ -65,7 +65,7 @@ Split into three slices so each is small enough to review end-to-end. See ADR-00
 
 ### Phase 1B — Operator UX (port Julian's aesthetic, add the SELF layer)
 
-**Current status:** v0.2.11 released the Phase 1B baseline: Mission Control UI, top-row agent picker, per-agent Chat ⇄ Control Room mode, read-only Hermes actions, Memory UX, setup wizard, FTS5 search, and security hardening. v0.2.12 remains in Phase 1B as Track 2 UI/UX polish; Slices 1–6 plus the PR #5 polish bundle are merged on `main` (Sidebar, TopBar/shell controls, Mission Control rebuild, Chat surface declutter, Control Room polish, Hermes memory bars, context-fill chat usage strip, per-agent working-directory picker, and Memory tabs-as-chips/rendered-preview polish). Current active follow-on work is final release hygiene and operator sign-off before tagging `v0.2.12` or starting Phase 1C scheduler/missions.
+**Current status:** v0.2.12 released the Phase 1B Track 2 UI/UX polish line. Phase 1C M1–M4 is now merged on `main`: config/schema foundation, registry triad, capability router, mission planning, stub missions, mission runner, constrained writer, manual mission-run API, and mission audit entries. The remaining Phase 1C work is the actual scheduled firing/runtime (`node-cron`) plus real mission logic beyond the current stubs.
 
 **Goal:** The dashboard looks like Mission Control and the operator can do their daily SOP from it. Still no scheduler.
 
@@ -100,14 +100,18 @@ Split into three slices so each is small enough to review end-to-end. See ADR-00
 
 **Goal:** The OS does work for the operator on a schedule.
 
+**Current status:** M1–M4 are merged on `main` through PR #8 and PR #9. Manual mission runs are possible through `POST /api/missions/[id]/run`; vault-note outputs are persisted only through the constrained writer. The in-process scheduler loop (`node-cron`) is still not wired, so automatic scheduled firing remains future Phase 1C work.
+
 **In scope**
 
-- `node-cron` scheduler in-process. Disabled by default; opt-in via `scheduler.enabled: true` in config.
-- `missions/*.ts` registry. Each mission: `{ cron, run(ctx) }`.
-- Built-in missions: `daily-summary` (20:00 daily), `weekly-review` (Sundays 18:00), `vitals-heartbeat` (only fires events when state changes, not every tick).
-- Mission output writes to `00_Inbox/agentic-os/summaries/` and `reviews/` via the inbox-first writer.
+- Config/schema foundation for `features.scheduler`, connectors, MCP server references, permissions, and safe config defaults.
+- Registry triad: features, connectors, capabilities, plus a neutral-result capability router.
+- Mission registry + effective-plan resolver. Each mission definition declares defaults, strict options schema, permissions, output kind, and `run(ctx)`.
+- Built-in stub missions: `daily-summary` (20:00 daily), `weekly-review` (Sundays 18:00), `vitals-heartbeat` (only fires events when state changes, not every tick).
+- Manual mission runner + `POST /api/missions/[id]/run` API.
+- Mission output writes to `00_Inbox/agentic-os/summaries/`, `reviews/`, `missions/`, `studio/`, or `kanban/` via the constrained writer only.
 - Mission audit entries in the JSONL log (`kind: "mission.run"`).
-- One Playwright test that runs a mission and asserts the output file is created.
+- Remaining: `node-cron` scheduler in-process, disabled by default and opt-in via `scheduler.enabled: true` in config.
 
 **Exit criteria for 1C**
 

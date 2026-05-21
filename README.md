@@ -2,7 +2,7 @@
 
 A local-first mission control for your AI agents. Single dashboard. Pluggable brains. Your knowledge stays in your vault.
 
-> **Status: v0.2.12 — Track 2 UI/UX polish.** Runnable. Two built-in agents (Claude Code, Hermes) work end-to-end. Mission Control UI, sidebar command palette, per-agent Chat ⇄ Control Room toggle with Hermes Status/Sessions/Insights actions, Hermes memory bars, context-fill chat usage strip, per-agent working-directory picker, Memory page with tabs + filter chips + right-pane preview, vault inbox-first writes, SQLite FTS5 search, setup wizard, JSONL audit log with full prompt redaction (argv, filenames, stderr, AND action output). See [`CHANGELOG.md`](CHANGELOG.md) for version history.
+> **Status: v0.2.12 released; Phase 1C M4 merged on `main` for the next release.** Runnable. Two built-in agents (Claude Code, Hermes) work end-to-end. Mission Control UI, sidebar command palette, per-agent Chat ⇄ Control Room toggle with Hermes Status/Sessions/Insights actions, Hermes memory bars, context-fill chat usage strip, per-agent working-directory picker, Memory page with tabs + filter chips + right-pane preview, vault inbox-first writes, SQLite FTS5 search, setup wizard, JSONL audit log with full prompt redaction, and the Phase 1C M1–M4 mission execution spine (manual-run API + constrained writer). See [`CHANGELOG.md`](CHANGELOG.md) for version history.
 
 ---
 
@@ -14,6 +14,7 @@ One process on your laptop that gives you:
 - An **agent registry** so adding a new brain is one YAML/TS manifest, not a code refactor.
 - A **streaming chat surface** for every agent, plus a Control Room for manifest-declared read-only CLI verbs.
 - A **scheduler** for missions (overnight research, daily summary, weekly review).
+- A **mission execution spine** for safe manual mission runs today; scheduled firing remains a later Phase 1C runtime step.
 - A **knowledge layer** that respects your existing Obsidian vault rules: writes land in the inbox first, promotion is gated, frontmatter carries metadata, tags stay broad.
 
 What it is **not**: a cloud SaaS, a chatbot wrapper, or a fork of any closed source.
@@ -47,6 +48,7 @@ docs/
   AGENT-MANIFEST.md        how to add a brain (declarative schema + example)
   VAULT-CONTRACT.md        Obsidian integration rules
   SECURITY.md              localhost defaults, auth boundary, audit log
+  FEATURE-INTEGRATION.md   checklist/prompt for adding Studio, Kanban, providers, etc.
   INSTALL.md               prereqs + first-run steps
   decisions/               ADRs
 agents/builtin/            shipped agent manifests (claude-code, hermes)

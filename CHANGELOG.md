@@ -20,6 +20,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [Unreleased] — Phase 1C M4: mission runner, constrained writer, manual-run API
+
+Phase 1C M4 is merged on `main` after PR #9. This is not tagged/released yet; the latest published release remains `v0.2.12`.
+
+### Added
+
+- Mission runner for manual mission execution: resolves effective mission plans, strict-parses each mission's own `optionsSchema`, builds `MissionContext`, enforces declared permissions before side effects, and returns neutral failure/skipped/success messages.
+- Constrained mission vault writer at `src/vault/constrainedWriter.ts`: URL-decodes path-like inputs, enforces the `00_Inbox/agentic-os/...` output allowlist, rejects traversal and symlink escapes before write-time side effects, applies collision policy, and writes atomically.
+- Manual mission-run API: `POST /api/missions/[id]/run` with origin gate, URL-decoded mission id, strict `{ options?: object }` envelope, builtin-mission registration, and single-object JSON responses.
+- `mission.run` audit entries with counts/status/errorClass only; no mission options, note content, or vault paths.
+- Feature Integration Guide at `docs/FEATURE-INTEGRATION.md` for adding Studio, Kanban, NotebookLM, providers, media surfaces, or other large feature integrations without bypassing the config/registry/capability/permission/vault contracts.
+
+### Security
+
+- Mission vault-note outputs can only persist through the constrained writer; missions themselves still return output objects and receive no write path.
+- Event outputs require `event-emit`; vault-note outputs require `vault-write`; capability invocation requires `external-api`.
+- Failed, skipped, and success runner/API messages are generic and do not echo raw mission text, paths, secrets, options, stacks, provider errors, or connector details.
+
+### Tests
+
+- Vitest: **355 passing** after M4, including constrained writer traversal/symlink tests, mission runner permission/neutrality/audit tests, manual API tests, and mission audit tests.
+- Local gates before merge: `npm run typecheck`, `npm test`, `npm run build`, and `git diff --check` passed. GitHub Actions build passed on PR #9.
+
 ## [0.2.12] — 2026-05-18 — Track 2 UI/UX polish: shell, chat, control room, Hermes memory, usage, cwd
 
 Track 2 UI/UX polish is implemented across PR #2, PR #3, PR #4, PR #5, and PR #6. The line now includes shell/Mission Control polish, chat and Control Room polish, Hermes memory bars, a context-fill chat usage strip, per-agent working-directory persistence, and Memory page chip/preview polish. Backend changes are additive and local-only: Hermes memory usage is read-only, cwd persistence is origin-gated and path-validated, vault metadata is exposed through a read-only origin-gated endpoint, and no vault-write contract changes.

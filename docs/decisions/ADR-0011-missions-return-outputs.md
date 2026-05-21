@@ -42,8 +42,9 @@ path. The mission cannot write even if it wants to.
 
 Phase 1C M3 ships the mission type system, registry, effective-plan
 resolver, and three **stub** missions whose `run()` returns well-formed
-`MissionOutput[]` with no real logic. The runner + constrained writer
-land in M4.
+`MissionOutput[]` with no real logic. Phase 1C M4 implements the runner,
+constrained writer, manual-run API, and neutral mission audit/response
+contract. The remaining Phase 1C gap is automatic scheduled firing.
 
 ## Consequences
 
@@ -60,9 +61,9 @@ land in M4.
   missions are batch summarisers, not streams.
 
 **Neutral**
-- The `vault.note.write` capability exists in the `CapabilityId` enum
-  but has no provider until M4; it must route through the same
-  constrained writer — never a second vault-write path.
+- The `vault.note.write` capability exists in the `CapabilityId` enum;
+  mission vault-note persistence routes through the constrained writer —
+  never a second vault-write path.
 
 ## Alternatives considered
 
