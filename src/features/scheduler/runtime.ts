@@ -105,10 +105,22 @@ export function createMissionScheduler(
 
     if (!options.registry) ensureBuiltinMissions();
     const registry = options.registry ?? missionRegistry;
-    const config = options.config ?? (await loadConfig());
-    const schedulerConfig = config.features.scheduler;
 
     snapshot = { status: "idle", scheduled: [], diagnostics: [] };
+
+    let config: AppConfig;
+    try {
+      config = options.config ?? (await loadConfig());
+    } catch {
+      snapshot.status = "disabled";
+      snapshot.diagnostics.push(
+        diagnostic("config-load-failed", "scheduler disabled because config could not be loaded"),
+      );
+      emitSchedulerEvent("scheduler.disabled", { reason: "config-load-failed" });
+      return cloneSnapshot(snapshot);
+    }
+
+    const schedulerConfig = config.features.scheduler;
 
     if (!schedulerConfig.enabled) {
       snapshot.status = "disabled";

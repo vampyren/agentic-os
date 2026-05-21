@@ -87,6 +87,36 @@ describe("mission scheduler runtime", () => {
     expect(runMission).not.toHaveBeenCalled();
   });
 
+  it("reports a disabled scheduler instead of crashing when config cannot be loaded", async () => {
+    const cron = fakeCron();
+    const runMission = vi.fn(async () => successResult);
+    const previousConfigPath = process.env.AGENTIC_OS_CONFIG;
+    process.env.AGENTIC_OS_CONFIG = "/tmp/agentic-os-missing-config-for-scheduler-test.yaml";
+
+    try {
+      const scheduler = createMissionScheduler({
+        registry: registryWith(mission()),
+        cron: cron.adapter,
+        runMission,
+      });
+
+      const snapshot = await scheduler.start();
+
+      expect(snapshot.status).toBe("disabled");
+      expect(cron.adapter.schedule).not.toHaveBeenCalled();
+      expect(runMission).not.toHaveBeenCalled();
+      expect(snapshot.diagnostics).toContainEqual(
+        expect.objectContaining({ code: "config-load-failed" }),
+      );
+    } finally {
+      if (previousConfigPath === undefined) {
+        delete process.env.AGENTIC_OS_CONFIG;
+      } else {
+        process.env.AGENTIC_OS_CONFIG = previousConfigPath;
+      }
+    }
+  });
+
   it("schedules enabled mission plans and fires them through runMission as scheduled runs", async () => {
     const cron = fakeCron();
     const runMission = vi.fn(async () => successResult);
