@@ -185,6 +185,46 @@ describe("mission scheduler runtime", () => {
     );
   });
 
+  it("continues scheduling other missions when one registration throws", async () => {
+    const scheduled: Scheduled[] = [];
+    const cron = {
+      validate: vi.fn(() => true),
+      schedule: vi.fn((expression: string, task: () => void | Promise<void>, options?: Scheduled["options"]) => {
+        if (options?.name === "agentic-os:m") throw new Error("schedule failed");
+        const handle = { start: vi.fn(), stop: vi.fn(), destroy: vi.fn() };
+        scheduled.push({ expression, task, options, handle });
+        return handle;
+      }),
+    };
+    const runMission = vi.fn(async () => successResult);
+    const config = appConfigSchema.parse({
+      vault: { root: "/tmp/agentic-os-test-vault" },
+      features: { scheduler: { enabled: true } },
+    });
+
+    const scheduler = createMissionScheduler({
+      config,
+      registry: registryWith(
+        mission({ id: "m", defaultCron: "*/5 * * * *" }),
+        mission({ id: "n", defaultCron: "*/10 * * * *" }),
+      ),
+      cron,
+      runMission,
+    });
+
+    const snapshot = await scheduler.start();
+
+    expect(snapshot.status).toBe("running");
+    expect(snapshot.diagnostics).toContainEqual(
+      expect.objectContaining({ code: "schedule-failed", missionId: "m" }),
+    );
+    expect(snapshot.scheduled).toEqual([
+      { missionId: "n", cron: "*/10 * * * *", timezone: "UTC" },
+    ]);
+    expect(scheduled).toHaveLength(1);
+    expect(scheduled[0]!.options).toMatchObject({ name: "agentic-os:n" });
+  });
+
   it("destroys scheduled tasks when stopped", async () => {
     const cron = fakeCron();
     const runMission = vi.fn(async () => successResult);

@@ -14,7 +14,9 @@ export const vitalsHeartbeatMission: MissionDefinition = {
   defaultCron: "*/15 * * * *",
   enabledByDefault: true,
   manualRunnable: true,
-  concurrency: "queue",
+  // Heartbeats are skip-on-overlap for now; queue semantics are deferred
+  // until a dedicated scheduler queue exists.
+  concurrency: "skip",
   outputKind: "heartbeat",
   optionsSchema: z.object({}).strict(),
   permissions: ["event-emit"],

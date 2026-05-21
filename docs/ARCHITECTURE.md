@@ -2,10 +2,10 @@
 
 This document describes the target architecture. Phases 1A and 1B, and
 the Phase 1C M1–M4 integration spine (PR #8 + PR #9), are implemented.
-The local working tree now adds the final Phase 1C runtime slice:
-automatic scheduled firing through `node-cron`, useful built-in mission
-outputs, and scheduler status visibility. This slice is not yet committed,
-tagged, or released.
+PR #10 implements the scheduled runtime slice: opt-in `node-cron`
+scheduled firing, useful built-in mission outputs, and scheduler status
+visibility. The scheduler remains disabled by default unless
+`features.scheduler.enabled: true` is set.
 
 ## Goals and non-goals
 
@@ -162,10 +162,10 @@ Everything from 1B, plus a mission registry/planner/runner, constrained mission 
 Audit:  mission.run events on the bus + JSONL log
 ```
 
-### Phase 1C runtime slice — local working tree
+### Phase 1C runtime slice — PR #10
 
-M1–M4 are merged on `main`. The local working tree now adds the runtime
-slice that finishes Phase 1C, pending commit/release:
+M1–M4 are merged on `main`. PR #10 implements the scheduled runtime
+slice that finishes Phase 1C:
 
 - **Scheduler runtime.** `src/features/scheduler/runtime.ts` resolves
   effective plans, skips disabled/invalid/no-cron missions neutrally,
@@ -228,10 +228,10 @@ interface Transport {
 
 ### 4. Scheduler (Phase 1C)
 
-> **Status (local Phase 1C runtime slice):** config schema,
+> **Status (Phase 1C scheduled runtime):** config schema,
 > registry triad, mission planning, mission runner, constrained writer,
 > manual-run API, `node-cron` scheduled firing, scheduler status API, and
-> `mission.run` audit entries are implemented locally. The mission shape
+> `mission.run` audit entries are implemented by PR #10. The mission shape
 > is a `MissionDefinition` whose `run()` returns `MissionOutput[]` for the
 > central runner to persist (ADR-0011) — not a self-writing `{ cron, run }`
 > handler.

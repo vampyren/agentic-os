@@ -159,34 +159,42 @@ export function createMissionScheduler(
         continue;
       }
 
-      const handle = cron.schedule(
-        plan.cron,
-        async () => {
-          emitSchedulerEvent("scheduler.mission.started", { missionId: plan.id });
-          try {
-            const result = await runMission({
-              missionId: plan.id,
-              trigger: "scheduled",
-              rawOptions: {},
-            });
-            emitSchedulerEvent("scheduler.mission.completed", {
-              missionId: plan.id,
-              status: result.status,
-            });
-          } catch {
-            emitSchedulerEvent("scheduler.mission.completed", {
-              missionId: plan.id,
-              status: "failed",
-              errorClass: "internal-error",
-            });
-          }
-        },
-        {
-          timezone: plan.timezone,
-          name: `agentic-os:${plan.id}`,
-          noOverlap: true,
-        },
-      );
+      let handle: ScheduledTaskHandle;
+      try {
+        handle = cron.schedule(
+          plan.cron,
+          async () => {
+            emitSchedulerEvent("scheduler.mission.started", { missionId: plan.id });
+            try {
+              const result = await runMission({
+                missionId: plan.id,
+                trigger: "scheduled",
+                rawOptions: {},
+              });
+              emitSchedulerEvent("scheduler.mission.completed", {
+                missionId: plan.id,
+                status: result.status,
+              });
+            } catch {
+              emitSchedulerEvent("scheduler.mission.completed", {
+                missionId: plan.id,
+                status: "failed",
+                errorClass: "internal-error",
+              });
+            }
+          },
+          {
+            timezone: plan.timezone,
+            name: `agentic-os:${plan.id}`,
+            noOverlap: true,
+          },
+        );
+      } catch {
+        snapshot.diagnostics.push(
+          diagnostic("schedule-failed", "scheduler could not register mission", plan.id),
+        );
+        continue;
+      }
 
       tasks.push(handle);
       snapshot.scheduled.push({

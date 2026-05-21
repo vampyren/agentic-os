@@ -65,7 +65,7 @@ Split into three slices so each is small enough to review end-to-end. See ADR-00
 
 ### Phase 1B — Operator UX (port Julian's aesthetic, add the SELF layer)
 
-**Current status:** v0.2.12 released the Phase 1B Track 2 UI/UX polish line. Phase 1C M1–M4 is merged on `main`, and the local working tree now contains the final Phase 1C runtime slice: `node-cron` scheduled firing, useful built-in mission drafts/events, and `/api/scheduler/status` visibility. This slice is not yet committed, tagged, or released.
+**Current status:** v0.2.12 released the Phase 1B Track 2 UI/UX polish line. Phase 1C M1–M4 is merged on `main`, and PR #10 implements the scheduled runtime slice: opt-in `node-cron` scheduled firing, useful built-in mission drafts/events, and `/api/scheduler/status` visibility. The scheduler remains disabled by default unless `features.scheduler.enabled: true` is set.
 
 **Goal:** The dashboard looks like Mission Control and the operator can do their daily SOP from it.
 
@@ -100,7 +100,7 @@ Split into three slices so each is small enough to review end-to-end. See ADR-00
 
 **Goal:** The OS does work for the operator on a schedule.
 
-**Current status:** M1–M4 are merged on `main` through PR #8 and PR #9. The local working tree now finishes the Phase 1C runtime slice: `src/instrumentation.ts` starts an opt-in in-process `node-cron` scheduler, enabled mission plans fire through the existing `runMission({ trigger: "scheduled" })` path, built-in missions now return useful summary/review drafts or heartbeat events instead of placeholder stubs, and `GET /api/scheduler/status` exposes a neutral scheduler snapshot. This work is not yet committed, tagged, or released.
+**Current status:** M1–M4 are merged on `main` through PR #8 and PR #9. PR #10 implements the Phase 1C scheduled runtime slice: `src/instrumentation.ts` starts an opt-in in-process `node-cron` scheduler, enabled mission plans fire through the existing `runMission({ trigger: "scheduled" })` path, built-in missions return useful summary/review drafts or heartbeat events, and `GET /api/scheduler/status` exposes a neutral scheduler snapshot. The scheduler remains disabled by default unless `features.scheduler.enabled: true` is set.
 
 **In scope**
 
