@@ -3,16 +3,15 @@ import Sidebar from "./Sidebar";
 import TopBar from "./TopBar";
 import CommandPalette from "./CommandPalette";
 import { FeaturesProvider } from "@/app/_components/FeaturesProvider";
-import { ensureFeaturesRegistered } from "@/kernel/features/registered";
-import { resolveAllFeatures } from "@/kernel/features/resolver";
-import { toUiSafeFeature } from "@/kernel/features/projection";
+import { resolveShellFeatures } from "@/app/_lib/shellFeatures";
 
 // The shell resolves the feature registry once per request (server
-// side, same path as GET /api/features) and hands the UI-safe list to
-// the client shell components via FeaturesProvider — see M2 spec §5.
+// side) and hands the UI-safe list to the client shell components via
+// FeaturesProvider. resolveShellFeatures never throws — a missing or
+// unreadable config degrades to no feature surfaces, not a 500 on
+// every page.
 export default async function Shell({ children }: { children: ReactNode }) {
-  ensureFeaturesRegistered();
-  const features = (await resolveAllFeatures()).map(toUiSafeFeature);
+  const features = await resolveShellFeatures();
 
   return (
     <FeaturesProvider value={features}>
