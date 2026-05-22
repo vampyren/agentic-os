@@ -175,6 +175,33 @@ describe("runConnectorTest", () => {
     expect(audit).not.toContain("sk-must-not-leak");
   });
 
+  it("a raw family `message` carrying a secret / private path is never surfaced", async () => {
+    const LEAKY = "leaked sk-SECRET and /home/operator/private.json";
+    const fam = family({
+      testConnection: async () =>
+        validation({ status: "invalid", errorCode: "auth-failed", message: LEAKY }),
+    });
+    const result = await runConnectorTest("my-c", {
+      ledger, registry: registryWith(fam), config: configWith(),
+    });
+    // Validation: errorCode survives (normalized), message is regenerated.
+    expect(result.status).toBe("invalid");
+    expect(result.errorCode).toBe("auth-failed");
+    expect(JSON.stringify(result)).not.toContain("sk-SECRET");
+    expect(JSON.stringify(result)).not.toContain("/home/operator/private.json");
+
+    // The failed Run still carries the normalized errorCode.
+    const run = ledger.listRuns()[0]!;
+    expect(run.status).toBe("failed");
+    expect(run.errorCode).toBe("auth-failed");
+
+    // The audit line does not carry the leaked strings either.
+    const audit = await auditText();
+    expect(audit).toContain("connector.test");
+    expect(audit).not.toContain("sk-SECRET");
+    expect(audit).not.toContain("/home/operator/private.json");
+  });
+
   it("a ledger failure does not break the test", async () => {
     db.close(); // the injected ledger is now backed by a closed DB
     const fam = family({ testConnection: async () => validation({ status: "valid" }) });

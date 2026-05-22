@@ -32,6 +32,36 @@ function normalizeErrorCode(code: string | undefined): ConnectorErrorCode {
     : "unknown";
 }
 
+/**
+ * The neutral `message` for a connector-test result. NEVER passes through a
+ * family-provided string — that could carry a secret, a private path, raw
+ * stderr, or a provider response. The message is generated from the
+ * (already-normalized) status + errorCode, both of which are values from
+ * closed neutral unions.
+ */
+function neutralMessage(
+  status: ConnectorValidation["status"],
+  errorCode: ConnectorErrorCode | undefined,
+): string {
+  switch (status) {
+    case "valid":
+      return "connector test passed";
+    case "invalid":
+      return errorCode
+        ? `connector test reported ${errorCode}`
+        : "connector test reported a failure";
+    case "unreachable":
+      return "connector unreachable";
+    case "misconfigured":
+      return "connector misconfigured";
+    case "unknown":
+    default:
+      return errorCode
+        ? `connector test inconclusive (${errorCode})`
+        : "connector test inconclusive";
+  }
+}
+
 export interface RunConnectorTestDeps {
   ledger?: RunLedger | null;
   registry?: ConnectorRegistry;
@@ -148,12 +178,15 @@ export async function runConnectorTest(
 
   try {
     const raw = await family.testConnection(build.instance.ctx, { runId });
+    const errorCode =
+      raw.status === "valid" ? undefined : normalizeErrorCode(raw.errorCode);
+    // raw.message is NOT passed through — a connector could carry a key, a
+    // private path, raw stderr, or a provider response. The message is
+    // regenerated from the sanitized status + errorCode (Jarvis fix).
     return finish({
       status: raw.status,
-      ...(raw.status === "valid"
-        ? {}
-        : { errorCode: normalizeErrorCode(raw.errorCode) }),
-      ...(raw.message !== undefined ? { message: raw.message } : {}),
+      ...(errorCode ? { errorCode } : {}),
+      message: neutralMessage(raw.status, errorCode),
       testedAt: raw.testedAt ?? new Date().toISOString(),
       durationMs: raw.durationMs ?? Date.now() - startedAt,
     });
