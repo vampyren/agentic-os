@@ -158,6 +158,31 @@ describe("RunLedger — runs", () => {
     expect(ledger.getRun(childDone.id)?.cancelledBy).toBeNull();
   });
 
+  it("cancelRun cascades through multiple levels (parent -> child -> grandchild)", () => {
+    const parent = makeRunningRun();
+    const child = ledger.createRun({
+      kind: "capability-invoke", featureId: "scheduler",
+      trigger: "orchestrator", onRestart: "mark-interrupted",
+      parentRunId: parent.id,
+    });
+    const grandchild = ledger.createRun({
+      kind: "capability-invoke", featureId: "scheduler",
+      trigger: "orchestrator", onRestart: "mark-interrupted",
+      parentRunId: child.id,
+    });
+
+    ledger.cancelRun(parent.id, "user");
+
+    // Every level is cancelled; only the root records the actor, the cascade
+    // descendants at every depth record "parent-run".
+    expect(ledger.getRun(parent.id)?.status).toBe("cancelled");
+    expect(ledger.getRun(parent.id)?.cancelledBy).toBe("user");
+    expect(ledger.getRun(child.id)?.status).toBe("cancelled");
+    expect(ledger.getRun(child.id)?.cancelledBy).toBe("parent-run");
+    expect(ledger.getRun(grandchild.id)?.status).toBe("cancelled");
+    expect(ledger.getRun(grandchild.id)?.cancelledBy).toBe("parent-run");
+  });
+
   it("listRuns filters by status and featureId, newest-first", () => {
     const a = ledger.createRun({
       kind: "manual-mission", featureId: "scheduler",
