@@ -98,7 +98,8 @@ CREATE TABLE IF NOT EXISTS external_refs (
   created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_external_refs_run_id ON external_refs(run_id);
-CREATE INDEX IF NOT EXISTS idx_external_refs_lookup ON external_refs(system, ref_id);
+CREATE INDEX IF NOT EXISTS idx_external_refs_lookup
+  ON external_refs(system, ref_kind, ref_id, scope);
 `;
 
 /** The ordered migration list. Append-only — never edit a shipped entry. */

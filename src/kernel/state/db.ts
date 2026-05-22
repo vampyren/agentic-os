@@ -49,13 +49,28 @@ export async function getStateDb(): Promise<Database.Database> {
 
   if (!G.__agenticStateDbInit) {
     G.__agenticStateDbInit = (async () => {
-      mkdirSync(path.dirname(dbPath), { recursive: true });
-      const db = new Database(dbPath);
-      db.pragma("journal_mode = WAL");
-      db.pragma("foreign_keys = ON");
-      lastMigration = await runMigrations(db, { dbPath });
-      G.__agenticStateDb = { db, dbPath };
-      return db;
+      let db: Database.Database | undefined;
+      try {
+        mkdirSync(path.dirname(dbPath), { recursive: true });
+        db = new Database(dbPath);
+        db.pragma("journal_mode = WAL");
+        db.pragma("foreign_keys = ON");
+        lastMigration = await runMigrations(db, { dbPath });
+        G.__agenticStateDb = { db, dbPath };
+        return db;
+      } catch (err) {
+        // Init failed — forward guard, corrupt DB, or a migration error.
+        // Drop the half-open handle and clear the singleton so a later
+        // getStateDb() (e.g. after the operator repoints AGENTIC_OS_STATE_DB)
+        // retries cleanly instead of being stuck on the rejected promise.
+        if (db) {
+          try { db.close(); } catch { /* ignore */ }
+        }
+        G.__agenticStateDb = undefined;
+        G.__agenticStateDbInit = undefined;
+        lastMigration = null;
+        throw err;
+      }
     })();
   }
   return G.__agenticStateDbInit;

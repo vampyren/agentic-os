@@ -186,4 +186,32 @@ describe("state DB migrations", () => {
     // Same handle on a second call.
     expect(await getStateDb()).toBe(db);
   });
+
+  it("getStateDb recovers in the same process after a failed init", async () => {
+    // DB A — future-stamped so the forward guard rejects init.
+    const futureDb = path.join(tmpDir, "future.db");
+    {
+      const seed = new Database(futureDb);
+      seed.pragma("journal_mode = WAL");
+      seed.exec(
+        "CREATE TABLE IF NOT EXISTS _meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)",
+      );
+      seed
+        .prepare("INSERT INTO _meta (key, value) VALUES ('stateDbVersion', ?)")
+        .run(String(LATEST_STATE_DB_VERSION + 5));
+      seed.close();
+    }
+    process.env.AGENTIC_OS_STATE_DB = futureDb;
+    await expect(getStateDb()).rejects.toThrow(/version/i);
+
+    // The failed init must not leave a poisoned singleton — repointing at a
+    // fresh DB and retrying succeeds in the same process.
+    const freshDb = path.join(tmpDir, "fresh.db");
+    process.env.AGENTIC_OS_STATE_DB = freshDb;
+    const db = await getStateDb();
+    expect(tableNames(db)).toEqual(
+      expect.arrayContaining(["runs", "run_steps", "external_refs"]),
+    );
+    expect(readVersion(db)).toBe(LATEST_STATE_DB_VERSION);
+  });
 });
