@@ -1,38 +1,49 @@
 import { describe, expect, it } from "vitest";
+import { z } from "zod";
 import { __TEST__ } from "../src/kernel/connectors/registry";
-import type { ConnectorDefinition } from "../src/kernel/connectors/types";
+import type {
+  ConnectorFamilyDefinition,
+  ConnectorTypeFamily,
+} from "../src/kernel/connectors/types";
 
-function fakeConnector(overrides: Partial<ConnectorDefinition> = {}): ConnectorDefinition {
+function fakeFamily(
+  id: ConnectorTypeFamily,
+  overrides: Partial<ConnectorFamilyDefinition> = {},
+): ConnectorFamilyDefinition {
   return {
-    id: "fake-connector",
-    title: "Fake Connector",
-    kind: "ai-provider",
-    transport: "http",
-    capabilities: ["chat.generate"],
-    sideEffects: ["external-api"],
-    trust: "first-party",
+    id,
+    title: `Fake ${id}`,
+    kind: "managed-agent",
+    transport: "subprocess",
+    capabilities: ["agent.run"],
+    sideEffects: ["local-process"],
+    defaultTrust: "first-party",
+    settingsSchema: z.unknown(),
+    defaultSettings: {},
+    auth: { required: false, supportedRefs: ["env"] },
+    invoke: async () => ({ status: "success" }),
     ...overrides,
   };
 }
 
 describe("connectorRegistry", () => {
-  it("registers, gets, and lists a connector", () => {
+  it("registers, gets, and lists a connector family", () => {
     const reg = __TEST__.newRegistry();
-    const conn = fakeConnector({ id: "alpha" });
-    reg.register(conn);
-    expect(reg.get("alpha")).toBe(conn);
-    expect(reg.list()).toEqual([conn]);
+    const fam = fakeFamily("cli-acp-agent");
+    reg.register(fam);
+    expect(reg.get("cli-acp-agent")).toBe(fam);
+    expect(reg.list()).toEqual([fam]);
   });
 
-  it("returns undefined for an unknown connector id", () => {
+  it("returns undefined for an unregistered family id", () => {
     const reg = __TEST__.newRegistry();
-    expect(reg.get("ghost")).toBeUndefined();
+    expect(reg.get("openai-compatible-llm")).toBeUndefined();
   });
 
-  it("throws on a duplicate connector id", () => {
+  it("throws on a duplicate family id", () => {
     const reg = __TEST__.newRegistry();
-    reg.register(fakeConnector({ id: "dup" }));
-    expect(() => reg.register(fakeConnector({ id: "dup" }))).toThrow(
+    reg.register(fakeFamily("cli-acp-agent"));
+    expect(() => reg.register(fakeFamily("cli-acp-agent"))).toThrow(
       /already registered/i,
     );
   });
@@ -40,15 +51,18 @@ describe("connectorRegistry", () => {
   it("__TEST__.newRegistry() yields isolated instances", () => {
     const a = __TEST__.newRegistry();
     const b = __TEST__.newRegistry();
-    a.register(fakeConnector({ id: "only-in-a" }));
+    a.register(fakeFamily("cli-acp-agent"));
     expect(a.list()).toHaveLength(1);
     expect(b.list()).toHaveLength(0);
   });
 
-  it("lists multiple connectors in registration order", () => {
+  it("lists multiple families in registration order", () => {
     const reg = __TEST__.newRegistry();
-    reg.register(fakeConnector({ id: "one" }));
-    reg.register(fakeConnector({ id: "two" }));
-    expect(reg.list().map((c) => c.id)).toEqual(["one", "two"]);
+    reg.register(fakeFamily("cli-acp-agent"));
+    reg.register(fakeFamily("openai-compatible-llm"));
+    expect(reg.list().map((f) => f.id)).toEqual([
+      "cli-acp-agent",
+      "openai-compatible-llm",
+    ]);
   });
 });

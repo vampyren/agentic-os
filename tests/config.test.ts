@@ -264,19 +264,22 @@ describe("loadConfig — connectors / mcpServers schema (M2)", () => {
       `connectors:\n` +
       `  gemini:\n` +
       `    enabled: true\n` +
+      `    typeFamily: openai-compatible-llm\n` +
       `    authRef: env:GEMINI_API_KEY\n` +
-      `    trust: community\n`,
+      `    trustOverride: community\n`,
     );
     const cfg = await loadConfig();
     expect(cfg.connectors.gemini?.enabled).toBe(true);
+    expect(cfg.connectors.gemini?.typeFamily).toBe("openai-compatible-llm");
     expect(cfg.connectors.gemini?.authRef).toBe("env:GEMINI_API_KEY");
-    expect(cfg.connectors.gemini?.trust).toBe("community");
+    expect(cfg.connectors.gemini?.trustOverride).toBe("community");
   });
 
   it("defaults connector.enabled to false when omitted", async () => {
     await writeConfig(
       `vault:\n  root: ${tmpDir}\n` +
-      `connectors:\n  gemini:\n    authRef: env:GEMINI_API_KEY\n`,
+      `connectors:\n  gemini:\n    typeFamily: openai-compatible-llm\n` +
+      `    authRef: env:GEMINI_API_KEY\n`,
     );
     const cfg = await loadConfig();
     expect(cfg.connectors.gemini?.enabled).toBe(false);
@@ -285,7 +288,8 @@ describe("loadConfig — connectors / mcpServers schema (M2)", () => {
   it("rejects a connector entry with an unknown key (strict)", async () => {
     await writeConfig(
       `vault:\n  root: ${tmpDir}\n` +
-      `connectors:\n  gemini:\n    enabled: true\n    bogusKey: 1\n`,
+      `connectors:\n  gemini:\n    enabled: true\n` +
+      `    typeFamily: openai-compatible-llm\n    bogusKey: 1\n`,
     );
     await expect(loadConfig()).rejects.toThrow(/failed validation/i);
   });
@@ -297,6 +301,7 @@ describe("loadConfig — connectors / mcpServers schema (M2)", () => {
     await writeConfig(
       `vault:\n  root: ${tmpDir}\n` +
       `connectors:\n  gemini:\n    enabled: true\n` +
+      `    typeFamily: openai-compatible-llm\n` +
       `    config:\n      apiKey: sk-raw-secret\n`,
     );
     await expect(loadConfig()).rejects.toThrow(/failed validation/i);
@@ -305,15 +310,25 @@ describe("loadConfig — connectors / mcpServers schema (M2)", () => {
   it("rejects a malformed authRef (raw secret, not env:NAME / none)", async () => {
     await writeConfig(
       `vault:\n  root: ${tmpDir}\n` +
-      `connectors:\n  gemini:\n    enabled: true\n    authRef: just-a-raw-secret\n`,
+      `connectors:\n  gemini:\n    enabled: true\n` +
+      `    typeFamily: openai-compatible-llm\n    authRef: just-a-raw-secret\n`,
     );
     await expect(loadConfig()).rejects.toThrow(/failed validation/i);
   });
 
-  it("rejects an invalid trust value", async () => {
+  it("rejects an invalid trustOverride value", async () => {
     await writeConfig(
       `vault:\n  root: ${tmpDir}\n` +
-      `connectors:\n  gemini:\n    enabled: true\n    trust: super-trusted\n`,
+      `connectors:\n  gemini:\n    enabled: true\n` +
+      `    typeFamily: openai-compatible-llm\n    trustOverride: super-trusted\n`,
+    );
+    await expect(loadConfig()).rejects.toThrow(/failed validation/i);
+  });
+
+  it("rejects a connector with an unknown typeFamily", async () => {
+    await writeConfig(
+      `vault:\n  root: ${tmpDir}\n` +
+      `connectors:\n  gemini:\n    enabled: true\n    typeFamily: not-a-family\n`,
     );
     await expect(loadConfig()).rejects.toThrow(/failed validation/i);
   });
@@ -350,7 +365,8 @@ describe("loadConfig — connectors / mcpServers schema (M2)", () => {
   it("accepts a connector referencing a declared mcpServer", async () => {
     await writeConfig(
       `vault:\n  root: ${tmpDir}\n` +
-      `connectors:\n  notebooklm:\n    enabled: false\n    mcpServer: notebooklm-local\n` +
+      `connectors:\n  notebooklm:\n    enabled: false\n` +
+      `    typeFamily: cli-acp-agent\n    mcpServer: notebooklm-local\n` +
       `mcpServers:\n  notebooklm-local:\n    enabled: false\n    command: notebooklm-mcp\n`,
     );
     const cfg = await loadConfig();
@@ -360,7 +376,8 @@ describe("loadConfig — connectors / mcpServers schema (M2)", () => {
   it("rejects a connector referencing an undefined mcpServer (superRefine)", async () => {
     await writeConfig(
       `vault:\n  root: ${tmpDir}\n` +
-      `connectors:\n  notebooklm:\n    enabled: false\n    mcpServer: ghost-server\n`,
+      `connectors:\n  notebooklm:\n    enabled: false\n` +
+      `    typeFamily: cli-acp-agent\n    mcpServer: ghost-server\n`,
     );
     await expect(loadConfig()).rejects.toThrow(/failed validation/i);
   });

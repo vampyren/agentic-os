@@ -238,4 +238,59 @@ export async function auditMissionRun(input: {
   });
 }
 
+/**
+ * Audit one connector test (M4a). Neutral metadata only — the connector
+ * INSTANCE id, run id, status, errorCode, duration. NEVER the secret, the
+ * authRef variable name, raw provider output, or stderr. Self-contained: a
+ * write failure is logged neutrally and swallowed, so callers may fire it
+ * without awaiting.
+ */
+export async function auditConnectorTest(input: {
+  connectorId: string;
+  runId?: string;
+  status: string;
+  errorCode?: string;
+  durationMs?: number;
+}): Promise<void> {
+  try {
+    await writeLine({
+      kind: "connector.test",
+      connectorId: input.connectorId,
+      ...(input.runId ? { runId: input.runId } : {}),
+      status: input.status,
+      ...(input.errorCode ? { errorCode: input.errorCode } : {}),
+      ...(input.durationMs !== undefined ? { durationMs: input.durationMs } : {}),
+    });
+  } catch {
+    console.error("[audit] could not write connector.test line");
+  }
+}
+
+/**
+ * Audit one capability invocation through the router (M4a). Neutral metadata
+ * only — capability id, connector INSTANCE id, run id, status, sanitized
+ * errorCode. NEVER raw input, raw provider output, or a secret. Self-contained
+ * (a write failure is logged neutrally and swallowed).
+ */
+export async function auditCapabilityInvoke(input: {
+  capabilityId: string;
+  connectorId: string;
+  runId?: string;
+  status: string;
+  errorCode?: string;
+}): Promise<void> {
+  try {
+    await writeLine({
+      kind: "capability.invoke",
+      capabilityId: input.capabilityId,
+      connectorId: input.connectorId,
+      ...(input.runId ? { runId: input.runId } : {}),
+      status: input.status,
+      ...(input.errorCode ? { errorCode: input.errorCode } : {}),
+    });
+  } catch {
+    console.error("[audit] could not write capability.invoke line");
+  }
+}
+
 export const AUDIT_TEST_HELPERS = { auditDir, todayUtc };

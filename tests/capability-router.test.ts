@@ -1,240 +1,253 @@
-import { describe, expect, it } from "vitest";
-import { createCapabilityRouter } from "../src/kernel/capabilities/router";
-import { __TEST__ as connectorTest } from "../src/kernel/connectors/registry";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { promises as fs } from "node:fs";
+import path from "node:path";
+import os from "node:os";
+import { z } from "zod";
+import Database from "better-sqlite3";
+import { runMigrations } from "../src/kernel/state/migrations";
+import { RunLedger } from "../src/kernel/state/runLedger";
+import { __TEST__ as registryTest } from "../src/kernel/connectors/registry";
+import type { ConnectorRegistry } from "../src/kernel/connectors/registry";
 import type {
-  ConnectorDefinition,
+  ConnectorFamilyDefinition,
   ConnectorResult,
+  ConnectorTypeFamily,
 } from "../src/kernel/connectors/types";
-import type { CapabilityId } from "../src/kernel/capabilities/types";
 import type { ConnectorsConfig } from "../src/kernel/connectors/schema";
+import { createCapabilityRouter } from "../src/kernel/capabilities/router";
 
-function fakeConnector(overrides: Partial<ConnectorDefinition> = {}): ConnectorDefinition {
+// The router is tested against an injected tmp-DB RunLedger and an isolated
+// audit dir — never the real ~/.agentic-os.
+
+let tmpDir: string;
+let db: Database.Database;
+let ledger: RunLedger;
+let originalAuditEnv: string | undefined;
+
+beforeEach(async () => {
+  tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "cap-router-"));
+  originalAuditEnv = process.env.AGENTIC_OS_AUDIT_DIR;
+  process.env.AGENTIC_OS_AUDIT_DIR = path.join(tmpDir, "audit");
+  await fs.mkdir(process.env.AGENTIC_OS_AUDIT_DIR, { recursive: true });
+  const dbPath = path.join(tmpDir, "state.db");
+  db = new Database(dbPath);
+  db.pragma("journal_mode = WAL");
+  db.pragma("foreign_keys = ON");
+  await runMigrations(db, { dbPath });
+  ledger = new RunLedger(db);
+});
+
+afterEach(async () => {
+  try { db.close(); } catch { /* a test may have closed it */ }
+  if (originalAuditEnv === undefined) delete process.env.AGENTIC_OS_AUDIT_DIR;
+  else process.env.AGENTIC_OS_AUDIT_DIR = originalAuditEnv;
+  await fs.rm(tmpDir, { recursive: true, force: true });
+});
+
+function fakeFamily(
+  id: ConnectorTypeFamily,
+  overrides: Partial<ConnectorFamilyDefinition> = {},
+): ConnectorFamilyDefinition {
   return {
-    id: "fake",
-    title: "Fake",
-    kind: "ai-provider",
-    transport: "http",
-    capabilities: ["chat.generate"],
-    sideEffects: ["external-api"],
-    trust: "first-party",
+    id,
+    title: `Fake ${id}`,
+    kind: "managed-agent",
+    transport: "subprocess",
+    capabilities: ["agent.run"],
+    sideEffects: ["local-process"],
+    defaultTrust: "first-party",
+    settingsSchema: z.unknown(),
+    defaultSettings: {},
+    auth: { required: false, supportedRefs: ["env"] },
+    invoke: async (): Promise<ConnectorResult> => ({ status: "success", output: "ok" }),
     ...overrides,
   };
 }
 
-describe("createCapabilityRouter — list / has", () => {
-  it("list() returns only enabled connectors declaring the capability", () => {
-    const reg = connectorTest.newRegistry();
-    reg.register(fakeConnector({ id: "a", capabilities: ["chat.generate"] }));
-    reg.register(fakeConnector({ id: "b", capabilities: ["media.image.generate"] }));
-    const config: ConnectorsConfig = { a: { enabled: true }, b: { enabled: true } };
-    const router = createCapabilityRouter(reg, config);
-    expect(router.list("chat.generate").map((c) => c.id)).toEqual(["a"]);
+function registryOf(...families: ConnectorFamilyDefinition[]): ConnectorRegistry {
+  const reg = registryTest.newRegistry();
+  for (const f of families) reg.register(f);
+  return reg;
+}
+
+const ONE_AGENT: ConnectorsConfig = {
+  "agent-a": { enabled: true, typeFamily: "cli-acp-agent" },
+};
+
+describe("CapabilityRouter — list / has", () => {
+  it("lists an enabled instance whose effective set has the capability", () => {
+    const r = createCapabilityRouter(
+      registryOf(fakeFamily("cli-acp-agent")), ONE_AGENT, { ledger });
+    expect(r.list("agent.run").map((s) => s.connectorId)).toEqual(["agent-a"]);
+    expect(r.has("agent.run")).toBe(true);
+    expect(r.list("chat.generate")).toEqual([]);
+    expect(r.has("chat.generate")).toBe(false);
   });
 
-  it("list() excludes a connector that declares the capability but is disabled", () => {
-    const reg = connectorTest.newRegistry();
-    reg.register(fakeConnector({ id: "a", capabilities: ["chat.generate"] }));
-    const router = createCapabilityRouter(reg, { a: { enabled: false } });
-    expect(router.list("chat.generate")).toEqual([]);
+  it("excludes a disabled instance and an instance with no registered family", () => {
+    const disabled: ConnectorsConfig = {
+      "agent-a": { enabled: false, typeFamily: "cli-acp-agent" },
+    };
+    expect(
+      createCapabilityRouter(registryOf(fakeFamily("cli-acp-agent")), disabled, { ledger })
+        .has("agent.run"),
+    ).toBe(false);
+    expect(
+      createCapabilityRouter(registryOf(), ONE_AGENT, { ledger }).has("agent.run"),
+    ).toBe(false);
   });
 
-  it("list() excludes a connector with no config entry at all", () => {
-    const reg = connectorTest.newRegistry();
-    reg.register(fakeConnector({ id: "a" }));
-    const router = createCapabilityRouter(reg, {});
-    expect(router.list("chat.generate")).toEqual([]);
+  it("exposes only the instance-effective (narrowed) capability set", () => {
+    const family = fakeFamily("cli-acp-agent", {
+      capabilities: ["agent.run", "code.modify"],
+    });
+    const config: ConnectorsConfig = {
+      "agent-a": { enabled: true, typeFamily: "cli-acp-agent", capabilities: ["agent.run"] },
+    };
+    const r = createCapabilityRouter(registryOf(family), config, { ledger });
+    expect(r.has("agent.run")).toBe(true);
+    expect(r.has("code.modify")).toBe(false); // narrowed away by the instance
   });
 
-  it("has() reflects list()", () => {
-    const reg = connectorTest.newRegistry();
-    reg.register(fakeConnector({ id: "a", capabilities: ["chat.generate"] }));
-    const router = createCapabilityRouter(reg, { a: { enabled: true } });
-    expect(router.has("chat.generate")).toBe(true);
-    expect(router.has("agent.run")).toBe(false);
+  it("list() / has() never open a Run", () => {
+    const r = createCapabilityRouter(
+      registryOf(fakeFamily("cli-acp-agent")), ONE_AGENT, { ledger });
+    r.list("agent.run");
+    r.has("agent.run");
+    expect(ledger.listRuns()).toHaveLength(0);
   });
 });
 
-describe("createCapabilityRouter — invoke", () => {
-  it("returns skipped with a neutral message when no connector provides the capability", async () => {
-    const router = createCapabilityRouter(connectorTest.newRegistry(), {});
-    const result = await router.invoke("chat.generate", { prompt: "hi" });
-    expect(result.status).toBe("skipped");
-    expect(result.capability).toBe("chat.generate");
-    expect(result.message).toBe("no connector provides chat.generate");
+describe("CapabilityRouter — invoke", () => {
+  it("skips with no Run when no connector provides the capability", async () => {
+    const r = createCapabilityRouter(
+      registryOf(fakeFamily("cli-acp-agent")), ONE_AGENT, { ledger });
+    const res = await r.invoke("chat.generate", {});
+    expect(res.status).toBe("skipped");
+    expect(ledger.listRuns()).toHaveLength(0);
   });
 
-  it("vault.note.write resolves to skipped — no provider until M4", async () => {
-    const router = createCapabilityRouter(connectorTest.newRegistry(), {});
-    const result = await router.invoke("vault.note.write", {});
-    expect(result.status).toBe("skipped");
-    expect(result.capability).toBe("vault.note.write");
-  });
-
-  it("delegates to an enabled connector's invoke and returns its result", async () => {
-    const reg = connectorTest.newRegistry();
-    let seenCapability: CapabilityId | undefined;
-    reg.register(
-      fakeConnector({
-        id: "worker",
-        capabilities: ["chat.generate"],
-        invoke: async (capability): Promise<ConnectorResult> => {
-          seenCapability = capability;
-          return { status: "success", output: { text: "ok" } };
-        },
+  it("dispatches a success and opens a succeeded capability-invoke Run", async () => {
+    const family = fakeFamily("cli-acp-agent", {
+      invoke: async (): Promise<ConnectorResult> => ({
+        status: "success", output: "hello", metadata: { tokens: 3 },
       }),
-    );
-    const router = createCapabilityRouter(reg, { worker: { enabled: true } });
-    const result = await router.invoke("chat.generate", { prompt: "hi" });
-    expect(seenCapability).toBe("chat.generate");
-    expect(result.status).toBe("success");
-    expect(result.connectorId).toBe("worker");
-    expect(result.output).toEqual({ text: "ok" });
-  });
-
-  it("returns skipped when the resolved connector does not implement invoke", async () => {
-    const reg = connectorTest.newRegistry();
-    reg.register(fakeConnector({ id: "noinvoke", capabilities: ["chat.generate"] }));
-    const router = createCapabilityRouter(reg, { noinvoke: { enabled: true } });
-    const result = await router.invoke("chat.generate", {});
-    expect(result.status).toBe("skipped");
-    expect(result.connectorId).toBe("noinvoke");
-  });
-
-  it("honours a valid connectorId override", async () => {
-    const reg = connectorTest.newRegistry();
-    reg.register(
-      fakeConnector({
-        id: "first",
-        capabilities: ["chat.generate"],
-        invoke: async (): Promise<ConnectorResult> => ({ status: "success", output: "first" }),
-      }),
-    );
-    reg.register(
-      fakeConnector({
-        id: "second",
-        capabilities: ["chat.generate"],
-        invoke: async (): Promise<ConnectorResult> => ({ status: "success", output: "second" }),
-      }),
-    );
-    const router = createCapabilityRouter(reg, {
-      first: { enabled: true },
-      second: { enabled: true },
     });
-    const result = await router.invoke("chat.generate", {}, { connectorId: "second" });
-    expect(result.connectorId).toBe("second");
-    expect(result.output).toBe("second");
+    const r = createCapabilityRouter(registryOf(family), ONE_AGENT, { ledger });
+    const res = await r.invoke("agent.run", {});
+    expect(res.status).toBe("success");
+    expect(res.output).toBe("hello");
+    expect(res.connectorId).toBe("agent-a");
+
+    const runs = ledger.listRuns();
+    expect(runs).toHaveLength(1);
+    expect(runs[0]!.kind).toBe("capability-invoke");
+    expect(runs[0]!.status).toBe("succeeded");
+    expect(runs[0]!.connectorId).toBe("agent-a");
   });
 
-  // Locked review decision #4 — connectorId override edge cases.
-  it("an unknown connectorId does NOT bypass filtering — returns neutral skipped", async () => {
-    const reg = connectorTest.newRegistry();
-    reg.register(
-      fakeConnector({
-        id: "real",
-        capabilities: ["chat.generate"],
-        invoke: async (): Promise<ConnectorResult> => ({ status: "success" }),
+  it("neutralises a THROWN connector error; Run fails with the sanitized code", async () => {
+    const family = fakeFamily("cli-acp-agent", {
+      invoke: async (): Promise<ConnectorResult> => {
+        throw new Error("boom at /home/op/.ssh/id_rsa with sk-LEAKED");
+      },
+    });
+    const r = createCapabilityRouter(registryOf(family), ONE_AGENT, { ledger });
+    const res = await r.invoke("agent.run", {});
+    expect(res.status).toBe("failed");
+    expect(res.errorCode).toBe("connector-invoke-threw");
+    const serialized = JSON.stringify(res);
+    expect(serialized).not.toContain("boom");
+    expect(serialized).not.toContain("sk-LEAKED");
+    expect(serialized).not.toContain(".ssh");
+
+    const run = ledger.listRuns()[0]!;
+    expect(run.status).toBe("failed");
+    expect(run.errorCode).toBe("connector-invoke-threw"); // sanitized (B13)
+  });
+
+  it("neutralises a RETURNED failure; raw connector fields never leak", async () => {
+    const family = fakeFamily("cli-acp-agent", {
+      invoke: async (): Promise<ConnectorResult> => ({
+        status: "failed",
+        errorCode: "sk-SECRET-CODE",
+        message: "failed reaching /home/op/.aws/credentials",
+        metadata: { token: "sk-INNER" },
       }),
-    );
-    const router = createCapabilityRouter(reg, { real: { enabled: true } });
-    const result = await router.invoke("chat.generate", {}, { connectorId: "does-not-exist" });
-    expect(result.status).toBe("skipped");
-    expect(result.connectorId).toBeUndefined();
+    });
+    const r = createCapabilityRouter(registryOf(family), ONE_AGENT, { ledger });
+    const res = await r.invoke("agent.run", {});
+    expect(res.status).toBe("failed");
+    expect(res.errorCode).toBe("connector-returned-failure"); // sanitized (B13)
+    const serialized = JSON.stringify(res);
+    expect(serialized).not.toContain("sk-SECRET-CODE");
+    expect(serialized).not.toContain("sk-INNER");
+    expect(serialized).not.toContain(".aws");
+
+    const run = ledger.listRuns()[0]!;
+    expect(run.status).toBe("failed");
+    expect(run.errorCode).toBe("connector-returned-failure");
   });
 
-  it("a disabled connectorId does NOT bypass enabled filtering — returns neutral skipped", async () => {
-    const reg = connectorTest.newRegistry();
-    let ran = false;
-    reg.register(
-      fakeConnector({
-        id: "off",
-        capabilities: ["chat.generate"],
-        invoke: async (): Promise<ConnectorResult> => {
-          ran = true;
-          return { status: "success", output: "should not run" };
-        },
-      }),
-    );
-    const router = createCapabilityRouter(reg, { off: { enabled: false } });
-    const result = await router.invoke("chat.generate", {}, { connectorId: "off" });
-    expect(result.status).toBe("skipped");
-    expect(result.connectorId).toBeUndefined();
-    expect(ran).toBe(false); // the disabled connector's invoke never ran
+  it("an explicit connectorId dispatches that instance", async () => {
+    const config: ConnectorsConfig = {
+      "agent-a": { enabled: true, typeFamily: "cli-acp-agent" },
+      "agent-b": { enabled: true, typeFamily: "cli-acp-agent" },
+    };
+    const r = createCapabilityRouter(
+      registryOf(fakeFamily("cli-acp-agent")), config, { ledger });
+    const res = await r.invoke("agent.run", {}, { connectorId: "agent-b" });
+    expect(res.status).toBe("success");
+    expect(res.connectorId).toBe("agent-b");
+    expect(ledger.listRuns()[0]!.connectorId).toBe("agent-b");
   });
 
-  // Locked review decision #3 — neutral, non-secret-bearing results.
-  it("collapses a thrown connector error to a neutral result — raw error not echoed", async () => {
-    const reg = connectorTest.newRegistry();
-    const secret = "sk-SUPER-SECRET-abc123";
-    reg.register(
-      fakeConnector({
-        id: "boom",
-        capabilities: ["chat.generate"],
-        invoke: async (): Promise<ConnectorResult> => {
-          throw new Error(`auth failed with key ${secret} at /home/spawn/.hermes/auth.json`);
-        },
-      }),
-    );
-    const router = createCapabilityRouter(reg, { boom: { enabled: true } });
-    const result = await router.invoke("chat.generate", { prompt: "a private prompt body" });
-    expect(result.status).toBe("failed");
-    expect(result.errorCode).toBe("connector-invoke-threw");
-    const serialised = JSON.stringify(result);
-    expect(serialised).not.toContain(secret);
-    expect(serialised).not.toContain("/home/spawn");
-    expect(serialised).not.toContain("a private prompt body");
+  it("an unknown connectorId is a neutral failure with no Run and no echo", async () => {
+    const r = createCapabilityRouter(
+      registryOf(fakeFamily("cli-acp-agent")), ONE_AGENT, { ledger });
+    const res = await r.invoke("agent.run", {}, { connectorId: "ghost-connector" });
+    expect(res.status).toBe("failed");
+    expect(JSON.stringify(res)).not.toContain("ghost-connector");
+    expect(ledger.listRuns()).toHaveLength(0);
   });
 
-  it("collapses a RETURNED failed connector result to a neutral result (B2)", async () => {
-    // A connector that returns { status: "failed" } (rather than
-    // throwing) must also be neutralised — its message / errorCode /
-    // metadata may carry a secret, a path, or echoed input.
-    const reg = connectorTest.newRegistry();
-    reg.register(
-      fakeConnector({
-        id: "leaky",
-        capabilities: ["chat.generate"],
-        invoke: async (): Promise<ConnectorResult> => ({
-          status: "failed",
-          errorCode: "auth-failed",
-          message: "failed with token sk-SECRET at /home/spawn/private.json",
-          metadata: { token: "sk-SECRET", path: "/home/spawn/private.json" },
-        }),
-      }),
-    );
-    const router = createCapabilityRouter(reg, { leaky: { enabled: true } });
-    const result = await router.invoke("chat.generate", { prompt: "a private prompt body" });
-    expect(result.status).toBe("failed");
-    expect(result.errorCode).toBe("connector-returned-failure");
-    const serialised = JSON.stringify(result);
-    expect(serialised).not.toContain("sk-SECRET");
-    expect(serialised).not.toContain("/home/spawn");
-    expect(serialised).not.toContain("auth-failed");
-    expect(serialised).not.toContain("a private prompt body");
+  it("a disabled connectorId is skipped with no Run", async () => {
+    const config: ConnectorsConfig = {
+      "agent-a": { enabled: false, typeFamily: "cli-acp-agent" },
+    };
+    const r = createCapabilityRouter(
+      registryOf(fakeFamily("cli-acp-agent")), config, { ledger });
+    const res = await r.invoke("agent.run", {}, { connectorId: "agent-a" });
+    expect(res.status).toBe("skipped");
+    expect(ledger.listRuns()).toHaveLength(0);
   });
 
-  it("passes through output + metadata on a RETURNED success result", async () => {
-    const reg = connectorTest.newRegistry();
-    reg.register(
-      fakeConnector({
-        id: "ok",
-        capabilities: ["chat.generate"],
-        invoke: async (): Promise<ConnectorResult> => ({
-          status: "success",
-          output: { text: "hello" },
-          metadata: { tokens: 12 },
-        }),
-      }),
-    );
-    const router = createCapabilityRouter(reg, { ok: { enabled: true } });
-    const result = await router.invoke("chat.generate", {});
-    expect(result.status).toBe("success");
-    expect(result.output).toEqual({ text: "hello" });
-    expect(result.metadata).toEqual({ tokens: 12 });
+  it("a known but misconfigured instance opens a FAILED Run with config-invalid (B7)", async () => {
+    // auth.required + no authRef -> buildConnectorContext returns misconfigured.
+    const family = fakeFamily("cli-acp-agent", {
+      auth: { required: true, supportedRefs: ["env"] },
+    });
+    const r = createCapabilityRouter(registryOf(family), ONE_AGENT, { ledger });
+    const res = await r.invoke("agent.run", {}, { connectorId: "agent-a" });
+    expect(res.status).toBe("failed");
+    expect(res.errorCode).toBe("config-invalid");
+
+    const runs = ledger.listRuns();
+    expect(runs).toHaveLength(1);
+    expect(runs[0]!.status).toBe("failed");
+    expect(runs[0]!.errorCode).toBe("config-invalid");
   });
 
-  it("skipped results do not echo raw input", async () => {
-    const router = createCapabilityRouter(connectorTest.newRegistry(), {});
-    const result = await router.invoke("chat.generate", { apiKey: "sk-LEAK-me" });
-    expect(JSON.stringify(result)).not.toContain("sk-LEAK-me");
+  it("a ledger failure is swallowed; dispatch still succeeds", async () => {
+    const deadPath = path.join(tmpDir, "dead.db");
+    const deadDb = new Database(deadPath);
+    await runMigrations(deadDb, { dbPath: deadPath });
+    const deadLedger = new RunLedger(deadDb);
+    deadDb.close(); // every ledger write now throws
+
+    const r = createCapabilityRouter(
+      registryOf(fakeFamily("cli-acp-agent")), ONE_AGENT, { ledger: deadLedger });
+    const res = await r.invoke("agent.run", {});
+    expect(res.status).toBe("success"); // ledger failure did not break dispatch
   });
 });
