@@ -150,6 +150,12 @@ describe("RunLedger — runs", () => {
     expect(ledger.getRun(parent.id)?.status).toBe("cancelled");
     expect(ledger.getRun(childRunning.id)?.status).toBe("cancelled");
     expect(ledger.getRun(childDone.id)?.status).toBe("succeeded"); // untouched
+
+    // The actor is recorded only on the root; cascade descendants record
+    // "parent-run"; an already-terminal descendant keeps its null cancelledBy.
+    expect(ledger.getRun(parent.id)?.cancelledBy).toBe("user");
+    expect(ledger.getRun(childRunning.id)?.cancelledBy).toBe("parent-run");
+    expect(ledger.getRun(childDone.id)?.cancelledBy).toBeNull();
   });
 
   it("listRuns filters by status and featureId, newest-first", () => {

@@ -465,7 +465,11 @@ export class RunLedger {
       const toVisit: RunId[] = [id];
       while (toVisit.length > 0) {
         const current = toVisit.pop()!;
-        cancelOne.run({ id: current, by, now });
+        // The root run records the actor that triggered the cancel; runs
+        // reached by the cascade record "parent-run" — the ledger must not
+        // claim a descendant was cancelled directly by that actor.
+        const cancelledBy: RunCancelledBy = current === id ? by : "parent-run";
+        cancelOne.run({ id: current, by: cancelledBy, now });
         cancelled.push(current);
         for (const child of childrenOf.all(current)) {
           toVisit.push(child.id);
