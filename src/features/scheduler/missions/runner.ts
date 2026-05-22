@@ -41,6 +41,7 @@ import type {
 import { connectorRegistry } from "@/kernel/connectors/registry";
 import { bus } from "@/kernel/bus";
 import { auditMissionRun } from "@/kernel/audit";
+import { getRunLedger, type RunLedger } from "@/kernel/state/runLedger";
 import {
   writeMissionNote,
   ConstrainedWriteError,
@@ -91,6 +92,14 @@ export interface RunMissionInput {
 export interface RunMissionOverrides {
   registry?: MissionRegistry;
   config?: AppConfig;
+  /**
+   * Run-ledger override (test seam). Production passes no overrides at all
+   * and gets the real ledger. A test that passes an overrides object opts
+   * INTO ledger mirroring only by setting this explicitly — otherwise the
+   * runner skips the ledger, so tests never touch the real
+   * ~/.agentic-os/state.db.
+   */
+  ledger?: RunLedger | null;
 }
 
 /** Read-only vault access. M4 missions never read the vault — a real
@@ -152,6 +161,29 @@ function buildCapsAdapter(
   };
 }
 
+/**
+ * Resolve the run ledger without ever breaking a mission run. The audit JSONL
+ * line is the source-of-truth record; the ledger is a queryable mirror, so a
+ * failure to open it is logged and swallowed.
+ */
+async function resolveLedger(): Promise<RunLedger | null> {
+  try {
+    return await getRunLedger();
+  } catch (err) {
+    console.error("[run-ledger] unavailable; mission run not mirrored:", err);
+    return null;
+  }
+}
+
+/** Run a ledger write, swallowing+logging failure so it cannot break the run. */
+function ledgerWrite(action: () => void): void {
+  try {
+    action();
+  } catch (err) {
+    console.error("[run-ledger] mission ledger write failed:", err);
+  }
+}
+
 export async function runMission(
   input: RunMissionInput,
   overrides?: RunMissionOverrides,
@@ -159,6 +191,27 @@ export async function runMission(
   const runId = randomUUID();
   const startedAt = Date.now();
   const { missionId, trigger } = input;
+
+  // M3: mirror the run into the SQLite run ledger. Production passes no
+  // overrides and gets the real ledger; a test opts in via overrides.ledger,
+  // otherwise the runner skips the ledger and never touches the real state DB.
+  // A ledger failure never breaks the run — the audit JSONL line stays the
+  // source-of-truth record (every ledger write goes through ledgerWrite()).
+  const ledger: RunLedger | null = overrides
+    ? overrides.ledger ?? null
+    : await resolveLedger();
+  ledgerWrite(() =>
+    ledger?.createRun({
+      id: runId,
+      kind: trigger === "scheduled" ? "scheduled-mission" : "manual-mission",
+      featureId: "scheduler",
+      trigger,
+      status: "running",
+      onRestart: "mark-interrupted",
+      inputSummary: `mission ${missionId} · ${trigger}`,
+    }),
+  );
+
   // Production path uses the global registry — make sure the built-in
   // missions are registered into it before the lookup.
   if (!overrides?.registry) {
@@ -180,6 +233,9 @@ export async function runMission(
       outputsEmitted: 0,
       errorClass,
     });
+    ledgerWrite(() =>
+      ledger?.transitionRun(runId, "failed", { errorCode: errorClass }),
+    );
     return { status: "failed", runId, missionId, errorClass, message };
   };
 
@@ -255,6 +311,11 @@ export async function runMission(
       outputsPersisted: 0,
       outputsEmitted: 0,
     });
+    // A skip is not a failure: the run succeeds, with currentStep "skipped"
+    // marking it — never an errorCode (reserved for real failures).
+    ledgerWrite(() =>
+      ledger?.transitionRun(runId, "succeeded", { currentStep: "skipped" }),
+    );
     // result.reason is mission-controlled text — it could carry a
     // private path or secret-like value, so it is NOT echoed. A
     // generic neutral message is returned instead.
@@ -333,6 +394,9 @@ export async function runMission(
       outputsEmitted: emitted,
       errorClass,
     });
+    ledgerWrite(() =>
+      ledger?.transitionRun(runId, "failed", { errorCode: errorClass }),
+    );
     return {
       status: "failed",
       runId,
@@ -351,6 +415,8 @@ export async function runMission(
     outputsPersisted: persisted,
     outputsEmitted: emitted,
   });
+
+  ledgerWrite(() => ledger?.transitionRun(runId, "succeeded"));
 
   // result.message is mission-controlled text — keep success responses
   // neutral for the same reason skipped reasons are neutralized.
