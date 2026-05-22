@@ -1,12 +1,10 @@
 // Scheduler UI exposures (Phase 1C — M2).
 //
-// M1 declared an empty exposures manifest; M2 populates the
-// registry-driven shell surfaces. The shell consumes these — adding a
-// nav item or a command means editing THIS file, not the sidebar /
-// command-palette components (the M2 exit-criteria proof).
-//
-// PR2 populates `nav` + `commands`; the dashboard card and settings
-// panel land in M2 PR3.
+// M1 declared an empty exposures manifest; M2 populates every
+// registry-driven shell surface — nav, command, dashboard card and
+// settings panel. The shell consumes these: adding or changing a
+// surface means editing THIS file, not the sidebar / command palette /
+// dashboard / settings components (the M2 exit-criteria proof).
 
 import type { FeatureExposures } from "@/kernel/features/types";
 import { SCHEDULER_FEATURE_ID } from "./feature";
@@ -40,4 +38,21 @@ export const schedulerExposures: FeatureExposures = {
       visibility: "when-ready",
     },
   ],
+
+  // Mission Control card — hand-built component resolved by the shell's
+  // component registry via this key.
+  dashboardCards: [
+    {
+      id: "scheduler.status",
+      componentKey: "scheduler.status-card",
+      order: 10,
+      span: 1,
+    },
+  ],
+
+  // Read-only settings panel shown in Settings → Features.
+  settingsPanel: {
+    componentKey: "scheduler.settings-panel",
+    summary: "Cron-style mission triggers.",
+  },
 };

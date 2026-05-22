@@ -8,6 +8,12 @@ import { describe, expect, it } from "vitest";
 import { schedulerExposures } from "../src/features/scheduler/exposures";
 import { schedulerFeature } from "../src/features/scheduler/feature";
 import { hasIcon } from "../src/app/_components/iconRegistry";
+import {
+  hasCardComponent,
+  hasSettingsComponent,
+  cardComponentFor,
+  settingsComponentFor,
+} from "../src/app/_components/componentRegistry";
 
 describe("schedulerExposures", () => {
   it("featureId matches the scheduler module id", () => {
@@ -38,5 +44,27 @@ describe("schedulerExposures", () => {
         expect(cmd.action.href).toBe("/scheduler");
       }
     }
+  });
+
+  it("every dashboard card componentKey resolves in the registry", () => {
+    expect(schedulerExposures.dashboardCards?.length).toBeGreaterThan(0);
+    for (const card of schedulerExposures.dashboardCards ?? []) {
+      expect(hasCardComponent(card.componentKey)).toBe(true);
+    }
+  });
+
+  it("the settings panel componentKey resolves in the registry", () => {
+    const key = schedulerExposures.settingsPanel?.componentKey;
+    expect(key).toBeDefined();
+    expect(hasSettingsComponent(key!)).toBe(true);
+  });
+});
+
+describe("component registry", () => {
+  it("resolves null / false for an unknown componentKey", () => {
+    expect(cardComponentFor("ghost.card")).toBeNull();
+    expect(settingsComponentFor("ghost.panel")).toBeNull();
+    expect(hasCardComponent("ghost.card")).toBe(false);
+    expect(hasSettingsComponent("ghost.panel")).toBe(false);
   });
 });

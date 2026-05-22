@@ -2,33 +2,14 @@
 
 // Live scheduler status — read-only (Phase 1C — M2).
 //
-// Fetches the neutral snapshot from /api/scheduler/status (itself gated
-// behind the scheduler feature) and renders the runtime state, the
-// scheduled missions, and any config diagnostics. No controls — M2
-// keeps the page read-only.
+// The full status view on the /scheduler page: runtime state, the
+// scheduled missions, and any config diagnostics. Reads through the
+// shared useSchedulerSnapshot hook. No controls — M2 is read-only.
 
-import { useEffect, useState } from "react";
-
-type SchedulerRuntimeStatus = "idle" | "disabled" | "running" | "stopped";
-
-interface ScheduledMission {
-  missionId: string;
-  cron: string;
-  timezone: string;
-}
-
-interface SchedulerDiagnostic {
-  severity: string;
-  code: string;
-  message: string;
-  missionId?: string;
-}
-
-interface SchedulerSnapshot {
-  status: SchedulerRuntimeStatus;
-  scheduled: ScheduledMission[];
-  diagnostics: SchedulerDiagnostic[];
-}
+import {
+  useSchedulerSnapshot,
+  type SchedulerRuntimeStatus,
+} from "@/features/scheduler/components/useSchedulerSnapshot";
 
 const STATUS_TONE: Record<SchedulerRuntimeStatus, string> = {
   running: "#4ade80",
@@ -38,23 +19,7 @@ const STATUS_TONE: Record<SchedulerRuntimeStatus, string> = {
 };
 
 export default function SchedulerStatusPanel() {
-  const [snap, setSnap] = useState<SchedulerSnapshot | null>(null);
-  const [failed, setFailed] = useState(false);
-
-  useEffect(() => {
-    let cancelled = false;
-    fetch("/api/scheduler/status", { cache: "no-store" })
-      .then((r) => (r.ok ? r.json() : Promise.reject(new Error("status"))))
-      .then((j: { scheduler: SchedulerSnapshot }) => {
-        if (!cancelled) setSnap(j.scheduler);
-      })
-      .catch(() => {
-        if (!cancelled) setFailed(true);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+  const { snap, failed } = useSchedulerSnapshot();
 
   return (
     <section className="rounded-xl border border-[var(--panel-border)] bg-[var(--panel)] p-5 flex flex-col gap-4">

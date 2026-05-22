@@ -8,17 +8,22 @@
 // key resolves to `null` and the consumer skips it; the selector layer
 // also drops exposures whose key is unknown so no empty slot is shown.
 //
-// PR1 (shell data plumbing) ships the registry with EMPTY maps and the
-// resolvers/predicates. PR3 registers `SchedulerStatusCard` and
-// `SchedulerSettingsPanel` once those components exist.
+// Each registered component is hand-built by its feature and imported
+// here explicitly — registration is a code edit, never dynamic.
 
 import type { ComponentType } from "react";
+import SchedulerStatusCard from "@/features/scheduler/components/SchedulerStatusCard";
+import SchedulerSettingsPanel from "@/features/scheduler/components/SchedulerSettingsPanel";
 
-// componentKey → dashboard card component. Populated in M2 PR3.
-const CARD_COMPONENTS: Record<string, ComponentType> = {};
+// componentKey → dashboard card component.
+const CARD_COMPONENTS: Record<string, ComponentType> = {
+  "scheduler.status-card": SchedulerStatusCard,
+};
 
-// componentKey → settings panel component. Populated in M2 PR3.
-const SETTINGS_COMPONENTS: Record<string, ComponentType> = {};
+// componentKey → settings panel component.
+const SETTINGS_COMPONENTS: Record<string, ComponentType> = {
+  "scheduler.settings-panel": SchedulerSettingsPanel,
+};
 
 // Own-enumerable keys only — see iconRegistry.tsx for why `in` is unsafe.
 const CARD_KEYS = new Set(Object.keys(CARD_COMPONENTS));

@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
 import { motion, LayoutGroup } from "framer-motion";
-import { LayoutGrid, Target, BookOpen, Brain } from "lucide-react";
+import { LayoutGrid, Target, BookOpen, Brain, Settings } from "lucide-react";
 import { APP_VERSION_LABEL } from "@/lib/appVersion";
 import { accentFor } from "@/lib/accent";
 import AgentAvatar from "./AgentAvatar";
@@ -305,6 +305,20 @@ export default function Sidebar() {
           <span>⌘K</span>
           <span>Command palette</span>
         </button>
+        <Link
+          href="/settings"
+          className="flex items-center gap-2 px-3 py-2 rounded-lg border text-[11px] transition hover:text-[var(--fg)]"
+          style={{
+            borderColor:
+              pathname === "/settings"
+                ? "var(--panel-border-hot)"
+                : "var(--panel-border)",
+            color: pathname === "/settings" ? "var(--fg)" : "var(--fg-dim)",
+          }}
+        >
+          <Settings size={13} />
+          <span>Settings</span>
+        </Link>
         <div
           className="flex items-center gap-2 px-3 py-2 rounded-lg border text-[11px] text-[var(--fg-dim)] transition"
           style={{ borderColor: toneBorder ?? "var(--panel-border)" }}
