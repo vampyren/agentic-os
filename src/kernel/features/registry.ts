@@ -1,38 +1,66 @@
-// Feature registry (Phase 1C — Milestone 2).
+// Feature registry (Phase 1C — M1).
 //
-// In-memory registry of FeatureModules, registered explicitly in code.
-// M2 registers no production features; the registry ships empty. A
-// globalThis singleton survives hot-reload; tests build isolated
-// instances via __TEST__.newRegistry().
+// In-process registry of feature modules + their UI exposures,
+// registered explicitly in code at app boot (see registered.ts) — no
+// filesystem auto-discovery. A globalThis singleton survives Next's
+// dev hot-reload; `__resetRegistry()` clears it for tests.
 //
-// `resolveFeatureHealth` is a pure helper deriving a feature's health
-// from its requiredCapabilities + the Capability Router: a feature
-// whose required capabilities have no enabled provider is `degraded`.
-// This is how "feature visible but not fully operational" falls out
-// without each feature hand-checking connectors.
+// `resolveFeatureHealth` is a pure capability-derived health helper
+// (kept from M2's foundation): a feature whose `requiredCapabilities`
+// have no enabled provider is `degraded`. The M1 lifecycle resolver
+// (resolver.ts) is the richer, config-aware path.
 
-import type { FeatureModule, FeatureHealth } from "./types";
+import type {
+  FeatureModule,
+  FeatureExposures,
+  FeatureHealth,
+  FeatureId,
+} from "./types";
 import type { CapabilityRouter } from "../capabilities/types";
 
 class FeatureRegistry {
-  private features = new Map<string, FeatureModule>();
+  private modules = new Map<string, FeatureModule>();
+  private exposures = new Map<string, FeatureExposures>();
 
-  /** Register a feature module. Throws on a duplicate id. */
-  register(mod: FeatureModule): void {
-    if (this.features.has(mod.id)) {
-      throw new Error(`feature already registered: ${mod.id}`);
+  /**
+   * Register a feature module + its UI exposures. Throws on a
+   * duplicate id, and throws when `exposures.featureId` does not match
+   * `module.id` — catching a manifest/exposure mismatch at boot rather
+   * than at first query.
+   */
+  register(module: FeatureModule, exposures: FeatureExposures): void {
+    if (this.modules.has(module.id)) {
+      throw new Error(`feature already registered: ${module.id}`);
     }
-    this.features.set(mod.id, mod);
+    if (exposures.featureId !== module.id) {
+      throw new Error(
+        `feature exposures mismatch: module "${module.id}" got exposures ` +
+          `for "${exposures.featureId}"`,
+      );
+    }
+    this.modules.set(module.id, module);
+    this.exposures.set(module.id, exposures);
   }
 
-  /** Look up a feature by id. Unknown id → undefined (not an error). */
+  /** Look up a module by id. Unknown id → undefined (not an error). */
   get(id: string): FeatureModule | undefined {
-    return this.features.get(id);
+    return this.modules.get(id);
+  }
+
+  /** Look up a feature's exposures. Unknown id → undefined. */
+  getExposures(id: string): FeatureExposures | undefined {
+    return this.exposures.get(id);
   }
 
   /** All registered feature modules. */
   list(): FeatureModule[] {
-    return [...this.features.values()];
+    return [...this.modules.values()];
+  }
+
+  /** Test-only: drop all registrations so each test starts clean. */
+  reset(): void {
+    this.modules.clear();
+    this.exposures.clear();
   }
 }
 
@@ -41,23 +69,41 @@ export type { FeatureRegistry };
 const G = globalThis as unknown as {
   __agenticFeatureRegistry?: FeatureRegistry;
 };
-export const featureRegistry: FeatureRegistry =
+const featureRegistry: FeatureRegistry =
   G.__agenticFeatureRegistry
   ?? (G.__agenticFeatureRegistry = new FeatureRegistry());
 
-export const __TEST__ = {
-  newRegistry: (): FeatureRegistry => new FeatureRegistry(),
-};
+// ── Public API (module-level — operate on the singleton) ────────────
+
+export function registerFeature<TConfig>(
+  module: FeatureModule<TConfig>,
+  exposures: FeatureExposures,
+): void {
+  featureRegistry.register(module as FeatureModule, exposures);
+}
+
+export function getFeature(id: FeatureId): FeatureModule | undefined {
+  return featureRegistry.get(id);
+}
+
+export function getExposures(id: FeatureId): FeatureExposures | undefined {
+  return featureRegistry.getExposures(id);
+}
+
+export function listFeatures(): readonly FeatureModule[] {
+  return featureRegistry.list();
+}
+
+/** Test-only. Clears all registered features so each test starts clean. */
+export function __resetRegistry(): void {
+  featureRegistry.reset();
+}
 
 /**
  * Derive a feature's health from its required capabilities. Pure — it
  * does not touch the registry. A feature whose `requiredCapabilities`
  * are not all satisfiable by the router is `degraded`, with the unmet
  * capabilities listed. A feature that declares none is `ok`.
- *
- * A feature MAY also supply its own `health()` for richer checks; that
- * is the feature's own concern. This helper is the capability-derived
- * baseline.
  */
 export function resolveFeatureHealth(
   feature: FeatureModule,

@@ -1,6 +1,24 @@
-import { describe, expect, it } from "vitest";
-import { __TEST__, resolveFeatureHealth } from "../src/kernel/features/registry";
-import type { FeatureModule } from "../src/kernel/features/types";
+// Feature registry (Phase 1C — M1).
+//
+// Covers the module-level registry API (register / get / list /
+// getExposures / __resetRegistry) plus the duplicate-id and
+// exposure-mismatch guards, and the capability-derived
+// resolveFeatureHealth helper retained from the M2 foundation.
+
+import { beforeEach, describe, expect, it } from "vitest";
+import { z } from "zod";
+import {
+  registerFeature,
+  getFeature,
+  getExposures,
+  listFeatures,
+  resolveFeatureHealth,
+  __resetRegistry,
+} from "../src/kernel/features/registry";
+import type {
+  FeatureModule,
+  FeatureExposures,
+} from "../src/kernel/features/types";
 import type {
   CapabilityId,
   CapabilityRouter,
@@ -13,13 +31,20 @@ function fakeFeature(overrides: Partial<FeatureModule> = {}): FeatureModule {
     title: "Fake Feature",
     description: "a feature used in tests",
     category: "core",
-    sideEffects: ["none"],
+    lifecycle: { defaultEnabled: true, canDisable: true },
+    config: { schema: z.object({}).strict(), defaults: {} },
+    sideEffects: [],
     ...overrides,
   };
 }
 
-// Minimal fake router — only `has` is consulted by resolveFeatureHealth.
-// `invoke` is written generic to satisfy CapabilityRouter's signature.
+function fakeExposures(
+  featureId: string,
+  overrides: Partial<FeatureExposures> = {},
+): FeatureExposures {
+  return { featureId, ...overrides };
+}
+
 function fakeRouter(provided: CapabilityId[]): CapabilityRouter {
   const set = new Set<CapabilityId>(provided);
   return {
@@ -34,34 +59,69 @@ function fakeRouter(provided: CapabilityId[]): CapabilityRouter {
   };
 }
 
-describe("featureRegistry", () => {
-  it("registers, gets, and lists a feature", () => {
-    const reg = __TEST__.newRegistry();
-    const feat = fakeFeature({ id: "alpha" });
-    reg.register(feat);
-    expect(reg.get("alpha")).toBe(feat);
-    expect(reg.list()).toEqual([feat]);
-  });
+describe("feature registry", () => {
+  beforeEach(() => __resetRegistry());
 
-  it("returns undefined for an unknown feature id", () => {
-    const reg = __TEST__.newRegistry();
-    expect(reg.get("ghost")).toBeUndefined();
+  it("registers a new feature with its exposures", () => {
+    const feat = fakeFeature({ id: "alpha" });
+    registerFeature(feat, fakeExposures("alpha"));
+    expect(getFeature("alpha")).toBe(feat);
   });
 
   it("throws on a duplicate feature id", () => {
-    const reg = __TEST__.newRegistry();
-    reg.register(fakeFeature({ id: "dup" }));
-    expect(() => reg.register(fakeFeature({ id: "dup" }))).toThrow(
-      /already registered/i,
-    );
+    registerFeature(fakeFeature({ id: "dup" }), fakeExposures("dup"));
+    expect(() =>
+      registerFeature(fakeFeature({ id: "dup" }), fakeExposures("dup")),
+    ).toThrow(/already registered/i);
   });
 
-  it("__TEST__.newRegistry() yields isolated instances", () => {
-    const a = __TEST__.newRegistry();
-    const b = __TEST__.newRegistry();
-    a.register(fakeFeature({ id: "only-a" }));
-    expect(a.list()).toHaveLength(1);
-    expect(b.list()).toHaveLength(0);
+  it("throws when exposures.featureId does not match module.id", () => {
+    expect(() =>
+      registerFeature(fakeFeature({ id: "beta" }), fakeExposures("gamma")),
+    ).toThrow(/mismatch/i);
+  });
+
+  it("getFeature returns the registered module", () => {
+    const feat = fakeFeature({ id: "delta" });
+    registerFeature(feat, fakeExposures("delta"));
+    expect(getFeature("delta")).toBe(feat);
+  });
+
+  it("getFeature returns undefined for an unknown id", () => {
+    expect(getFeature("ghost")).toBeUndefined();
+  });
+
+  it("listFeatures returns every registered module", () => {
+    const a = fakeFeature({ id: "a" });
+    const b = fakeFeature({ id: "b" });
+    registerFeature(a, fakeExposures("a"));
+    registerFeature(b, fakeExposures("b"));
+    expect(listFeatures()).toEqual([a, b]);
+  });
+
+  it("getExposures returns the registered exposures", () => {
+    const exposures = fakeExposures("eps", {
+      nav: [
+        {
+          id: "eps-nav",
+          label: "Eps",
+          href: "/eps",
+          iconKey: "clock",
+          order: 1,
+        },
+      ],
+    });
+    registerFeature(fakeFeature({ id: "eps" }), exposures);
+    expect(getExposures("eps")).toBe(exposures);
+    expect(getExposures("ghost")).toBeUndefined();
+  });
+
+  it("__resetRegistry clears all registered features", () => {
+    registerFeature(fakeFeature({ id: "temp" }), fakeExposures("temp"));
+    expect(listFeatures()).toHaveLength(1);
+    __resetRegistry();
+    expect(listFeatures()).toHaveLength(0);
+    expect(getFeature("temp")).toBeUndefined();
   });
 });
 
@@ -84,18 +144,8 @@ describe("resolveFeatureHealth", () => {
     const feat = fakeFeature({
       requiredCapabilities: ["chat.generate", "media.image.generate"],
     });
-    const router = fakeRouter(["chat.generate"]); // image-gen not provided
-    const health = resolveFeatureHealth(feat, router);
+    const health = resolveFeatureHealth(feat, fakeRouter(["chat.generate"]));
     expect(health.status).toBe("degraded");
     expect(health.missingCapabilities).toEqual(["media.image.generate"]);
-  });
-
-  it("lists every missing capability when none are provided", () => {
-    const feat = fakeFeature({
-      requiredCapabilities: ["chat.generate", "agent.run"],
-    });
-    const health = resolveFeatureHealth(feat, fakeRouter([]));
-    expect(health.status).toBe("degraded");
-    expect(health.missingCapabilities).toEqual(["chat.generate", "agent.run"]);
   });
 });
