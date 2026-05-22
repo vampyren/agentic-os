@@ -1,62 +1,84 @@
-// Connector + MCP-server config schemas (Phase 1C — Milestone 2).
+// Connector instance + MCP-server config schemas (M4a — connector runtime).
 //
-// These tighten the deliberately-loose `connectors` / `mcpServers`
-// records M1 left as `z.record(z.unknown())`. They describe the
-// OPERATOR SETTINGS for a connector / MCP server — NOT the connector
-// definition itself (definitions are registered in code; see
-// connectors/types.ts). Per the locked review decision: config
-// supplies enable / authRef / trust override / config references;
-// code supplies kind / transport / capabilities.
+// A connector INSTANCE config (config.connectors.<connectorId>) describes the
+// operator's settings for one connector: which type family it is, an optional
+// preset seed, env-only authRef, family-shaped settings, an optional
+// capability narrowing, a downward-only trust override, and (HTTP families) a
+// local-network opt-in. Family kind / transport / capabilities live in CODE
+// (connectors/types.ts).
 //
-// authRef is SYNTAX-checked only (`env:NAME` or `none`) — never
-// resolved into the config object. Secret resolution is a later phase.
+// Two-phase validation (spec §5): this static schema validates the ENVELOPE
+// and screens `settings` for secret-looking keys (B4); the family
+// `settingsSchema` strictly re-parses `settings` in the runtime.
 
 import { z } from "zod";
+import { CapabilityIdSchema } from "../capabilities/types";
+import { findSecretLookingKey } from "./secretKeys";
 
 // Kebab-case slug — same convention as the agent manifest `name`.
 const SLUG = /^[a-z0-9][a-z0-9-]{0,63}$/;
 
-// authRef references a secret indirectly. `none` = no auth needed;
-// `env:VAR` = read from the named environment variable at use time.
+// authRef references a secret indirectly. `none` = no auth; `env:VAR` = read
+// from the named environment variable at use time (resolved server-side).
 const authRefSchema = z
   .string()
   .regex(
     /^(none|env:[A-Za-z_][A-Za-z0-9_]*)$/,
     "authRef must be `none` or `env:VAR_NAME`",
   );
+export type AuthRef = z.infer<typeof authRefSchema>;
 
-const trustSchema = z.enum(["first-party", "community", "untrusted"]);
+const connectorTypeFamilySchema = z.enum([
+  "cli-acp-agent",
+  "openai-compatible-llm",
+]);
 
-// ── connector settings (config.connectors.<id>) ─────────────────────
-export const connectorSettingsSchema = z
+// `settings` is family config — it must never carry a secret. The B4 screen
+// rejects a secret-looking key at any depth before the family schema runs.
+const connectorSettingsBag = z
+  .record(z.string(), z.unknown())
+  .superRefine((val, ctx) => {
+    const hit = findSecretLookingKey(val);
+    if (hit) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message:
+          `connector settings may not contain a secret-looking key (${hit}) `
+          + `— supply a secret via authRef, never inline`,
+      });
+    }
+  });
+
+// ── connector instance config (config.connectors.<connectorId>) ─────────────
+export const connectorInstanceConfigSchema = z
   .object({
     enabled: z.boolean().default(false),
+    typeFamily: connectorTypeFamilySchema,
+    presetId: z.string().regex(SLUG, "presetId must be a kebab-case slug").optional(),
     authRef: authRefSchema.optional(),
-    // Operator override of the definition's declared trust level.
-    trust: trustSchema.optional(),
-    // Name of an mcpServers entry this connector talks through.
+    settings: connectorSettingsBag.optional(),
+    // Narrows the family's capability set; absent => the family max set.
+    capabilities: z.array(CapabilityIdSchema).optional(),
+    // Operator trust override — DOWNWARD only (never first-party).
+    trustOverride: z.enum(["community", "untrusted"]).optional(),
+    // HTTP families only — opt-in past the SSRF guard (M4a-3a).
+    allowLocalNetwork: z.boolean().optional(),
+    // Name of an mcpServers entry this connector talks through (orthogonal).
     mcpServer: z
       .string()
       .regex(SLUG, "mcpServer must be a kebab-case slug")
       .optional(),
-    // NOTE: no opaque `config` field. An arbitrary `z.unknown()` config
-    // bag would let raw secrets (apiKey / token / password) live in
-    // plain YAML — exactly what `authRef` exists to prevent. Connector-
-    // specific settings get a typed, named schema when real connectors
-    // land; until then `.strict()` rejects any `config:` key.
   })
   .strict();
 
 export const connectorsConfigSchema = z
   .record(
     z.string().regex(SLUG, "connector id must be a kebab-case slug"),
-    connectorSettingsSchema,
+    connectorInstanceConfigSchema,
   )
   .default({});
 
-// ── MCP server settings (config.mcpServers.<id>) ────────────────────
-// Minimal shape: enough to declare a server so a connector can
-// reference it. NO process launch / runtime / health in M2.
+// ── MCP server settings (config.mcpServers.<id>) — unchanged from M2 ────────
 export const mcpServerSettingsSchema = z
   .object({
     enabled: z.boolean().default(false),
@@ -73,7 +95,9 @@ export const mcpServersConfigSchema = z
   )
   .default({});
 
-export type ConnectorSettings = z.infer<typeof connectorSettingsSchema>;
+export type ConnectorInstanceConfig = z.infer<typeof connectorInstanceConfigSchema>;
 export type ConnectorsConfig = z.infer<typeof connectorsConfigSchema>;
+/** Back-compat alias — prefer ConnectorInstanceConfig. */
+export type ConnectorSettings = ConnectorInstanceConfig;
 export type McpServerSettings = z.infer<typeof mcpServerSettingsSchema>;
 export type McpServersConfig = z.infer<typeof mcpServersConfigSchema>;

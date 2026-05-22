@@ -1,39 +1,41 @@
-// Connector registry (Phase 1C — Milestone 2).
+// Connector family registry (M4a — connector runtime).
 //
-// In-memory registry of ConnectorDefinitions, registered explicitly in
-// code (mirrors the agent-manifest registry pattern in
-// src/kernel/registry.ts — no filesystem discovery). M2 registers no
-// production connectors; the registry ships empty. A globalThis
-// singleton survives Next.js hot-reload; tests build isolated
-// instances via __TEST__.newRegistry().
+// In-memory registry of ConnectorFamilyDefinitions, keyed by the type-family
+// id and registered explicitly in CODE (no filesystem discovery — mirrors the
+// agent-manifest registry pattern). Operator connector INSTANCES live in
+// config (connectors/schema.ts); the runtime pairs an instance with its
+// family. A globalThis singleton survives Next.js hot-reload; tests build
+// isolated instances via __TEST__.newRegistry().
+//
+// M4a-1 registers no families; the first families land in M4a-2 / M4a-3a.
 
-import type { ConnectorDefinition } from "./types";
+import type { ConnectorFamilyDefinition, ConnectorTypeFamily } from "./types";
 
 class ConnectorRegistry {
-  private connectors = new Map<string, ConnectorDefinition>();
+  private families = new Map<ConnectorTypeFamily, ConnectorFamilyDefinition>();
 
-  /** Register a connector definition. Throws on a duplicate id. */
-  register(def: ConnectorDefinition): void {
-    if (this.connectors.has(def.id)) {
-      throw new Error(`connector already registered: ${def.id}`);
+  /** Register a connector family definition. Throws on a duplicate id. */
+  register(family: ConnectorFamilyDefinition): void {
+    if (this.families.has(family.id)) {
+      throw new Error(`connector family already registered: ${family.id}`);
     }
-    this.connectors.set(def.id, def);
+    this.families.set(family.id, family);
   }
 
-  /** Look up a connector by id. Unknown id → undefined (not an error). */
-  get(id: string): ConnectorDefinition | undefined {
-    return this.connectors.get(id);
+  /** Look up a family by id. Unknown id → undefined (not an error). */
+  get(id: ConnectorTypeFamily): ConnectorFamilyDefinition | undefined {
+    return this.families.get(id);
   }
 
-  /** All registered connector definitions. */
-  list(): ConnectorDefinition[] {
-    return [...this.connectors.values()];
+  /** All registered connector families. */
+  list(): ConnectorFamilyDefinition[] {
+    return [...this.families.values()];
   }
 }
 
 export type { ConnectorRegistry };
 
-// Singleton on globalThis — same pattern as registry.ts / bus.ts so a
+// Singleton on globalThis — same pattern as the agent registry / bus so a
 // Next.js hot-reload doesn't spawn a second registry.
 const G = globalThis as unknown as {
   __agenticConnectorRegistry?: ConnectorRegistry;
@@ -42,8 +44,8 @@ export const connectorRegistry: ConnectorRegistry =
   G.__agenticConnectorRegistry
   ?? (G.__agenticConnectorRegistry = new ConnectorRegistry());
 
-// Test seam — an isolated registry so unit tests don't accumulate
-// state on the process-wide singleton.
+// Test seam — an isolated registry so unit tests don't accumulate state on
+// the process-wide singleton.
 export const __TEST__ = {
   newRegistry: (): ConnectorRegistry => new ConnectorRegistry(),
 };
