@@ -12,18 +12,13 @@ import SchedulerStatusPanel from "./SchedulerStatusPanel";
 export const dynamic = "force-dynamic";
 
 export default async function SchedulerPage() {
-  const feature = await requireFeatureReady("scheduler");
+  // Gate only — the page identity ("Scheduler" + description) is rendered
+  // once by the TopBar via `resolveTitle("/scheduler")`. Repeating it in a
+  // page-level header here would duplicate the heading (see src/lib/titles.ts).
+  await requireFeatureReady("scheduler");
 
   return (
     <div className="mt-6 flex flex-col gap-5">
-      <header className="flex flex-col gap-1">
-        <h1 className="text-xl font-medium tracking-tight">
-          {feature.module.title}
-        </h1>
-        <p className="text-[13px] text-[var(--fg-dim)]">
-          {feature.module.description}
-        </p>
-      </header>
       <SchedulerStatusPanel />
     </div>
   );

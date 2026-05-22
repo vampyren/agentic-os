@@ -35,6 +35,14 @@ const STATIC: Record<string, PageIdentity> = {
     title: "Event log",
     sub: "Live agent invocations and audit envelopes as they happen.",
   },
+  "/scheduler": {
+    title: "Scheduler",
+    sub: "Time-based mission triggers (cron-style).",
+  },
+  "/settings": {
+    title: "Settings",
+    sub: "Features, connectors and platform configuration.",
+  },
 };
 
 /**
