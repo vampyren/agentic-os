@@ -37,14 +37,22 @@ function resolved(): ResolvedFeature {
 }
 
 describe("toUiSafeFeature", () => {
-  it("includes id, title, description, category, status and exposures", () => {
+  it("includes id, title, description, category, canDisable, status and exposures", () => {
     const safe = toUiSafeFeature(resolved());
     expect(safe.id).toBe("sensitive");
     expect(safe.title).toBe("Sensitive Feature");
     expect(safe.description).toContain("secrets");
     expect(safe.category).toBe("automation");
+    expect(safe.canDisable).toBe(true);
     expect(safe.status.state).toBe("ready");
     expect(safe.exposures.featureId).toBe("sensitive");
+  });
+
+  it("carries the lifecycle canDisable flag both ways", () => {
+    expect(toUiSafeFeature(resolved()).canDisable).toBe(true);
+    const r = resolved();
+    r.module.lifecycle = { ...r.module.lifecycle, canDisable: false };
+    expect(toUiSafeFeature(r).canDisable).toBe(false);
   });
 
   it("does NOT include the config block (schema or defaults)", () => {
