@@ -20,7 +20,7 @@
 import { missionRegistry } from "@/features/scheduler/missions/registry";
 import { runMission } from "@/features/scheduler/missions/runner";
 import { ensureBuiltinMissions } from "@/features/scheduler/missions/builtin";
-import { originOk, forbidden } from "../../../_lib/cors";
+import { gateFeatureApi } from "@/app/_lib/featureGates";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -54,7 +54,13 @@ export async function POST(
   req: Request,
   ctx: { params: Promise<{ id: string }> },
 ) {
-  if (!originOk(req)) return forbidden();
+  // M1 gating: a manual mission run belongs to the scheduler feature,
+  // so it fails closed when the feature is disabled (404). When the
+  // feature is enabled, manual runs work exactly as in v0.3.0 — the
+  // gate does NOT require the cron runtime to be "ready" (mode
+  // "enabled"). The gate also performs the origin check.
+  const gate = await gateFeatureApi(req, "scheduler", "enabled");
+  if (gate) return gate;
   try {
     // Built-in missions are registered into the global registry on
     // demand — idempotent, so safe to call on every request.

@@ -18,6 +18,8 @@ import { toVaultRelativePath } from "../src/lib/vaultPaths";
 
 let tmpDir: string;
 let vaultRoot: string;
+let configFile: string;
+let disabledConfig: string;
 let originalConfigEnv: string | undefined;
 let originalVaultEnv: string | undefined;
 let originalAuditEnv: string | undefined;
@@ -74,8 +76,22 @@ beforeAll(async () => {
   await fs.mkdir(path.join(vaultRoot, "00_Inbox", "agentic-os"), {
     recursive: true,
   });
-  const configFile = path.join(tmpDir, "config.yaml");
-  await fs.writeFile(configFile, `vault:\n  root: ${vaultRoot}\n`, "utf8");
+  configFile = path.join(tmpDir, "config.yaml");
+  disabledConfig = path.join(tmpDir, "config-disabled.yaml");
+  // M1: the manual mission-run route is gated behind the scheduler
+  // feature, so the default test config must enable it — otherwise the
+  // gate would 404 every run. A second config keeps the feature
+  // disabled, to prove the gate fails closed.
+  await fs.writeFile(
+    configFile,
+    `vault:\n  root: ${vaultRoot}\nfeatures:\n  scheduler:\n    enabled: true\n`,
+    "utf8",
+  );
+  await fs.writeFile(
+    disabledConfig,
+    `vault:\n  root: ${vaultRoot}\nfeatures:\n  scheduler:\n    enabled: false\n`,
+    "utf8",
+  );
 
   originalConfigEnv = process.env.AGENTIC_OS_CONFIG;
   originalVaultEnv = process.env.AGENTIC_OS_VAULT;
@@ -199,5 +215,19 @@ describe("POST /api/missions/[id]/run", () => {
     expect(json.status).toBe("skipped");
     expect(JSON.stringify(json)).not.toContain(SKIP_SECRET);
     expect(JSON.stringify(json)).not.toContain("api-token-7c2e");
+  });
+
+  it("returns 404 when the scheduler feature is disabled by config", async () => {
+    // The scheduler feature gate fails closed: with the feature
+    // disabled in config, a manual run of an OTHERWISE-RUNNABLE,
+    // registered mission must 404 — the gate fires before mission
+    // lookup, so route-mission (which 200s when enabled) cannot run.
+    process.env.AGENTIC_OS_CONFIG = disabledConfig;
+    try {
+      const res = await post("route-mission", JSON.stringify({ options: {} }));
+      expect(res.status).toBe(404);
+    } finally {
+      process.env.AGENTIC_OS_CONFIG = configFile;
+    }
   });
 });
