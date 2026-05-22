@@ -7,8 +7,10 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Command } from "cmdk";
 import {
-  LayoutGrid, Bot, Target, BookOpen, Search, Activity,
+  LayoutGrid, Bot, Target, BookOpen, Search, Activity, Zap,
 } from "lucide-react";
+import { useFeatures } from "@/app/_components/FeaturesProvider";
+import { visibleCommands } from "@/app/_lib/shellSelectors";
 
 interface AgentRow {
   name: string;
@@ -29,6 +31,7 @@ export default function CommandPalette() {
   const [open, setOpen] = useState(false);
   const [agents, setAgents] = useState<AgentRow[]>([]);
   const router = useRouter();
+  const featureCommands = visibleCommands(useFeatures());
 
   // Keyboard toggle + window event open (lets the TopBar ⌘K chip open the
   // same palette without lifting the open-state into a global store).
@@ -111,6 +114,25 @@ export default function CommandPalette() {
               );
             })}
           </Command.Group>
+
+          {featureCommands.length > 0 && (
+            <Command.Group
+              heading="Features"
+              className="text-[10px] uppercase tracking-widest text-[var(--fg-dimmer)] px-3 py-1.5 mt-1"
+            >
+              {featureCommands.map((c) => (
+                <Command.Item
+                  key={c.id}
+                  onSelect={() => go(c.href)}
+                  value={`feature ${c.label} ${c.keywords.join(" ")}`}
+                  className="flex items-center gap-3 px-3 py-2 rounded-md text-[13px] text-[var(--fg-dim)] data-[selected=true]:bg-[var(--bg-elevated-hot)] data-[selected=true]:text-[var(--fg)] cursor-pointer"
+                >
+                  <Zap size={14} strokeWidth={1.75} />
+                  <span>{c.label}</span>
+                </Command.Item>
+              ))}
+            </Command.Group>
+          )}
 
           {agents.length > 0 && (
             <Command.Group

@@ -15,6 +15,9 @@ import HermesMemoryBars from "@/components/HermesMemoryBars";
 import AgentCwdPicker from "@/components/AgentCwdPicker";
 import { accentFor } from "@/lib/accent";
 import { extractVersion } from "@/lib/agentVersion";
+import { useFeatures } from "@/app/_components/FeaturesProvider";
+import { visibleDashboardCards } from "@/app/_lib/shellSelectors";
+import { cardComponentFor } from "@/app/_components/componentRegistry";
 
 interface AgentSummary {
   name: string;
@@ -53,6 +56,7 @@ export default function MissionControl() {
   const [vitalsAgents, setVitalsAgents] = useState<AgentSummary[]>([]);
   const [manifests, setManifests] = useState<AgentManifest[]>([]);
   const [events, setEvents] = useState<BusEvent[]>([]);
+  const featureCards = visibleDashboardCards(useFeatures());
 
   // Vitals (refreshed) + manifests (one-shot for descriptions).
   useEffect(() => {
@@ -146,6 +150,28 @@ export default function MissionControl() {
           </div>
         )}
       </section>
+
+      {featureCards.length > 0 && (
+        <section>
+          <h2 className="text-[11px] uppercase tracking-[0.22em] text-[var(--fg-dimmer)] mb-4">
+            Features · live cards from the registry
+          </h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+            {featureCards.map((card) => {
+              const Card = cardComponentFor(card.componentKey);
+              if (!Card) return null;
+              return (
+                <div
+                  key={card.id}
+                  className={card.span === 2 ? "md:col-span-2" : ""}
+                >
+                  <Card />
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      )}
 
       <section>
         <h2 className="text-[11px] uppercase tracking-[0.22em] text-[var(--fg-dimmer)] mb-4">

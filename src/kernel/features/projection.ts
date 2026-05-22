@@ -32,6 +32,13 @@ export interface UiSafeFeature {
   title: string;
   description: string;
   category: FeatureCategory;
+  /**
+   * Whether the operator may turn this feature off — copied from
+   * `lifecycle.canDisable`. A plain boolean, UI-safe; the M2 settings
+   * page reads it to decide whether to offer a disable affordance.
+   * Additive evolution of the M1 projection contract (not a fix).
+   */
+  canDisable: boolean;
   status: FeatureRuntimeStatus;
   exposures: FeatureExposures;
 }
@@ -189,6 +196,7 @@ export function toUiSafeFeature(resolved: ResolvedFeature): UiSafeFeature {
     title: module.title,
     description: module.description,
     category: module.category,
+    canDisable: module.lifecycle.canDisable,
     status: projectStatus(status),
     exposures: projectExposures(exposures),
   };
