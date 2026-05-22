@@ -48,3 +48,5 @@ Each option and why it was rejected.
 | 0010 | Phase 1C registry triad: features, connectors, capabilities | Accepted |
 | 0011 | Missions return outputs; a central runner persists them | Accepted |
 | 0012 | Capability Router returns neutral, non-secret-bearing results | Accepted |
+| 0014 | Persistence: a four-store split, with a versioned SQLite state DB | Accepted |
+| 0016 | Run ledger foundation | Accepted |
