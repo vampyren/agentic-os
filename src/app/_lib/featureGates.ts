@@ -16,6 +16,7 @@ import { notFound } from "next/navigation";
 import { originOk } from "../api/_lib/cors";
 import { ensureFeaturesRegistered } from "@/kernel/features/registered";
 import { resolveFeature } from "@/kernel/features/resolver";
+import { toUiSafeFeature } from "@/kernel/features/projection";
 import type {
   ResolvedFeature,
   FeatureResolveDeps,
@@ -76,8 +77,16 @@ export async function gateFeatureApi(
     return new Response("not found", { status: 404 });
   }
   if (mode === "ready" && feature.status.state !== "ready") {
+    // Project before responding: `feature.status.reasons` carries raw
+    // reason messages (a feature-supplied health probe can put a path
+    // or secret-like diagnostic in there). toUiSafeFeature re-derives
+    // each reason message from its code, so only the UI-safe shape
+    // crosses the gate — same allowlist /api/features goes through.
     return Response.json(
-      { error: "feature-not-ready", reasons: feature.status.reasons },
+      {
+        error: "feature-not-ready",
+        reasons: toUiSafeFeature(feature).status.reasons,
+      },
       { status: 503 },
     );
   }

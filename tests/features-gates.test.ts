@@ -49,6 +49,14 @@ const degradedHealth = async (): Promise<FeatureHealth> => ({
   status: "degraded",
 });
 
+// A health probe whose message carries a secret-like diagnostic —
+// used to prove the ready-mode 503 body never echoes raw health text.
+const HEALTH_SECRET = "/home/operator/.secrets/token";
+const degradedHealthWithSecret = async (): Promise<FeatureHealth> => ({
+  status: "degraded",
+  message: `probe failed reading ${HEALTH_SECRET}`,
+});
+
 const flags = (id: string, on: boolean) =>
   ({ enablement: new Map([[id, on]]) });
 
@@ -159,6 +167,26 @@ describe("gateFeatureApi", () => {
     expect(res?.status).toBe(503);
     const body = await res?.json();
     expect(body.error).toBe("feature-not-ready");
+  });
+
+  it("503 body carries PROJECTED reasons — no raw health message leaks", async () => {
+    register(feature({ id: "leak", health: degradedHealthWithSecret }));
+    const res = await gateFeatureApi(
+      localReq(),
+      "leak",
+      "ready",
+      flags("leak", true),
+    );
+    expect(res?.status).toBe(503);
+    const raw = JSON.stringify(await res?.json());
+    // The raw reason message is "probe failed reading
+    // /home/operator/.secrets/token" — the projection re-derives the
+    // message from the reason code, so none of it crosses the gate.
+    expect(raw).not.toContain("/home/");
+    expect(raw).not.toContain(".secrets");
+    expect(raw).not.toContain("token");
+    // ...but the reason CODE still crosses, so the client can react.
+    expect(raw).toContain("health-degraded");
   });
 
   it("passes through (null) when the feature is ready", async () => {
