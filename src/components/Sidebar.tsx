@@ -8,6 +8,9 @@ import { LayoutGrid, Target, BookOpen, Brain } from "lucide-react";
 import { APP_VERSION_LABEL } from "@/lib/appVersion";
 import { accentFor } from "@/lib/accent";
 import AgentAvatar from "./AgentAvatar";
+import { useFeatures } from "@/app/_components/FeaturesProvider";
+import { visibleNavItems } from "@/app/_lib/shellSelectors";
+import { iconFor } from "@/app/_components/iconRegistry";
 
 interface AgentNav {
   name: string;
@@ -84,6 +87,10 @@ const SELF: NavItem[] = [
   { href: "/memory",  label: "Memory",  icon: <Brain size={18} />,    accent: "#22d3ee" },
 ];
 
+// Feature nav items share one accent — they are registry-driven, not
+// hand-placed like the Workspace/Self rows, so they read as one group.
+const FEATURE_ACCENT = "#818cf8";
+
 function dimFor(accent: string): string {
   // Soft accent-tinted background for active rows. The two-stop gradient
   // gives a subtle deep-to-shallow sheen that reads as "deep purple tint"
@@ -148,6 +155,7 @@ function NavLink({ href, label, icon, accent, isAgent = false, active }: NavLink
 
 export default function Sidebar() {
   const pathname = usePathname() ?? "/";
+  const features = useFeatures();
   const [agents, setAgents] = useState<AgentNav[]>([]);
   const [vitals, setVitals] = useState<VitalsResponse | null>(null);
   // Clock starts null on SSR so client/server HTML match; set in effect.
@@ -224,6 +232,18 @@ export default function Sidebar() {
     };
   });
 
+  // Feature nav — registry-driven. The shell renders whatever features
+  // expose; nothing here is scheduler-specific (M2 exit criterion).
+  const featureNav: NavItem[] = visibleNavItems(features).map((item) => {
+    const Icon = iconFor(item.iconKey);
+    return {
+      href: item.href,
+      label: item.label,
+      icon: <Icon size={18} />,
+      accent: FEATURE_ACCENT,
+    };
+  });
+
   return (
     <aside
       className="hidden md:flex flex-col w-[244px] shrink-0 px-4 py-6 border-r border-[var(--panel-border)] bg-[var(--panel)] backdrop-blur-xl sticky top-0 h-screen"
@@ -260,6 +280,15 @@ export default function Sidebar() {
           {SELF.map((item) => (
             <NavLink key={item.href} {...item} active={pathname === item.href} />
           ))}
+
+          {featureNav.length > 0 && (
+            <>
+              <GroupLabel className="mt-3">Features</GroupLabel>
+              {featureNav.map((item) => (
+                <NavLink key={item.href} {...item} active={pathname === item.href} />
+              ))}
+            </>
+          )}
         </nav>
       </LayoutGroup>
 
