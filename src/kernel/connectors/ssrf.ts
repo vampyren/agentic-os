@@ -59,6 +59,39 @@ function parseIPv4Mapped(noZone: string): string | null {
 }
 
 /**
+ * Read a DEPRECATED IPv4-compatible IPv6 (`::a.b.c.d`, no `ffff:` prefix)
+ * into its dotted-quad form. Returns null otherwise. Distinct from the
+ * IPv4-MAPPED form above (`::ffff:…`) — the unprefixed form is a separate
+ * historic encoding that an SSRF check would otherwise miss. M4a-5 policy:
+ * we block only when the embedded IPv4 is private; public embedded IPv4
+ * (e.g. `::1.1.1.1`) is allowed. Don't silently widen.
+ *
+ * Two encodings of the SAME address:
+ *   * dotted: `::a.b.c.d`
+ *   * hex:    `::wxyz:wxyz`   (Node's URL parser normalises the literal
+ *                              `::127.0.0.1` to `::7f00:1` — both are
+ *                              IPv4-compatible IPv6).
+ * Both go through the same isPrivateIPv4 table downstream.
+ */
+function parseIPv4Compat(noZone: string): string | null {
+  // Dotted form: `::a.b.c.d`.
+  const dotted = /^::(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/.exec(noZone);
+  if (dotted) return dotted[1]!;
+  // Hex form: `::wxyz:wxyz` — last 32 bits encode the IPv4 in two
+  // 16-bit groups. Distinct from `::ffff:…` (IPv4-mapped) which
+  // parseIPv4Mapped owns. Restricted to the canonical `::wxyz:wxyz`
+  // shape — exactly two non-empty hex groups after the `::`.
+  const hex = /^::([0-9a-f]{1,4}):([0-9a-f]{1,4})$/i.exec(noZone);
+  if (hex) {
+    const a = parseInt(hex[1]!, 16);
+    const b = parseInt(hex[2]!, 16);
+    if (Number.isNaN(a) || Number.isNaN(b) || a > 0xffff || b > 0xffff) return null;
+    return `${(a >> 8) & 0xff}.${a & 0xff}.${(b >> 8) & 0xff}.${b & 0xff}`;
+  }
+  return null;
+}
+
+/**
  * Checks an IPv6 literal for loopback (::1), unspecified (::), unique-local
  * (fc00::/7), link-local (fe80::/10), or an IPv4-mapped IPv6 that encodes a
  * private IPv4 address (`::ffff:127.0.0.1`, `::ffff:a9fe:a9fe`, etc.).
@@ -74,6 +107,11 @@ export function isPrivateIPv6(addr: string): boolean {
   // IPv4-mapped IPv6 — recurse through the IPv4 private-range table.
   const mapped = parseIPv4Mapped(noZone);
   if (mapped && isPrivateIPv4(mapped)) return true;
+  // Deprecated IPv4-COMPATIBLE IPv6 (`::a.b.c.d`, no ffff: prefix). Block
+  // ONLY when the embedded IPv4 is private; public embedded IPv4 stays
+  // allowed (default policy — don't silently widen).
+  const compat = parseIPv4Compat(noZone);
+  if (compat && isPrivateIPv4(compat)) return true;
   return false;
 }
 

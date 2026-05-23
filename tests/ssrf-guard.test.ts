@@ -49,6 +49,41 @@ describe("isPrivateIPv4 / isPrivateIPv6", () => {
     // Public IPv4 mapped should NOT be flagged.
     expect(isPrivateIPv6("::ffff:1.1.1.1")).toBe(false);
   });
+
+  it("flags DEPRECATED IPv4-compatible IPv6 (`::a.b.c.d` and hex form) only when embedded IPv4 is private (M4a-5 PR AB)", () => {
+    // Dotted form — private embedded IPv4 -> blocked.
+    expect(isPrivateIPv6("::127.0.0.1")).toBe(true);
+    expect(isPrivateIPv6("::169.254.169.254")).toBe(true);
+    expect(isPrivateIPv6("::10.0.0.5")).toBe(true);
+    expect(isPrivateIPv6("::192.168.1.1")).toBe(true);
+    // Dotted form — public embedded IPv4 -> NOT blocked (don't widen).
+    expect(isPrivateIPv6("::1.1.1.1")).toBe(false);
+    expect(isPrivateIPv6("::8.8.8.8")).toBe(false);
+    // Hex form — Node's URL parser normalises `::127.0.0.1` -> `::7f00:1`.
+    // Same address, same policy.
+    expect(isPrivateIPv6("::7f00:1")).toBe(true);              // 127.0.0.1
+    expect(isPrivateIPv6("::a9fe:a9fe")).toBe(true);           // 169.254.169.254
+    expect(isPrivateIPv6("::a00:5")).toBe(true);               // 10.0.0.5
+    expect(isPrivateIPv6("::c0a8:101")).toBe(true);            // 192.168.1.1
+    expect(isPrivateIPv6("::101:101")).toBe(false);            // 1.1.1.1 (public)
+    expect(isPrivateIPv6("::808:808")).toBe(false);            // 8.8.8.8 (public)
+  });
+
+  it("rejects an HTTP family baseUrl using IPv4-compatible IPv6 with a private embedded IPv4", async () => {
+    const noResolver = async (): Promise<string[]> => {
+      throw new Error("test should not need DNS");
+    };
+    await expect(
+      assertPublicBaseUrl("http://[::127.0.0.1]/v1", {
+        allowLocalNetwork: false, resolver: noResolver,
+      }),
+    ).rejects.toBeInstanceOf(SsrfBlockError);
+    await expect(
+      assertPublicBaseUrl("http://[::169.254.169.254]/v1", {
+        allowLocalNetwork: false, resolver: noResolver,
+      }),
+    ).rejects.toBeInstanceOf(SsrfBlockError);
+  });
 });
 
 describe("assertPublicBaseUrl — IP literals", () => {

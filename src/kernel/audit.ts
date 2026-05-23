@@ -319,4 +319,32 @@ export async function auditConnectorAdd(input: {
   }
 }
 
+/**
+ * Audit one pre-save model-discovery call (M4a-5 PR AB). Neutral metadata
+ * only — the SEED preset id, status, errorCode, modelCount. Pre-save
+ * discovery does not create or use a connector instance, so the envelope
+ * carries NO `connectorId`. NEVER the resolved secret, the env var name,
+ * the Authorization header, baseUrl, settings values, raw provider
+ * response, model id list, or any path. Self-contained: a write failure
+ * is logged neutrally and swallowed.
+ */
+export async function auditConnectorModelsDiscover(input: {
+  presetId: string;
+  status: "success" | "failed";
+  errorCode?: string;
+  modelCount?: number;
+}): Promise<void> {
+  try {
+    await writeLine({
+      kind: "connector.models.discover",
+      presetId: input.presetId,
+      status: input.status,
+      ...(input.errorCode ? { errorCode: input.errorCode } : {}),
+      ...(input.modelCount !== undefined ? { modelCount: input.modelCount } : {}),
+    });
+  } catch {
+    console.error("[audit] could not write connector.models.discover line");
+  }
+}
+
 export const AUDIT_TEST_HELPERS = { auditDir, todayUtc };
