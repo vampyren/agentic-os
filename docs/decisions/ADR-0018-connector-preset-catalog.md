@@ -91,10 +91,13 @@ Every preset is parsed through `presetSchema.safeParse(json)`:
 - `typeFamily` not registered → skipped (the family was removed; the
   preset is dead).
 - `allowLocalNetwork` is **only** an opt-in HINT for the Add Provider UI;
-  the actual SSRF gate runs at `config-add` / `testConnection` / `invoke`
-  time (ADR-0017 + spec §8). A preset declaring `allowLocalNetwork: true`
-  does not bypass the SSRF guard for a public-internet baseUrl that
-  resolves to a private address — the SSRF guard always wins.
+  the actual SSRF gate runs at `config-add` and `testConnection` time
+  (ADR-0017 + spec §8). At `invoke` time, `redirect: "manual"` blocks
+  3xx-based rebinding; pure DNS-TTL rebinding between testConnection
+  and invoke is an acknowledged limitation tracked in parked M4a-5.
+  A preset declaring `allowLocalNetwork: true` does not bypass the
+  SSRF guard for a public-internet baseUrl that resolves to a private
+  address — the SSRF guard always wins.
 
 `/api/connectors/presets` (M4a-3b) returns the loaded catalog **including
 each preset's `defaultSettings`** — that is what the Add Provider UI
