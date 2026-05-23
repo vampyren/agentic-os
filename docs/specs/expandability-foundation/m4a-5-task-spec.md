@@ -643,13 +643,15 @@ export type RouterErrorCode =
   | "connector-returned-failure"
   | "connector-invoke-threw"
   | "config-invalid"
-  | "connector-unknown";
+  | "connector-unknown"
+  | "permission-denied";
 
 export const ROUTER_ERROR_CODES: ReadonlySet<RouterErrorCode> = new Set([
   "connector-returned-failure",
   "connector-invoke-threw",
   "config-invalid",
   "connector-unknown",
+  "permission-denied",
 ]);
 
 export function isRouterErrorCode(x: unknown): x is RouterErrorCode {
@@ -657,17 +659,27 @@ export function isRouterErrorCode(x: unknown): x is RouterErrorCode {
 }
 ```
 
-`CapabilityInvokeResult.errorCode` becomes `RouterErrorCode | undefined`.
-Router code can only emit a member of this union. A test asserts
-`isRouterErrorCode(result.errorCode)` for every router failure path.
+`CapabilityInvokeResult.errorCode` is typed `RouterErrorCode | undefined`
+— a `CapabilityRouter` implementation cannot emit an arbitrary string at
+compile time. A test asserts `isRouterErrorCode(result.errorCode)` for
+every failure path.
+
+The fifth member — `permission-denied` — is emitted by the scheduler's
+mission-runner adapter (`src/features/scheduler/missions/runner.ts`)
+BEFORE the real router is reached. The adapter implements
+`CapabilityRouter`, so its errorCode sits on the router-contract
+surface; it is NOT a `ConnectorErrorCode`. The remaining four codes
+remain the router's own sanitisation outputs per ADR-0012 / B13.
 
 **RouterErrorCode vs ConnectorErrorCode — explicit boundary.**
 
 `CapabilityInvokeResult.errorCode` (`router.invoke()`) carries
-**router-normalised `RouterErrorCode` values ONLY**. The router
-collapses a connector's own errorCode (whatever string the connector
-returned or threw) to one of the four neutral router codes, per ADR-0012
-/ B13. There is no widening.
+**router-contract `RouterErrorCode` values ONLY**. The router collapses
+a connector's own errorCode (whatever string the connector returned or
+threw) to one of the four sanitisation members; the mission-runner
+adapter additionally emits `permission-denied`. Both layers share the
+same closed union, per ADR-0012 / B13. There is no widening to
+`ConnectorErrorCode` values.
 
 Connector-facing APIs are **not** capability invocations. They MAY
 surface allowlisted `ConnectorErrorCode` values directly:
