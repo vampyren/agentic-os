@@ -35,7 +35,7 @@ Status values:
 | [`m2-task-spec.md`](m2-task-spec.md) | complete | PR #12 (merge `0ae4070`); side-fix PR #13 (`bda3145`) | None — final. |
 | [`m3-task-spec.md`](m3-task-spec.md) | complete | PR #14 (state DB), PR #15 (RunLedger + restart recovery), PR #16 (`/api/runs` + scheduler wiring), closeout PR #17 | None — final. |
 | [`m4-task-spec.md`](m4-task-spec.md) | complete | PR #18 (M4a-1), PR #19 (M4a-2), PR #20 (M4a-3a), PR #21 (M4a-3b), PR #22 (M4a-3c), PR #23 (M4a-4), closeout PR #26 | None — final. Live `docs/M4A-ACCEPTANCE.md` checklist passed 2026-05-23. |
-| [`m4a-5-task-spec.md`](m4a-5-task-spec.md) | parked (design only — v1.2) | None merged (issue #24 folds in; issue #27 = HTTP capability-invoke route) | Rex decides M4a-5 PR AB vs M5 directly. Optional — may be deferred until after M5. |
+| [`m4a-5-task-spec.md`](m4a-5-task-spec.md) | code complete (v1.2 — backend + UI) | PR #29 (PR AB — hardening + backend discovery), PR #30 (PR C — UI picker); issue #24 (M4a-FU1) folded into the spec; #27 (M4a-FU3 — HTTP capability-invoke route) follows separately | Operator acceptance of the picker UX per [`../../M4A5-ACCEPTANCE.md`](../../M4A5-ACCEPTANCE.md). |
 
 ## Naming caveat
 

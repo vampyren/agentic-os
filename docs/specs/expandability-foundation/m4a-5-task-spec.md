@@ -3,19 +3,23 @@
 **Date:** 2026-05-23
 **Version:** v1.2 — second-pass review folded in (6 corrections); v1.1 absorbed the first 12 revisions; v1 was a first draft
 **Milestone:** M4a-5 — Connector hardening + model discovery (OPTIONAL post-M4a sub-milestone)
-**Status:** **PARKED — DESIGN ONLY** (as of 2026-05-23). The §0 gate is **mostly satisfied**: PR #23 merged (`17cd769`); closeout PR #26 merged (`1333d6a`); §18 live acceptance passed against the operator's running server. The remaining gate is Rex's explicit go-ahead to either start M4a-5 PR AB (hardening + backend discovery) or defer M4a-5 entirely and start M5 first.
+**Status:** **CODE COMPLETE (2026-05-24).** M4a-5 backend hardening + backend model discovery shipped as **PR #29** (merge `6f23684`, 2026-05-23). M4a-5 UI provider picker / searchable model listbox shipped as **PR #30** (merge `1a246c3`, 2026-05-23). Awaiting operator acceptance of the picker UX per [`docs/M4A5-ACCEPTANCE.md`](../../M4A5-ACCEPTANCE.md); M4a-5 is declared **verified** when that checklist passes.
 **Parent design:** `m4-task-spec.md` v2.1 — this spec resolves several of v2.1's *Carried follow-ups* + the new issue #24 (M4a-FU1).
 **Predecessor milestone:** M4a-4 — Hermes read-only Kanban (PR #23, merged `17cd769`).
 **Successor milestone:** M5 — Artifacts + approvals (does not begin until either this milestone ships or Rex explicitly defers it).
 **Audience:** Claude Code (executing agent, when authorised) and Rex (approving / sequencing).
 **Purpose:** Decompose M4a-5 — the optional connector hardening + searchable model picker — into concrete, reviewable work. Ship hardening WITH discovery because the discovery path inherits all of the same network risks.
 
-> **This is a spec-only document.** It is not a green light to implement.
-> M4a is complete and verified — PR #23 (`17cd769`) and the closeout PR #26
-> (`1333d6a`) are both merged, and the §18 live acceptance passed on
-> 2026-05-23. M4a-5 remains **parked design only**; the sole remaining gate
-> is Rex explicitly choosing to start M4a-5 PR AB OR deferring M4a-5 and
-> starting M5 first.
+> **This spec describes M4a-5 as shipped.** PR AB (#29, `6f23684`) and PR C
+> (#30, `1a246c3`) are both merged. Backend hardening + backend model
+> discovery (`effectiveSignal`, `readBoundedJson`, 5-member
+> `RouterErrorCode`, IPv4-compatible IPv6 SSRF, `listModels` +
+> `modelDiscoverySettingsSchema`, `runDiscoverModels`,
+> `POST /api/connectors/models/preview`, `auditConnectorModelsDiscover`)
+> and UI (Load-models button + searchable model picker with combobox/
+> listbox a11y; manual entry always available) are on `main`. The sole
+> remaining gate is operator acceptance of the picker UX (see
+> [`docs/M4A5-ACCEPTANCE.md`](../../M4A5-ACCEPTANCE.md)).
 >
 > **v1 → v1.1 (12 review edits):** (1) discovery validates only what discovery
 > needs — `model` is NOT required; (2) tightened "discovery failure ≠ save
@@ -62,8 +66,11 @@ M4a-5 implementation **must not begin** until ALL of the following hold:
     ADR-0018 (connector preset catalog), ARCHITECTURE updated.
     (PR #26 merged 2026-05-23 as `1333d6a`; all four docs landed.)
 [x] M4a is marked "verified" by Rex.
-[ ] Rex explicitly authorises M4a-5 start (optional milestone; may be
+[x] Rex explicitly authorises M4a-5 start (optional milestone; may be
     deferred until after M5).
+    (Authorised: PR AB started 2026-05-23 after Rex's "Proceed with
+    M4a-5 PR AB" instruction; PR C started after Rex's "Proceed
+    with cleanup and then start M4a-5 PR C" instruction same day.)
 ```
 
 This gate exists because M4a-5 touches the same router / family / SSRF
@@ -1122,11 +1129,10 @@ If Rex skips these, the defaults apply.
 
 ---
 
-**End of M4a-5 task spec (v1.2, design only).** v1.2 folds the
-second-pass review (6 corrections) into v1.1 (which itself folded the
-12-edit consolidated review). Nothing here authorises implementation.
-M4a is complete and verified — PR #23 merged, closeout PR #26 merged,
-and the §18 live acceptance passed (2026-05-23). The sole remaining
-gate per §0 is **Rex's explicit go-ahead** to either start M4a-5 PR AB
-(connector hardening + backend model discovery) or defer M4a-5 and
-start M5 first.
+**End of M4a-5 task spec (v1.2).** v1.2 folded the second-pass review
+(6 corrections) into v1.1, which itself folded the 12-edit consolidated
+review. **M4a-5 shipped:** backend hardening + backend model discovery
+via PR #29 (merge `6f23684`, 2026-05-23); UI provider picker via PR #30
+(merge `1a246c3`, 2026-05-23). The §13 acceptance checklist at
+[`docs/M4A5-ACCEPTANCE.md`](../../M4A5-ACCEPTANCE.md) is the remaining
+gate before M4a-5 is declared verified.

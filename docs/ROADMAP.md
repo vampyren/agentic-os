@@ -116,7 +116,7 @@ Split into three slices so each is small enough to review end-to-end. See ADR-00
 - **M2 — Registry-driven shell** — complete (PR #12; side-fix PR #13).
 - **M3 — SQLite run ledger foundation** — complete (PRs #14 / #15 / #16 + closeout PR #17).
 - **M4a — Connector runtime + local connectors + preset catalog** — complete (PRs #18 / #19 / #20 / #21 / #22 / #23 + closeout PR #26). Live acceptance passed 2026-05-23 against the operator's running server: `openai-live` connector test returned `status: valid`; SSRF probe against `169.254.169.254` blocked neutrally; secret-grep across `/api/connectors` and `/api/runs` clean; full test suite (576 tests) + `npm run build` green.
-- **M4a-5 — Connector hardening + model discovery** — **parked, design only** (`docs/specs/expandability-foundation/m4a-5-task-spec.md` v1.2). Gated on operator decision; may be deferred until after M5.
+- **M4a-5 — Connector hardening + model discovery** — **code complete** (PR #29 backend hardening + backend discovery merged `6f23684`; PR #30 UI provider picker / searchable model listbox merged `1a246c3`, both 2026-05-23). Awaiting operator acceptance of the picker UX per [`docs/M4A5-ACCEPTANCE.md`](M4A5-ACCEPTANCE.md). Spec: [`docs/specs/expandability-foundation/m4a-5-task-spec.md`](specs/expandability-foundation/m4a-5-task-spec.md) v1.2.
 - **M5 — Artifacts + approvals** — **not started**.
 
 Open follow-ups tracked as issues: #24 (M4a-FU1, folded into M4a-5), #25 (M4a-FU2, Hermes Kanban test hardening), #27 (M4a-FU3, user-facing HTTP capability invoke route).
