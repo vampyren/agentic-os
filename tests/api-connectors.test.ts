@@ -118,6 +118,12 @@ async function writePreset(dir: string, name: string, body: unknown): Promise<vo
 async function readConfigYaml(): Promise<string> {
   return fs.readFile(configPath, "utf8");
 }
+async function readAudit(): Promise<string> {
+  const day = new Date().toISOString().slice(0, 10);
+  const auditFile = path.join(auditDir, `${day}.jsonl`);
+  if (!existsSync(auditFile)) return "";
+  return fs.readFile(auditFile, "utf8");
+}
 function GET_REQ(url: string): Request {
   return new Request(url);
 }
@@ -241,7 +247,7 @@ describe("POST /api/connectors", () => {
     expect((await dup.json()).errorClass).toBe("duplicate-id");
   });
 
-  it("rejects a raw API key in authRef neutrally; the value never leaks", async () => {
+  it("rejects a raw API key in authRef neutrally; audits a failed add with no leak", async () => {
     const rawKey = "sk-ABCDEFG-do-not-leak";
     const res = await addConnector(POST_REQ(BASE, {
       connectorId: "leak-attempt",
@@ -253,13 +259,12 @@ describe("POST /api/connectors", () => {
     expect(text).not.toContain(rawKey);
     expect(JSON.parse(text).errorClass).toBe("malformed-authRef");
 
-    // Audit line carries no raw value.
-    const day = new Date().toISOString().slice(0, 10);
-    const auditFile = path.join(auditDir, `${day}.jsonl`);
-    if (existsSync(auditFile)) {
-      const audit = await fs.readFile(auditFile, "utf8");
-      expect(audit).not.toContain(rawKey);
-    }
+    // Audit line — `connector.add` failed entry exists, no raw key leak.
+    const audit = await readAudit();
+    expect(audit).toContain("connector.add");
+    expect(audit).toContain("malformed-authRef");
+    expect(audit).not.toContain(rawKey);
+
     // Config unchanged.
     expect(await readConfigYaml()).not.toContain(rawKey);
   });
@@ -303,6 +308,128 @@ describe("POST /api/connectors", () => {
     // No orphan temp artefacts.
     const siblings = await fs.readdir(path.dirname(configPath));
     expect(siblings.some((n) => n.includes(".tmp-"))).toBe(false);
+  });
+});
+
+// ── POST /api/connectors — concurrency + env-override + failed-audit ──────
+describe("POST /api/connectors — concurrency (TOCTOU race fix)", () => {
+  it("two concurrent adds with DIFFERENT ids both persist", async () => {
+    const [a, b] = await Promise.all([
+      addConnector(POST_REQ(BASE, {
+        connectorId: "race-a", presetId: "test-public", authRef: "env:KA",
+      })),
+      addConnector(POST_REQ(BASE, {
+        connectorId: "race-b", presetId: "test-public", authRef: "env:KB",
+      })),
+    ]);
+    expect(a.status).toBe(200);
+    expect(b.status).toBe(200);
+    const yaml = await readConfigYaml();
+    expect(yaml).toContain("race-a:");
+    expect(yaml).toContain("race-b:");
+  });
+
+  it("two concurrent adds with the SAME id produce one 200 and one 409", async () => {
+    const [a, b] = await Promise.all([
+      addConnector(POST_REQ(BASE, {
+        connectorId: "race-dup", presetId: "test-public", authRef: "env:KA",
+      })),
+      addConnector(POST_REQ(BASE, {
+        connectorId: "race-dup", presetId: "test-public", authRef: "env:KB",
+      })),
+    ]);
+    const statuses = [a.status, b.status].sort();
+    expect(statuses).toEqual([200, 409]);
+    const yaml = await readConfigYaml();
+    // The dup entry appears exactly ONCE.
+    expect(yaml.match(/race-dup:/g)?.length).toBe(1);
+  });
+});
+
+describe("POST /api/connectors — vault.root env override is NOT persisted (B2)", () => {
+  it("a runtime AGENTIC_OS_VAULT does not leak into the written config", async () => {
+    process.env.AGENTIC_OS_VAULT = "/tmp/agentic-os-fake-override-vault";
+    try {
+      const res = await addConnector(POST_REQ(BASE, {
+        connectorId: "vault-test", presetId: "test-public", authRef: "env:K",
+      }));
+      expect(res.status).toBe(200);
+      const yaml = await readConfigYaml();
+      // The file still has the on-disk vault.root, not the runtime override.
+      expect(yaml).toContain(`root: ${vaultRoot}`);
+      expect(yaml).not.toContain("fake-override-vault");
+    } finally {
+      delete process.env.AGENTIC_OS_VAULT;
+    }
+  });
+});
+
+describe("POST /api/connectors — failed audits are neutral and leak-free", () => {
+  it("audits a blocked-network failure with neutral fields only", async () => {
+    const blockedUrl = "http://169.254.169.254/v1";
+    const res = await addConnector(POST_REQ(BASE, {
+      connectorId: "audit-block",
+      presetId: "test-public",
+      settings: { baseUrl: blockedUrl, model: "x" },
+    }));
+    expect(res.status).toBe(400);
+    expect((await res.json()).errorClass).toBe("blocked-network");
+
+    const audit = await readAudit();
+    expect(audit).toContain("connector.add");
+    expect(audit).toContain("audit-block");
+    expect(audit).toContain("blocked-network");
+    // No blocked URL/IP in the audit line.
+    expect(audit).not.toContain("169.254.169.254");
+    expect(audit).not.toContain(blockedUrl);
+  });
+
+  it("audits a secret-looking-key failure without leaking the value", async () => {
+    const res = await addConnector(POST_REQ(BASE, {
+      connectorId: "audit-leak",
+      presetId: "test-public",
+      settings: { apiKey: "sk-LEAK-DO-NOT-AUDIT" },
+    }));
+    expect(res.status).toBe(400);
+    const audit = await readAudit();
+    expect(audit).toContain("connector.add");
+    expect(audit).toContain("secret-looking-key");
+    expect(audit).not.toContain("sk-LEAK-DO-NOT-AUDIT");
+  });
+});
+
+describe("GET /api/connectors/presets — helpUrl scheme guard", () => {
+  it("skips a user preset whose helpUrl is a javascript: URL", async () => {
+    await writePreset(userPresetsDir, "evil.json", {
+      id: "evil",
+      label: "Evil",
+      typeFamily: "openai-compatible-llm",
+      defaultSettings: { baseUrl: "https://1.1.1.1/v1", model: "m" },
+      authPrompt: { apiKeyEnvVar: {
+        label: "Key", helpUrl: "javascript:alert(1)",
+      } },
+      trust: "community",
+    });
+    const res = await listPresets(GET_REQ(`${BASE}/presets`));
+    const body = await res.json();
+    expect(body.presets.find((p: { id: string }) => p.id === "evil")).toBeUndefined();
+  });
+
+  it("accepts a user preset with a valid https:// helpUrl", async () => {
+    await writePreset(userPresetsDir, "kind.json", {
+      id: "kind",
+      label: "Kind",
+      typeFamily: "openai-compatible-llm",
+      defaultSettings: { baseUrl: "https://1.1.1.1/v1", model: "m" },
+      authPrompt: { apiKeyEnvVar: {
+        label: "Key", helpUrl: "https://example.com/help",
+      } },
+      trust: "community",
+    });
+    const res = await listPresets(GET_REQ(`${BASE}/presets`));
+    const body = await res.json();
+    expect(body.presets.find((p: { id: string }) => p.id === "kind"))
+      .toBeDefined();
   });
 });
 

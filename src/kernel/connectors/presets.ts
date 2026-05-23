@@ -67,7 +67,15 @@ const presetSchema = z
     authPrompt: z
       .object({
         apiKeyEnvVar: z
-          .object({ label: z.string(), helpUrl: z.string().optional() })
+          .object({
+            label: z.string(),
+            // helpUrl MUST be http(s) — a user-loaded preset could otherwise
+            // supply `javascript:…` and a UI link click would execute it.
+            helpUrl: z
+              .string()
+              .refine((s) => /^https?:\/\//i.test(s), "helpUrl must be http(s)")
+              .optional(),
+          })
           .optional(),
         baseUrl: z
           .object({ label: z.string(), default: z.string().optional() })
