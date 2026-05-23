@@ -5,14 +5,17 @@
 **Milestone:** M4a-5 — Connector hardening + model discovery (OPTIONAL post-M4a sub-milestone)
 **Status:** **PARKED — DESIGN ONLY** (as of 2026-05-23). The §0 gate is **mostly satisfied**: PR #23 merged (`17cd769`); closeout PR #26 merged (`1333d6a`); §18 live acceptance passed against the operator's running server. The remaining gate is Rex's explicit go-ahead to either start M4a-5 PR AB (hardening + backend discovery) or defer M4a-5 entirely and start M5 first.
 **Parent design:** `m4-task-spec.md` v2.1 — this spec resolves several of v2.1's *Carried follow-ups* + the new issue #24 (M4a-FU1).
-**Predecessor milestone:** M4a-4 — Hermes read-only Kanban (#23 in review).
+**Predecessor milestone:** M4a-4 — Hermes read-only Kanban (PR #23, merged `17cd769`).
 **Successor milestone:** M5 — Artifacts + approvals (does not begin until either this milestone ships or Rex explicitly defers it).
 **Audience:** Claude Code (executing agent, when authorised) and Rex (approving / sequencing).
 **Purpose:** Decompose M4a-5 — the optional connector hardening + searchable model picker — into concrete, reviewable work. Ship hardening WITH discovery because the discovery path inherits all of the same network risks.
 
-> **This is a spec-only document.** It is not a green light to implement. M4a
-> PR4 (#23) remains the next implementation step. M4a-5 starts only after Rex
-> says so.
+> **This is a spec-only document.** It is not a green light to implement.
+> M4a is complete and verified — PR #23 (`17cd769`) and the closeout PR #26
+> (`1333d6a`) are both merged, and the §18 live acceptance passed on
+> 2026-05-23. M4a-5 remains **parked design only**; the sole remaining gate
+> is Rex explicitly choosing to start M4a-5 PR AB OR deferring M4a-5 and
+> starting M5 first.
 >
 > **v1 → v1.1 (12 review edits):** (1) discovery validates only what discovery
 > needs — `model` is NOT required; (2) tightened "discovery failure ≠ save
@@ -1110,6 +1113,8 @@ If Rex skips these, the defaults apply.
 **End of M4a-5 task spec (v1.2, design only).** v1.2 folds the
 second-pass review (6 corrections) into v1.1 (which itself folded the
 12-edit consolidated review). Nothing here authorises implementation.
-The M4a-5 gate (§0) still requires M4a PR4 (#23) merged, the §18
-acceptance passing, M4a's doc-sync landing, AND Rex's explicit go-ahead
-before any M4a-5 branch is cut.
+M4a is complete and verified — PR #23 merged, closeout PR #26 merged,
+and the §18 live acceptance passed (2026-05-23). The sole remaining
+gate per §0 is **Rex's explicit go-ahead** to either start M4a-5 PR AB
+(connector hardening + backend model discovery) or defer M4a-5 and
+start M5 first.
