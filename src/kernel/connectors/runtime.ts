@@ -108,9 +108,15 @@ export function buildConnectorContext(
 
   // 3. (HTTP families) SSRF guard on the resolved baseUrl — wired in M4a-3a.
 
-  // 4. Resolve auth when the family requires it.
+  // 4. Resolve auth. The family may REQUIRE it; or the instance may have
+  //    OPTIONALLY supplied an authRef (e.g. an OpenAI key on the shared
+  //    openai-compatible-llm family that also serves no-auth Ollama). When
+  //    optional authRef is supplied, the env var must resolve — a missing
+  //    value is a misconfiguration, not silently ignored.
   let secret: string | undefined;
-  if (family.auth.required) {
+  const hasOptionalAuthRef =
+    instanceConfig.authRef !== undefined && instanceConfig.authRef !== "none";
+  if (family.auth.required || hasOptionalAuthRef) {
     const auth = resolveAuthRef(instanceConfig.authRef);
     if (!auth.ok) {
       return misconfigured(

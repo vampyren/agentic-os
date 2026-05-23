@@ -144,13 +144,26 @@ export async function loadPresets(
       console.error(`[presets] user preset ${file} is invalid; skipping`);
       continue;
     }
-    // Trust clamp — a user-loaded preset is community regardless of declared trust.
-    if (parsed.data.trust === "first-party") {
-      console.warn(
-        `[presets] user preset ${file} declared first-party; clamped to community`,
-      );
+    // Trust clamp: ONLY downward, never upward (B8 / review fix). A user-
+    // loaded preset declaring `first-party` is downgraded to `community`;
+    // a `community` preset stays; an `untrusted` preset MUST remain
+    // `untrusted` (forcing it to community would be an upgrade).
+    let effectiveTrust: ConnectorPreset["trust"];
+    switch (parsed.data.trust) {
+      case "first-party":
+        console.warn(
+          `[presets] user preset ${file} declared first-party; clamped to community`,
+        );
+        effectiveTrust = "community";
+        break;
+      case "community":
+        effectiveTrust = "community";
+        break;
+      case "untrusted":
+        effectiveTrust = "untrusted";
+        break;
     }
-    out.push({ ...parsed.data, trust: "community" });
+    out.push({ ...parsed.data, trust: effectiveTrust });
   }
 
   return out;

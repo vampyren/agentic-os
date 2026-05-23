@@ -37,6 +37,18 @@ describe("isPrivateIPv4 / isPrivateIPv6", () => {
     expect(isPrivateIPv6("fec0::1")).toBe(false); // outside fe80::/10
     expect(isPrivateIPv6("2606:4700::1")).toBe(false); // public
   });
+
+  it("flags IPv4-mapped IPv6 addresses that encode a private IPv4 (B3)", () => {
+    expect(isPrivateIPv6("::ffff:127.0.0.1")).toBe(true);
+    expect(isPrivateIPv6("::ffff:169.254.169.254")).toBe(true);
+    expect(isPrivateIPv6("::ffff:10.0.0.5")).toBe(true);
+    expect(isPrivateIPv6("::ffff:192.168.1.1")).toBe(true);
+    // Hex-pair forms.
+    expect(isPrivateIPv6("::ffff:7f00:1")).toBe(true);     // 127.0.0.1
+    expect(isPrivateIPv6("::ffff:a9fe:a9fe")).toBe(true);  // 169.254.169.254
+    // Public IPv4 mapped should NOT be flagged.
+    expect(isPrivateIPv6("::ffff:1.1.1.1")).toBe(false);
+  });
 });
 
 describe("assertPublicBaseUrl — IP literals", () => {
@@ -68,8 +80,34 @@ describe("assertPublicBaseUrl — IP literals", () => {
     }
   });
 
-  it("blocks private IPv6 baseUrls", async () => {
+  it("blocks private IPv6 baseUrls — via the LITERAL path, no DNS (B2)", async () => {
+    // noResolver throws if DNS is reached — so these tests confirm the
+    // bracketed-IPv6 literal is recognised by isIP() (B2 bracket strip).
     for (const url of ["https://[::1]/v1", "https://[fc00::1]/v1", "https://[fe80::1]/v1"]) {
+      await expect(
+        assertPublicBaseUrl(url, { allowLocalNetwork: false, resolver: noResolver }),
+      ).rejects.toBeInstanceOf(SsrfBlockError);
+    }
+  });
+
+  it("a PUBLIC IPv6 literal passes via the literal path (B2)", async () => {
+    // If the bracket strip is missing, isIP() returns 0 and the guard would
+    // fall through to DNS — which would throw under noResolver. Resolves
+    // here only if the literal IPv6 path is correctly entered.
+    await expect(
+      assertPublicBaseUrl("https://[2606:4700::1]/v1", {
+        allowLocalNetwork: false, resolver: noResolver,
+      }),
+    ).resolves.toBeUndefined();
+  });
+
+  it("blocks IPv4-mapped IPv6 baseUrls (B3)", async () => {
+    for (const url of [
+      "https://[::ffff:127.0.0.1]/v1",
+      "https://[::ffff:169.254.169.254]/v1",
+      "https://[::ffff:7f00:1]/v1",        // hex form of 127.0.0.1
+      "https://[::ffff:a9fe:a9fe]/v1",     // hex form of 169.254.169.254
+    ]) {
       await expect(
         assertPublicBaseUrl(url, { allowLocalNetwork: false, resolver: noResolver }),
       ).rejects.toBeInstanceOf(SsrfBlockError);
@@ -204,5 +242,57 @@ describe("openai-compatible-llm family — redirects (B11)", () => {
     });
     expect(res.status).toBe("failed");
     expect(res.errorCode).toBe("auth-failed");
+  });
+});
+
+describe("openai-compatible-llm family — Bearer auth header (B1)", () => {
+  function captureFetch(): {
+    fetch: typeof fetch;
+    captured: { authorization?: string; calls: number };
+  } {
+    const captured: { authorization?: string; calls: number } = { calls: 0 };
+    const fn: typeof fetch = (async (_url: string | URL | Request, init?: RequestInit) => {
+      captured.calls++;
+      const headers = (init?.headers ?? {}) as Record<string, string>;
+      captured.authorization = headers.authorization;
+      return new Response(
+        JSON.stringify({ choices: [{ message: { content: "ok" } }] }),
+        { status: 200 },
+      );
+    }) as unknown as typeof fetch;
+    return { fetch: fn, captured };
+  }
+
+  it("sends `Authorization: Bearer <ctx.secret>` when a secret is present", async () => {
+    const { fetch: fakeFetch, captured } = captureFetch();
+    const family = createOpenAiCompatibleLlmFamily({ fetch: fakeFetch });
+    await family.invoke(
+      {
+        connectorId: "openai",
+        typeFamily: "openai-compatible-llm",
+        settings: { baseUrl: "https://api.openai.com/v1", model: "gpt-4o-mini" },
+        secret: "sk-from-env",
+      },
+      "chat.generate",
+      { messages: [{ role: "user", content: "hi" }] },
+    );
+    expect(captured.calls).toBe(1);
+    expect(captured.authorization).toBe("Bearer sk-from-env");
+  });
+
+  it("omits Authorization for a no-auth (Ollama-style) instance", async () => {
+    const { fetch: fakeFetch, captured } = captureFetch();
+    const family = createOpenAiCompatibleLlmFamily({ fetch: fakeFetch });
+    await family.invoke(
+      {
+        connectorId: "ollama",
+        typeFamily: "openai-compatible-llm",
+        settings: { baseUrl: "http://localhost:11434/v1", model: "llama3" },
+      },
+      "chat.generate",
+      { messages: [{ role: "user", content: "hi" }] },
+    );
+    expect(captured.calls).toBe(1);
+    expect(captured.authorization).toBeUndefined();
   });
 });

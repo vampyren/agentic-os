@@ -211,3 +211,84 @@ describe("runConnectorTest", () => {
     expect(result.status).toBe("valid");
   });
 });
+
+describe("runConnectorTest — HTTP SSRF wiring (B5)", () => {
+  function httpFamily(
+    overrides: Partial<ConnectorFamilyDefinition> = {},
+  ): ConnectorFamilyDefinition {
+    return {
+      id: "openai-compatible-llm",
+      title: "Fake HTTP",
+      kind: "ai-provider",
+      transport: "http",
+      capabilities: ["chat.generate"],
+      sideEffects: ["external-api", "network"],
+      defaultTrust: "first-party",
+      settingsSchema: z
+        .object({
+          baseUrl: z.string().url(),
+          model: z.string().optional(),
+        })
+        .passthrough(),
+      defaultSettings: {},
+      auth: { required: false, supportedRefs: ["env"] },
+      invoke: async () => ({ status: "success" }),
+      ...overrides,
+    };
+  }
+
+  function configWithHttp(
+    instanceOverrides: Record<string, unknown> = {},
+  ): AppConfig {
+    return appConfigSchema.parse({
+      vault: { root: tmpDir },
+      connectors: {
+        "my-c": {
+          enabled: true,
+          typeFamily: "openai-compatible-llm",
+          settings: { baseUrl: "http://localhost:11434", model: "m" },
+          ...instanceOverrides,
+        },
+      },
+    });
+  }
+
+  it("blocks a private baseUrl when allowLocalNetwork is false; family.testConnection NOT called", async () => {
+    let called = false;
+    const fam = httpFamily({
+      testConnection: async () => {
+        called = true;
+        return validation({ status: "valid" });
+      },
+    });
+    const result = await runConnectorTest("my-c", {
+      ledger,
+      registry: registryWith(fam),
+      config: configWithHttp(), // allowLocalNetwork omitted -> false
+    });
+    expect(result.status).toBe("misconfigured");
+    expect(result.errorCode).toBe("blocked-network");
+    expect(called).toBe(false);
+    const run = ledger.listRuns()[0]!;
+    expect(run.status).toBe("failed");
+    expect(run.errorCode).toBe("blocked-network");
+  });
+
+  it("reaches family.testConnection when allowLocalNetwork: true", async () => {
+    let called = false;
+    const fam = httpFamily({
+      testConnection: async () => {
+        called = true;
+        return validation({ status: "valid" });
+      },
+    });
+    const result = await runConnectorTest("my-c", {
+      ledger,
+      registry: registryWith(fam),
+      config: configWithHttp({ allowLocalNetwork: true }),
+    });
+    expect(result.status).toBe("valid");
+    expect(called).toBe(true);
+    expect(ledger.listRuns()[0]!.status).toBe("succeeded");
+  });
+});

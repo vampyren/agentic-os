@@ -85,6 +85,12 @@ describe("loadPresets — user catalog trust clamp (B8)", () => {
     expect(presets.find((p) => p.id === "comm")?.trust).toBe("community");
   });
 
+  it("leaves a user preset declaring `untrusted` AS `untrusted` (downward only, B4 fix)", async () => {
+    await write(userDir, "untr.json", { ...VALID_OPENAI, id: "untr", trust: "untrusted" });
+    const presets = await loadPresets({ firstPartyDir, userDir });
+    expect(presets.find((p) => p.id === "untr")?.trust).toBe("untrusted");
+  });
+
   it("user-loaded presets honour the B4 secret-key screen too", async () => {
     await write(userDir, "leak.json", {
       ...VALID_OPENAI,

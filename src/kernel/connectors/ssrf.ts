@@ -42,9 +42,27 @@ export function isPrivateIPv4(addr: string): boolean {
 }
 
 /**
+ * Read an IPv4-mapped IPv6 (`::ffff:a.b.c.d` or `::ffff:wxyz:wxyz`) into its
+ * dotted-quad form. Returns null if the input isn't an IPv4-mapped IPv6.
+ */
+function parseIPv4Mapped(noZone: string): string | null {
+  const dotted = /^::ffff:(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/i.exec(noZone);
+  if (dotted) return dotted[1]!;
+  const hex = /^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/i.exec(noZone);
+  if (hex) {
+    const a = parseInt(hex[1]!, 16);
+    const b = parseInt(hex[2]!, 16);
+    if (Number.isNaN(a) || Number.isNaN(b) || a > 0xffff || b > 0xffff) return null;
+    return `${(a >> 8) & 0xff}.${a & 0xff}.${(b >> 8) & 0xff}.${b & 0xff}`;
+  }
+  return null;
+}
+
+/**
  * Checks an IPv6 literal for loopback (::1), unspecified (::), unique-local
- * (fc00::/7) or link-local (fe80::/10). A zone-id suffix (e.g. "%eth0") is
- * stripped before the check.
+ * (fc00::/7), link-local (fe80::/10), or an IPv4-mapped IPv6 that encodes a
+ * private IPv4 address (`::ffff:127.0.0.1`, `::ffff:a9fe:a9fe`, etc.).
+ * A zone-id suffix (e.g. "%eth0") is stripped before the check.
  */
 export function isPrivateIPv6(addr: string): boolean {
   const noZone = addr.toLowerCase().split("%")[0] ?? "";
@@ -53,6 +71,9 @@ export function isPrivateIPv6(addr: string): boolean {
   if (/^fc[0-9a-f]{2}:/.test(noZone) || /^fd[0-9a-f]{2}:/.test(noZone)) return true;
   // fe80::/10 — first byte 0xfe + next nibble 8..b -> "fe80::" to "febf::"
   if (/^fe[89ab][0-9a-f]:/.test(noZone)) return true;
+  // IPv4-mapped IPv6 — recurse through the IPv4 private-range table.
+  const mapped = parseIPv4Mapped(noZone);
+  if (mapped && isPrivateIPv4(mapped)) return true;
   return false;
 }
 
@@ -98,7 +119,10 @@ export async function assertPublicBaseUrl(
   if (url.protocol !== "http:" && url.protocol !== "https:") {
     throw new SsrfBlockError("baseUrl must use http(s)");
   }
-  const host = url.hostname; // already lowercased / unbracketed by URL parser
+  // Normalize the host: strip IPv6 brackets if the URL parser kept them
+  // (Node's `URL.hostname` has been observed to retain `[…]` for IPv6
+  // literals). isIP() needs the unbracketed form.
+  const host = url.hostname.replace(/^\[/, "").replace(/\]$/, "");
   if (!host) throw new SsrfBlockError("baseUrl has no host");
 
   if (opts.allowLocalNetwork) return;
