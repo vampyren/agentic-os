@@ -1,0 +1,17 @@
+{
+  "id": "openrouter",
+  "label": "OpenRouter",
+  "description": "Hundreds of models via the OpenAI-compatible OpenRouter endpoint.",
+  "typeFamily": "openai-compatible-llm",
+  "defaultSettings": {
+    "baseUrl": "https://openrouter.ai/api/v1",
+    "model": "anthropic/claude-3.5-sonnet"
+  },
+  "authPrompt": {
+    "apiKeyEnvVar": {
+      "label": "Name of the environment variable holding the OpenRouter API key",
+      "helpUrl": "https://openrouter.ai/keys"
+    }
+  },
+  "trust": "first-party"
+}

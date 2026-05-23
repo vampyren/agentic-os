@@ -1,0 +1,17 @@
+{
+  "id": "openai",
+  "label": "OpenAI",
+  "description": "OpenAI Chat Completions — gpt-4o-mini by default.",
+  "typeFamily": "openai-compatible-llm",
+  "defaultSettings": {
+    "baseUrl": "https://api.openai.com/v1",
+    "model": "gpt-4o-mini"
+  },
+  "authPrompt": {
+    "apiKeyEnvVar": {
+      "label": "Name of the environment variable holding the OpenAI API key",
+      "helpUrl": "https://platform.openai.com/api-keys"
+    }
+  },
+  "trust": "first-party"
+}

@@ -10,11 +10,14 @@
 // openai-compatible-llm here.
 
 import { cliAcpAgentFamily } from "@/connectors/cli-acp-agent";
+import { openAiCompatibleLlmFamily } from "@/connectors/openai-compatible-llm";
 import { connectorRegistry } from "./registry";
 
 export function ensureConnectorsRegistered(): void {
   if (!connectorRegistry.get("cli-acp-agent")) {
     connectorRegistry.register(cliAcpAgentFamily);
   }
-  // openai-compatible-llm — M4a-3a.
+  if (!connectorRegistry.get("openai-compatible-llm")) {
+    connectorRegistry.register(openAiCompatibleLlmFamily);
+  }
 }

@@ -1,0 +1,19 @@
+{
+  "id": "openai-compatible-custom",
+  "label": "Custom OpenAI-compatible endpoint",
+  "description": "Any OpenAI-compatible HTTP endpoint — supply the base URL.",
+  "typeFamily": "openai-compatible-llm",
+  "defaultSettings": {
+    "baseUrl": "",
+    "model": ""
+  },
+  "authPrompt": {
+    "apiKeyEnvVar": {
+      "label": "Name of the environment variable holding the API key (optional for unauthenticated endpoints)"
+    },
+    "baseUrl": {
+      "label": "Base URL — must be reachable from this machine and on a public network unless allowLocalNetwork is set"
+    }
+  },
+  "trust": "first-party"
+}

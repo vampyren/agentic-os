@@ -15,6 +15,7 @@ import {
   type ConnectorRegistry,
 } from "./registry";
 import { buildConnectorContext } from "./runtime";
+import { assertPublicBaseUrl } from "./ssrf";
 import type { ConnectorErrorCode, ConnectorValidation } from "./types";
 
 // The closed neutral errorCode registry — a connector cannot smuggle a secret
@@ -165,6 +166,27 @@ export async function runConnectorTest(
   const build = buildConnectorContext(connectorId, instanceConfig, family);
   if (!build.ok) {
     return finish({ ...build.validation, durationMs: Date.now() - startedAt });
+  }
+
+  // HTTP families re-verify the baseUrl is not in a blocked range at test
+  // time (spec §8). `effectiveAllowLocalNetwork` is the operator's instance
+  // value here; PR3b will mix in the preset default at config-add time.
+  if (family.transport === "http") {
+    const settings = build.instance.ctx.settings as { baseUrl?: unknown };
+    const effective = instanceConfig.allowLocalNetwork ?? false;
+    if (typeof settings.baseUrl === "string") {
+      try {
+        await assertPublicBaseUrl(settings.baseUrl, {
+          allowLocalNetwork: effective,
+        });
+      } catch {
+        return fail(
+          "misconfigured",
+          "blocked-network",
+          "connector baseUrl is in a blocked range",
+        );
+      }
+    }
   }
 
   // No testConnection on the family (req 2) -> unknown / capability-unavailable.

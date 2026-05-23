@@ -94,6 +94,39 @@ describe("buildConnectorContext", () => {
     if (r.ok) expect(r.instance.ctx.secret).toBe("sk-runtime");
   });
 
+  it("resolves an OPTIONAL authRef on an auth-not-required family (B1)", () => {
+    // family.auth.required is false; instance still supplies authRef.
+    process.env[VAR] = "sk-optional";
+    const r = buildConnectorContext(
+      "x", instance({ authRef: `env:${VAR}` }), family(),
+    );
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.instance.ctx.secret).toBe("sk-optional");
+  });
+
+  it("an optional authRef whose env var is missing is auth-missing (B1)", () => {
+    delete process.env[VAR];
+    const r = buildConnectorContext(
+      "x", instance({ authRef: `env:${VAR}` }), family(),
+    );
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.validation.errorCode).toBe("auth-missing");
+  });
+
+  it("no authRef + auth-not-required builds with ctx.secret undefined (B1)", () => {
+    const r = buildConnectorContext("x", instance(), family());
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.instance.ctx.secret).toBeUndefined();
+  });
+
+  it("authRef: 'none' is treated as no auth (B1)", () => {
+    const r = buildConnectorContext(
+      "x", instance({ authRef: "none" }), family(),
+    );
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.instance.ctx.secret).toBeUndefined();
+  });
+
   it("computes the effective capability set as family ∩ instance", () => {
     const fam = family({
       capabilities: ["agent.run", "code.modify", "chat.generate"],
