@@ -87,9 +87,12 @@ export interface LoadPresetsOpts {
 }
 
 function defaultFirstPartyDir(): string {
-  // The repo's `presets/` directory; resolved from CWD. The Add-Provider
-  // entrypoint can override via opts in PR3b.
-  return path.join(process.cwd(), "presets");
+  // The repo's `presets/` directory; resolved from CWD. Tests and the
+  // Add-Provider entrypoint can override via `AGENTIC_OS_FIRST_PARTY_PRESETS_DIR`.
+  return (
+    process.env["AGENTIC_OS_FIRST_PARTY_PRESETS_DIR"]
+    ?? path.join(process.cwd(), "presets")
+  );
 }
 
 function defaultUserDir(): string {

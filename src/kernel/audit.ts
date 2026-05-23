@@ -293,4 +293,30 @@ export async function auditCapabilityInvoke(input: {
   }
 }
 
+/**
+ * Audit a connector add (M4a-3b). Neutral metadata only — the connector
+ * INSTANCE id, the seed preset id, status, errorCode. NEVER the raw
+ * settings, the authRef value, the resolved secret, the baseUrl, or a
+ * provider response. Self-contained: a write failure is logged neutrally
+ * and swallowed.
+ */
+export async function auditConnectorAdd(input: {
+  connectorId: string;
+  presetId?: string;
+  status: "success" | "failed";
+  errorCode?: string;
+}): Promise<void> {
+  try {
+    await writeLine({
+      kind: "connector.add",
+      connectorId: input.connectorId,
+      ...(input.presetId ? { presetId: input.presetId } : {}),
+      status: input.status,
+      ...(input.errorCode ? { errorCode: input.errorCode } : {}),
+    });
+  } catch {
+    console.error("[audit] could not write connector.add line");
+  }
+}
+
 export const AUDIT_TEST_HELPERS = { auditDir, todayUtc };

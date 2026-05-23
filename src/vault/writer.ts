@@ -11,6 +11,7 @@
 
 import { promises as fs } from "node:fs";
 import path from "node:path";
+import { withFileLock } from "@/lib/fileLock";
 import os from "node:os";
 import { createHash } from "node:crypto";
 import YAML from "yaml";
@@ -166,33 +167,11 @@ async function atomicWrite(finalPath: string, content: string): Promise<void> {
   await fs.rename(tmp, finalPath);
 }
 
-// `withFileLock` serializes the whole critical section per absolute path by
-// chaining promises in an in-process map. Single-process scope only — that
-// matches the deployment model (one local Next.js process). The map entry is
-// cleared once its chain drains so it doesn't leak across many distinct
-// files over a long-running session.
-//
-// Used by appendJournalEntry + updateFrontmatter: both do a read → build →
-// atomicWrite that would lose updates under concurrent invocation (e.g. a
-// fast double-tap on the journal compose button, or two goal toggles within
-// the same tick). Per-path serialization fixes that without a real filesystem
-// lock.
-const fileLocks = new Map<string, Promise<unknown>>();
-
-async function withFileLock<T>(absPath: string, fn: () => Promise<T>): Promise<T> {
-  const key = path.resolve(absPath);
-  const prev = fileLocks.get(key) ?? Promise.resolve();
-  // The next caller waits for `prev` to settle (success OR failure) before
-  // running — `.catch(() => {})` makes the chain non-poisoning.
-  const run = prev.catch(() => {}).then(fn);
-  fileLocks.set(key, run);
-  try {
-    return await run;
-  } finally {
-    // Only clear if no newer caller has chained on after us.
-    if (fileLocks.get(key) === run) fileLocks.delete(key);
-  }
-}
+// Per-path serialization is shared with src/kernel/config/writeConfig.ts via
+// src/lib/fileLock.ts — extracted in M4a PR3b. appendJournalEntry +
+// updateFrontmatter both do read → build → atomicWrite that would lose
+// updates under concurrent invocation (e.g. a fast double-tap on the journal
+// compose button, or two goal toggles within the same tick).
 
 export async function writeDraft(input: WriteDraftInput): Promise<WriteDraftResult> {
   if (!path.isAbsolute(input.vaultRoot)) {
