@@ -251,7 +251,11 @@ function PresetForm(props: PresetFormProps) {
     submitting, submitError, onBack, onSubmit,
   } = props;
   const wantsApiKey = Boolean(preset.authPrompt?.apiKeyEnvVar);
-  const wantsBaseUrl = Boolean(preset.authPrompt?.baseUrl)
+  // For openai-compatible-llm presets, ALWAYS show the Base URL field
+  // pre-filled with the preset default — Ollama / local users must be able
+  // to change host or port (server-side SSRF guard remains authoritative).
+  const wantsBaseUrl = preset.typeFamily === "openai-compatible-llm"
+    || Boolean(preset.authPrompt?.baseUrl)
     || !(preset.defaultSettings.baseUrl as string | undefined);
   const wantsModel = !(preset.defaultSettings.model as string | undefined);
 
@@ -300,7 +304,7 @@ function PresetForm(props: PresetFormProps) {
                   <a
                     href={preset.authPrompt.apiKeyEnvVar.helpUrl}
                     target="_blank"
-                    rel="noreferrer"
+                    rel="noopener noreferrer"
                     className="underline"
                   >
                     Where to get a key →
