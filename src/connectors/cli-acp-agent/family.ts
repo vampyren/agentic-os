@@ -23,6 +23,7 @@ import type {
   ConnectorResult,
   ConnectorValidation,
 } from "@/kernel/connectors/types";
+import { invokeHermesKanban, type AgentManifestLookup } from "./hermes-kanban";
 
 const settingsSchema = z
   .object({
@@ -64,10 +65,17 @@ export function createCliAcpAgentFamily(
     title: "CLI/ACP Agent",
     kind: "managed-agent",
     transport: "subprocess",
-    // M4a-2 max set. M4a-4 widens this to add the read-only kanban.* set
-    // for the Hermes instance (the Claude Code instance keeps narrowing
-    // to just [agent.run]).
-    capabilities: ["agent.run"],
+    // Family-level MAXIMUM capability set. The Hermes instance keeps all
+    // four; the Claude Code instance MUST narrow to [agent.run] in its
+    // config (the family will refuse kanban for an agent it can't fulfil,
+    // but operators should narrow up front — the connector list reflects
+    // the effective set).
+    capabilities: [
+      "agent.run",
+      "kanban.board.list",
+      "kanban.task.list",
+      "kanban.task.show",
+    ],
     sideEffects: ["local-process"],
     defaultTrust: "first-party",
     settingsSchema,
@@ -75,6 +83,24 @@ export function createCliAcpAgentFamily(
     auth: { required: false, supportedRefs: ["env"] },
 
     async invoke(ctx, capability, input): Promise<ConnectorResult> {
+      // Kanban: delegate to the Hermes-specific dispatcher. The agent bin
+      // is the same one the manifest declares — no second subprocess path;
+      // `safeSpawn` is the shared spawn helper. Read-only set only —
+      // `kanban.task.create` is declared in CapabilityIdSchema but has no
+      // implementation here, so the router returns capability-not-supported.
+      if (
+        capability === "kanban.board.list"
+        || capability === "kanban.task.list"
+        || capability === "kanban.task.show"
+      ) {
+        return invokeHermesKanban(
+          ctx,
+          capability,
+          input,
+          buildAgentLookup(agentRegistry),
+        );
+      }
+
       if (capability !== "agent.run") {
         return { status: "failed", errorCode: "capability-not-supported" };
       }
@@ -162,6 +188,25 @@ export function createCliAcpAgentFamily(
           durationMs: Date.now() - startedAt,
         };
       }
+    },
+  };
+}
+
+/**
+ * Build the {@link AgentManifestLookup} the Hermes kanban dispatcher needs —
+ * resolves an agent manifest name to its `bin` via the agent registry, so
+ * the kanban code uses the SAME binary path the operator's manifest already
+ * declared (no second config surface).
+ */
+function buildAgentLookup(
+  agentRegistry: typeof defaultAgentRegistry,
+): AgentManifestLookup {
+  return {
+    binFor(agentName: string): string | null {
+      const entry = agentRegistry.get(agentName);
+      if (!entry) return null;
+      const cfg = entry.manifest.transportConfig as { bin?: unknown };
+      return typeof cfg.bin === "string" ? cfg.bin : null;
     },
   };
 }

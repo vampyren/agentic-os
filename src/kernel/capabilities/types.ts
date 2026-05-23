@@ -24,6 +24,12 @@ export const CapabilityIdSchema = z.enum([
   "code.modify",
   "web.fetch",
   "sandbox.files",
+  // Kanban — read-only set landed in M4a-4 (Hermes-CLI-backed). The write
+  // capability `kanban.task.create` is declared for the eventual write path;
+  // M4a is read-only, so no connector implements it yet.
+  "kanban.board.list",
+  "kanban.task.list",
+  "kanban.task.show",
   "kanban.task.create",
   "vault.note.write",
 ]);
