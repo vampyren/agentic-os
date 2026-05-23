@@ -57,6 +57,40 @@ function assertSupportedConfigVersion(raw: unknown, file: string): void {
   );
 }
 
+/**
+ * Read + validate the on-disk config WITHOUT applying any runtime env
+ * overrides and WITHOUT the vault-root directory-existence check. Used by
+ * config-mutation paths (writeConfig.ts) so a runtime-only override
+ * (e.g. AGENTIC_OS_VAULT) is never persisted back to the file.
+ */
+export async function readConfigFile(filePath?: string): Promise<AppConfig> {
+  const p = filePath ?? configPath();
+  let raw: string;
+  try {
+    raw = await fs.readFile(p, "utf8");
+  } catch (e) {
+    throw new Error(
+      `Agentic OS config not found at ${p}. Underlying error: ${String(e)}`,
+    );
+  }
+  let parsed: unknown;
+  try {
+    parsed = YAML.parse(raw);
+  } catch (e) {
+    throw new Error(`Agentic OS config at ${p} is not valid YAML: ${String(e)}`);
+  }
+  const rawVersion =
+    parsed && typeof parsed === "object"
+      ? (parsed as Record<string, unknown>)["configVersion"]
+      : undefined;
+  assertSupportedConfigVersion(rawVersion, p);
+  const result = appConfigSchema.safeParse(parsed);
+  if (!result.success) {
+    throw new Error(`Agentic OS config at ${p} failed validation: ${result.error.message}`);
+  }
+  return result.data;
+}
+
 export async function loadConfig(): Promise<AppConfig> {
   const p = configPath();
   let raw: string;

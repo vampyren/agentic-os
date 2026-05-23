@@ -67,7 +67,15 @@ const presetSchema = z
     authPrompt: z
       .object({
         apiKeyEnvVar: z
-          .object({ label: z.string(), helpUrl: z.string().optional() })
+          .object({
+            label: z.string(),
+            // helpUrl MUST be http(s) — a user-loaded preset could otherwise
+            // supply `javascript:…` and a UI link click would execute it.
+            helpUrl: z
+              .string()
+              .refine((s) => /^https?:\/\//i.test(s), "helpUrl must be http(s)")
+              .optional(),
+          })
           .optional(),
         baseUrl: z
           .object({ label: z.string(), default: z.string().optional() })
@@ -87,9 +95,12 @@ export interface LoadPresetsOpts {
 }
 
 function defaultFirstPartyDir(): string {
-  // The repo's `presets/` directory; resolved from CWD. The Add-Provider
-  // entrypoint can override via opts in PR3b.
-  return path.join(process.cwd(), "presets");
+  // The repo's `presets/` directory; resolved from CWD. Tests and the
+  // Add-Provider entrypoint can override via `AGENTIC_OS_FIRST_PARTY_PRESETS_DIR`.
+  return (
+    process.env["AGENTIC_OS_FIRST_PARTY_PRESETS_DIR"]
+    ?? path.join(process.cwd(), "presets")
+  );
 }
 
 function defaultUserDir(): string {
