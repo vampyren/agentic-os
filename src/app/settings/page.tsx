@@ -1,27 +1,28 @@
 "use client";
 
-// Settings page (Phase 1C — M2).
+// Settings page (M4a — PR3c).
 //
-// Shell-owned page (not a feature, so no feature gate). M2 builds the
-// Features section only — read-only: every registered feature with its
-// lifecycle state, reasons, and its hand-built settings panel if it
-// exposes one. The other rail sections (Connectors / Permissions /
-// Vault / Advanced) are shown disabled — M4a onward fills them in, so
-// the layout is final now.
+// Two sections active in M4a: Features (read-only, M2) and Connectors
+// (M4a-3c). Permissions / Vault / Advanced remain disabled — they fill in
+// with later milestones; the rail layout is final.
 
+import { useState } from "react";
 import { useFeatures } from "@/app/_components/FeaturesProvider";
 import {
   featureSettingsRows,
   type SettingsRow,
 } from "@/app/_lib/shellSelectors";
 import { settingsComponentFor } from "@/app/_components/componentRegistry";
+import { ConnectorsPanel } from "./_connectors/ConnectorsPanel";
 
-const RAIL: { key: string; label: string; active: boolean }[] = [
-  { key: "features", label: "Features", active: true },
-  { key: "connectors", label: "Connectors", active: false },
+type SectionKey = "features" | "connectors" | "permissions" | "vault" | "advanced";
+
+const RAIL: { key: SectionKey; label: string; active: boolean }[] = [
+  { key: "features",    label: "Features",    active: true  },
+  { key: "connectors",  label: "Connectors",  active: true  },
   { key: "permissions", label: "Permissions", active: false },
-  { key: "vault", label: "Vault", active: false },
-  { key: "advanced", label: "Advanced", active: false },
+  { key: "vault",       label: "Vault",       active: false },
+  { key: "advanced",    label: "Advanced",    active: false },
 ];
 
 const STATE_BADGE: Record<
@@ -86,46 +87,72 @@ function FeatureRow({ row }: { row: SettingsRow }) {
   );
 }
 
-export default function SettingsPage() {
+function FeaturesSection() {
   const rows = featureSettingsRows(useFeatures());
+  return (
+    <section className="flex-1 min-w-0 flex flex-col gap-4">
+      <header className="flex flex-col gap-1">
+        <h1 className="text-xl font-medium tracking-tight">Features</h1>
+        <p className="text-[13px] text-[var(--fg-dim)]">
+          Every registered feature, its lifecycle state and reasons.
+          Read-only — toggles land in a later milestone.
+        </p>
+      </header>
+
+      {rows.length === 0 ? (
+        <div className="panel p-8 text-center text-[13px] text-[var(--fg-dim)]">
+          No features registered.
+        </div>
+      ) : (
+        rows.map((row) => <FeatureRow key={row.id} row={row} />)
+      )}
+    </section>
+  );
+}
+
+export default function SettingsPage() {
+  const [section, setSection] = useState<SectionKey>("features");
 
   return (
     <div className="mt-6 flex gap-6">
       <nav className="w-[150px] shrink-0 flex flex-col gap-1">
-        {RAIL.map((item) => (
-          <div
-            key={item.key}
-            className="flex items-center justify-between px-3 py-2 rounded-lg text-[13px]"
-            style={{
-              background: item.active ? "var(--panel)" : "transparent",
-              color: item.active ? "var(--fg)" : "var(--fg-dimmer)",
-            }}
-          >
-            <span>{item.label}</span>
-            {!item.active && (
-              <span className="text-[9px] uppercase tracking-wider">soon</span>
-            )}
-          </div>
-        ))}
+        {RAIL.map((item) => {
+          const selected = section === item.key;
+          if (!item.active) {
+            return (
+              <div
+                key={item.key}
+                className="flex items-center justify-between px-3 py-2 rounded-lg text-[13px]"
+                style={{
+                  background: "transparent",
+                  color: "var(--fg-dimmer)",
+                }}
+              >
+                <span>{item.label}</span>
+                <span className="text-[9px] uppercase tracking-wider">soon</span>
+              </div>
+            );
+          }
+          return (
+            <button
+              type="button"
+              key={item.key}
+              onClick={() => setSection(item.key)}
+              className="flex items-center justify-between px-3 py-2 rounded-lg text-[13px] text-left"
+              style={{
+                background: selected ? "var(--panel)" : "transparent",
+                color: selected ? "var(--fg)" : "var(--fg-dim)",
+                cursor: "pointer",
+              }}
+            >
+              <span>{item.label}</span>
+            </button>
+          );
+        })}
       </nav>
 
-      <section className="flex-1 min-w-0 flex flex-col gap-4">
-        <header className="flex flex-col gap-1">
-          <h1 className="text-xl font-medium tracking-tight">Features</h1>
-          <p className="text-[13px] text-[var(--fg-dim)]">
-            Every registered feature, its lifecycle state and reasons.
-            Read-only — toggles land in a later milestone.
-          </p>
-        </header>
-
-        {rows.length === 0 ? (
-          <div className="panel p-8 text-center text-[13px] text-[var(--fg-dim)]">
-            No features registered.
-          </div>
-        ) : (
-          rows.map((row) => <FeatureRow key={row.id} row={row} />)
-        )}
-      </section>
+      {section === "features" && <FeaturesSection />}
+      {section === "connectors" && <ConnectorsPanel />}
     </div>
   );
 }
