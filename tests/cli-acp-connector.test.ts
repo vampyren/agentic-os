@@ -133,10 +133,18 @@ function ctxFor(connectorId: string, agentName: string): ConnectorInvokeContext 
 
 // ── tests ─────────────────────────────────────────────────────────────────
 describe("cli-acp-agent family — capabilities", () => {
-  it("family declares agent.run as its only capability in M4a-2", () => {
+  it("family declares the cli-acp-agent capability MAX set (agent.run + read-only kanban)", () => {
     expect(family.id).toBe("cli-acp-agent");
-    expect(family.capabilities).toEqual(["agent.run"]);
+    expect(family.capabilities).toEqual([
+      "agent.run",
+      "kanban.board.list",
+      "kanban.task.list",
+      "kanban.task.show",
+    ]);
     expect(family.auth.required).toBe(false);
+    // Read-only: kanban.task.create stays declared (CapabilityIdSchema) but
+    // is NOT in the family's capability set in M4a — no writes yet.
+    expect(family.capabilities).not.toContain("kanban.task.create");
   });
 
   it("requires settings.agent (no default agent name)", async () => {
