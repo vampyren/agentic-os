@@ -5,10 +5,13 @@
 // mechanism + first-party JSON presets; the Add-Provider API + UI land in
 // PR3b / PR3c.
 //
-// Trust clamp (B8): first-party presets ship in the build's `presets/` dir;
-// presets dropped into `~/.agentic-os/presets/` are loaded as `community`
-// regardless of the `trust` field they declare. A user-loaded preset
-// declaring `first-party` is downgraded with a neutral log line.
+// Trust clamp (B8): first-party presets ship in the build's `presets/` dir.
+// Presets dropped into `~/.agentic-os/presets/` are clamped DOWNWARD only —
+// the clamp never UPGRADES trust:
+//   * `first-party` -> `community`   (with a neutral log line)
+//   * `community`   -> `community`   (unchanged)
+//   * `untrusted`   -> `untrusted`   (stays; upgrading to community would
+//                                     be wrong — caught by the PR #20 review)
 //
 // Secret-key screening (B4): a preset whose `defaultSettings` has a
 // secret-looking key (apiKey / token / …) at any depth is SKIPPED neutrally
