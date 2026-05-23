@@ -1,11 +1,14 @@
 # Architecture
 
 This document describes the target architecture. Phases 1A, 1B, and
-Phase 1C are implemented. Phase 1C includes the M1–M4 integration spine
-(PR #8 + PR #9) plus PR #10's scheduled runtime slice: opt-in
-`node-cron` scheduled firing, useful built-in mission outputs, and
-scheduler status visibility. The scheduler remains disabled by default
-unless `features.scheduler.enabled: true` is set.
+Phase 1C are implemented, plus the expandability-foundation milestones
+M1 (feature foundation), M2 (registry-driven shell), M3 (SQLite run
+ledger — see §7), and M4a (connector runtime — see §8). Phase 1C
+includes the M1–M4 integration spine (PR #8 + PR #9) plus PR #10's
+scheduled runtime slice: opt-in `node-cron` scheduled firing, useful
+built-in mission outputs, and scheduler status visibility. The
+scheduler remains disabled by default unless `features.scheduler.enabled:
+true` is set.
 
 ## Goals and non-goals
 
@@ -292,13 +295,40 @@ Agentic OS persistence is **four stores**, each with one role (see [`decisions/A
 
 **`/api/runs`** exposes the ledger read-only plus cancel (`list` / `detail` / `cancel`) — a platform route: CORS-gated, neutral errors, `inputSummary` redacted. See [`decisions/ADR-0016-run-ledger-foundation.md`](decisions/ADR-0016-run-ledger-foundation.md).
 
+### 8. Connector runtime (M4a)
+
+Phase 1C ended with the capability router (ADR-0012) dispatching into a stub. M4a turns that stub into real connector dispatch — Claude Code + Hermes (CLI agents) and OpenAI-compatible LLMs (HTTP) are first-class.
+
+**Three-level identity.** A connector is described at three never-blurred levels:
+
+- **`ConnectorFamilyDefinition`** — the *type*, lives in code (`cli-acp-agent`, `openai-compatible-llm`). Owns `settingsSchema`, advertised `capabilities`, `invoke`, `testConnection`.
+- **`ConnectorPreset`** — a declarative pre-fill of a family's settings, picked from a catalog at Add-Provider time. Lives in JSON (`presets/*.json` first-party + `~/.agentic-os/presets/*.json` operator/community). See [`decisions/ADR-0018-connector-preset-catalog.md`](decisions/ADR-0018-connector-preset-catalog.md).
+- **`ConnectorInstanceConfig`** — the operator's specific configured copy, written to `~/.agentic-os/config.yaml` by the Add Provider flow. Carries its own `id`, `enabled`, `authRef`, `settings`, optional capability narrowing, and an optional `allowLocalNetwork` opt-in.
+
+The router's `connectorId` is the **instance id** everywhere — in `RunRecord`, audit envelopes, `ConnectorInvokeContext`, and the API surface. Effective capabilities for an instance are `family.capabilities` ∩ `preset.capabilities` (if narrowed) ∩ `instance.capabilities` (if narrowed) — narrowing only.
+
+**Secrets — env-only, name-only.** A connector instance stores an `authRef` (`"none"` or `"env:VAR_NAME"`), never a raw key. `resolveAuthRef()` reads from `process.env` server-side and hands the value to the family as `ConnectorInvokeContext.secret`. The resolved secret never reaches `~/.agentic-os/config.yaml`, the audit JSONL, `/api/runs`, `/api/connectors`, or any log line. A 14-name secret-key screen (`apiKey` / `api_key` / `token` / `password` / `bearer` / `secret` / `clientSecret` / `client_secret` / `accessToken` / `access_token` / `refreshToken` / `refresh_token` / `privateKey` / `private_key`, case-insensitive, any depth) rejects an operator pasting a key into `settings` before the config write commits. See [`decisions/ADR-0017-connector-runtime-and-authref.md`](decisions/ADR-0017-connector-runtime-and-authref.md).
+
+**`testConnection` is a Run.** Hitting "Test connection" creates a `connector-test` RunRecord in the ledger (§7 above / ADR-0016), mirrors the family's `ConnectorValidationResult` into its terminal state, awaits the `connector.test` audit line before resolving, and never lets a raw provider error string cross — the audit carries the neutral `errorCode` only.
+
+**Subprocess discipline.** CLI families (`cli-acp-agent`) spawn through the existing `safeSpawn` helper — argv arrays (never `shell: true`), per-arg length cap, null-byte rejection, env allowlist, `NO_COLOR` forced, per-call timeout. Stdout is bounded; stderr is read and never surfaced.
+
+**HTTP discipline.** LLM families (`openai-compatible-llm`) pass through the SSRF guard (`assertPublicBaseUrl`) at config-add and testConnection time. At invoke time, `redirect: "manual"` blocks 3xx-based rebinding so a 3xx becomes `network-unreachable`, never auto-followed; pure DNS-TTL rebinding between testConnection and invoke is an acknowledged limitation tracked in the parked M4a-5 design (request-time DNS re-resolution / IP-pinning is a named follow-up, not shipped in M4a). Families send `Authorization: Bearer <ctx.secret>` only when a secret is present (Ollama-compatible endpoints work secret-less). The SSRF guard blocks `127/8`, `10/8`, `172.16/12`, `192.168/16`, `169.254/16`, `0.0.0.0`, `localhost`, `::1`, `::`, `fc00::/7`, `fe80::/10`, and IPv4-mapped IPv6 (`::ffff:…`). The deprecated IPv4-compatible IPv6 form (`::a.b.c.d`) is the parked M4a-5 hardening item.
+
+**Capability router — real dispatch.** `router.invoke(capabilityId, input, { connectorId? })` resolves the instance, refuses a disabled instance neutrally, verifies the capability is in the instance's effective set, resolves `authRef`, calls the family, and sanitises any thrown or returned failure into the closed `RouterErrorCode` neutral envelope (`config-invalid`, `connector-unknown`, `connector-invoke-threw`, `connector-returned-failure` — per ADR-0012 / spec B13). A failing connector cannot leak a raw error or stack.
+
+**Routes.** `/api/connectors` (list / add / detail), `/api/connectors/presets` (catalog), and `/api/connectors/[id]/test` (run testConnection). The Settings → Connectors UI consumes them; the Add Provider flow lets an operator add an OpenAI-compatible provider with no code, supplying only the env var NAME holding the key.
+
+**Hermes read-only Kanban (M4a-4).** `cli-acp-agent` advertises the read-only kanban capabilities (`kanban.board.list`, `kanban.task.list`, `kanban.task.show`) via the Hermes instance, projecting Hermes JSON to neutral DTOs. Write capabilities (`kanban.task.create`) are declared in `CapabilityIdSchema` but no connector advertises them — M4a is read-only by design.
+
 ## Config and secrets
 
 - `~/.agentic-os/config.yaml` — vault path, default agent, scheduler enable, location label, UI accent overrides.
 - `~/.agentic-os/agents/*.yaml` — user-defined agent manifests, merged with built-ins.
-- `~/.agentic-os/secrets.yaml` — API keys (OpenRouter, Anthropic, OpenAI). Mode 0600. Never logged.
+- `~/.agentic-os/secrets.yaml` — legacy platform-flag secrets predating M4a. **Not the connector secret pathway** — M4a connectors read `process.env` only (`authRef: "env:VAR_NAME"`; see §8). Mode 0600. Never logged.
 - `~/.agentic-os/state.db` — SQLite state DB (run ledger; see §7). Not config: mutable platform state, migrated on open.
-- All paths resolvable from env vars: `AGENTIC_OS_CONFIG`, `AGENTIC_OS_VAULT`, `AGENTIC_OS_STATE_DB`, `AGENTIC_OS_AUDIT_DIR`, etc.
+- `~/.agentic-os/presets/*.json` — operator/community connector presets, walked at boot, trust-clamped downward (see §8 / ADR-0018).
+- All paths resolvable from env vars: `AGENTIC_OS_CONFIG`, `AGENTIC_OS_VAULT`, `AGENTIC_OS_STATE_DB`, `AGENTIC_OS_AUDIT_DIR`, `AGENTIC_OS_PRESETS_DIR`, etc.
 
 ## Security model (Phase 1, all slices)
 
