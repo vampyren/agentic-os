@@ -51,8 +51,12 @@ A preset record is one JSON file matching `presetSchema`
 }
 ```
 
-The `id` is a kebab-case slug; duplicates lose to whichever directory
-loaded first (first-party wins on collision).
+The `id` is a kebab-case slug. **First-party presets are loaded before
+user presets** — callers that select by first match (or by trust) will
+effectively prefer first-party — but the catalog itself does NOT
+currently dedupe duplicate ids. A duplicate id from a user preset would
+appear as a second entry in the array. A formal duplicate-id policy
+(dedupe / reject / log) is named as a future hardening item.
 
 ### Trust clamp — downward only
 
@@ -92,10 +96,26 @@ Every preset is parsed through `presetSchema.safeParse(json)`:
   does not bypass the SSRF guard for a public-internet baseUrl that
   resolves to a private address — the SSRF guard always wins.
 
-`/api/connectors/presets` (M4a-3b) returns the loaded catalog as a
-neutral list (id / label / description / typeFamily / authPrompt / trust)
-— no `defaultSettings` contents are leaked; the Add Provider UI receives
-defaults via the per-preset detail surface PR3c shapes.
+`/api/connectors/presets` (M4a-3b) returns the loaded catalog **including
+each preset's `defaultSettings`** — that is what the Add Provider UI
+reads to pre-fill `baseUrl` and `model` fields (PR #22
+`AddProviderFlow.tsx`); there is no separate per-preset detail surface.
+
+Exposing `defaultSettings` is safe because of three locked properties:
+
+1. **Secret-key screening at load time** — a preset whose
+   `defaultSettings` carries any of the 14 secret-looking keys at any
+   depth (ADR-0017) is **skipped neutrally**: logged with its file path,
+   removed from the catalog, never returned. So a community preset
+   trying to ship an `apiKey:` default cannot reach this response.
+2. **First-party `defaultSettings` are public provider defaults** —
+   `presets/openai.json` ships `baseUrl: "https://api.openai.com/v1"`,
+   not a secret. Same for OpenRouter, Ollama, and the custom
+   openai-compatible escape hatch.
+3. **Raw keys never travel through `defaultSettings`** — the only secret
+   pathway is env-var-name-only `authRef` (ADR-0017). A preset cannot
+   even declare an `authRef` value; that field lives on the
+   `ConnectorInstanceConfig`, written by the Add Provider flow.
 
 ### First-party catalog (PR #20)
 

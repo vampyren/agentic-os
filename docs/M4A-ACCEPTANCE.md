@@ -25,19 +25,37 @@ M4a verified.
 
 ---
 
-## Step 1 — `agent.run` via the router (cli-acp-agent)
+## Step 1 — `cli-acp-agent` via the shipped HTTP surfaces
 
-Trigger `agent.run` through the capability router for the Claude Code
-instance, then the Hermes instance. Each returns a real result, and a
-`connector-test` / `capability.invoke` RunRecord appears in `/api/runs`.
+**Important — no `/api/capabilities/invoke` exists in M4a.** The
+capability router is internal: it is exercised by tests and by
+`runConnectorTest` (`/api/connectors/[id]/test`). For agent runs the
+existing `POST /api/agents/[name]/run` route still uses the legacy
+agent `registry` (pre-M4a code), NOT the capability router — that
+route is unchanged by M4a. A user-facing HTTP capability-invoke route
+is **tracked as a follow-up** (see *Follow-ups* at the bottom of this
+file), NOT part of M4a's acceptance.
+
+What M4a's `cli-acp-agent` family is verified by:
+
+```bash
+# (a) testConnection for the Claude Code instance via the router:
+curl -X POST http://127.0.0.1:3000/api/connectors/claude-code/test
+# (b) testConnection for the Hermes instance via the router:
+curl -X POST http://127.0.0.1:3000/api/connectors/hermes/test
+```
 
 ```text
-[ ] curl http://127.0.0.1:3000/api/runs returns the two runs (or a list
-    containing them) with status: "succeeded".
-[ ] /api/runs/<id> on each shows neutral inputSummary, no raw paths,
+[ ] Each returns 200 with `ok: true` and a neutral validation envelope
+    (no agent stderr, no binary path, no `~/.claude` / `~/.hermes`).
+[ ] curl http://127.0.0.1:3000/api/runs returns the two NEW
+    `connector-test` runs with status: "succeeded".
+[ ] /api/runs/<id> on each shows a neutral inputSummary; no raw paths;
     no agent stderr.
-[ ] Audit log line for each carries connector.test or capability.invoke
-    with no `~/.hermes` / `~/.claude` path leak.
+[ ] Audit log line for each carries `connector.test` with neutral
+    fields only.
+[ ] router-level `agent.run` invocation is covered by the M4a-2 unit
+    tests (`tests/cli-acp-connector.test.ts`) — recorded green in Step 9.
 ```
 
 ## Step 2 — Add Provider (Settings UI)
@@ -47,8 +65,20 @@ asks for an **ENV VAR NAME** (not a key — label reads "env var name").
 Supply `OPENAI_API_KEY`. Click Save.
 
 ```text
-[ ] The form refuses to advance if a key shape (sk-... or similar) is
-    typed into the env-var-name field (B4 / secret-key screen).
+[ ] The form refuses to advance if a string that does not match the env
+    var name shape `^[A-Za-z_][A-Za-z0-9_]*$` is typed into the env-var-
+    name field — common real key shapes such as `sk-abc123...` contain
+    `-` (a separator), so they are rejected by the **AUTHREF_REGEX**
+    server-side (and by the client-side shape check). This is NOT the
+    same as the B4 secret-key screen — B4 rejects secret-looking
+    *setting key names* (`apiKey`, `token`, …); the env-var-name check
+    rejects authRef values that are not a clean identifier. Both run.
+[ ] If the operator does manage to type something that *does* match the
+    env var name shape but is actually their API key, the server still
+    saves it as `authRef: "env:<the-string>"` and treats it as the name
+    of an env var to look up — `process.env[<the-string>]` returns
+    undefined, testConnection fails neutrally with `auth-missing`, and
+    nothing about the typed value is ever logged.
 [ ] testConnection runs as part of Save — the result shows inline.
 [ ] The connector is created with `enabled: true`.
 [ ] cat ~/.agentic-os/config.yaml — the entry stores
@@ -57,50 +87,96 @@ Supply `OPENAI_API_KEY`. Click Save.
     Connectors panel.
 ```
 
-## Step 3 — `chat.generate` via the router (openai-compatible-llm)
+## Step 3 — `chat.generate` end-to-end
 
-Invoke `chat.generate` through the router against the new OpenAI
-instance:
+**`/api/capabilities/invoke` does not exist in M4a** (see Step 1). The
+`openai-compatible-llm` family's `invoke()` is exercised by
+`testConnection` (which calls the family's validator path against
+`<baseUrl>/models`) and by the unit tests; a no-code live `chat.generate`
+HTTP probe is tracked as a follow-up.
+
+What M4a verifies live:
 
 ```bash
-curl -X POST http://127.0.0.1:3000/api/capabilities/invoke \
-  -H 'content-type: application/json' \
-  -d '{
-    "capabilityId": "chat.generate",
-    "connectorId": "<the-instance-id-from-step-2>",
-    "input": { "prompt": "Say one word: pong." }
-  }'
+# testConnection against the saved OpenAI instance — this DOES hit the
+# real OpenAI host, with `Authorization: Bearer <ctx.secret>`:
+curl -X POST http://127.0.0.1:3000/api/connectors/<id-from-step-2>/test
 ```
 
 ```text
-[ ] Response is `ok: true` with a real model answer.
-[ ] /api/runs shows a capability-invoke run with status: "succeeded".
-[ ] No code was written to add the provider.
+[ ] Response is 200 with `ok: true` — confirming the env var resolves,
+    the Bearer auth lands, the SSRF guard accepts api.openai.com, and
+    the family parses the response.
+[ ] /api/runs shows a NEW `connector-test` run with status: "succeeded".
+[ ] No code was written to add the provider — the Settings UI + the
+    first-party preset were sufficient.
 ```
 
-## Step 4 — Disabled instance refuses neutrally
+The router-internal `chat.generate` input shape (for when the future
+`/api/capabilities/invoke` lands) is:
 
-Disable the new OpenAI connector (Settings → toggle the row, or edit
-`config.yaml` `enabled: false`) and re-invoke `chat.generate` against
-the same `connectorId`.
+```json
+{
+  "capabilityId": "chat.generate",
+  "connectorId": "<instance id>",
+  "input": {
+    "messages": [{ "role": "user", "content": "Say one word: pong." }]
+  }
+}
+```
+
+NOT `{ "prompt": "…" }` — the family rejects that with `invalid-input`.
+
+## Step 4 — Disabled instance disappears from the surface
+
+**Note — the Settings UI does NOT carry an enable/disable toggle today.**
+The Connectors panel renders the `enabled` flag read-only (an "enabled" /
+"disabled" badge next to a Test button); adding a toggle is a future UI
+follow-up. So the only way to disable in M4a is to edit
+`~/.agentic-os/config.yaml` and set the instance's `enabled: false`,
+then restart (config is not hot-reloaded).
+
+After disabling and restarting:
+
+```bash
+curl http://127.0.0.1:3000/api/connectors
+curl -X POST http://127.0.0.1:3000/api/connectors/<id-from-step-2>/test
+```
 
 ```text
-[ ] Response is `ok: false`, `errorCode: "connector-unknown"` (the
-    router does not distinguish "disabled" from "missing" — ADR-0012).
-[ ] No leaked instance state in the error envelope.
+[ ] The `/api/connectors` list response does NOT include the disabled
+    instance (the route filters to enabled-only via
+    `resolveConnectorInstances`).
+[ ] `POST /api/connectors/<disabled-id>/test` returns a neutral failure —
+    the disabled instance cannot be tested. (`/api/runs` records the
+    failed connector-test attempt with a neutral errorCode.)
+[ ] Internally the capability router collapses a known-but-disabled
+    instance to `connector-unknown` per ADR-0012 (router.ts §dispatch),
+    but that path is exercised by the unit tests, not by a shipped
+    HTTP route in M4a.
 ```
 
-Re-enable the connector before continuing.
+Re-enable the connector in `config.yaml` and restart before continuing.
 
 ## Step 5 — SSRF guard rejects private endpoints
 
-Try to add a custom OpenAI-compatible endpoint pointing at
-`http://127.0.0.1:11434/v1` (or any private address) WITHOUT
-`allowLocalNetwork`.
+Try to add a custom OpenAI-compatible endpoint pointing at a private
+address WITHOUT `allowLocalNetwork`. Try each in turn:
+
+- `http://127.0.0.1:11434/v1`         (loopback)
+- `http://169.254.169.254/latest/v1`  (AWS / cloud-instance metadata IP)
+- `http://10.0.0.1/v1`                (RFC1918)
+- `http://[::1]/v1`                   (IPv6 loopback)
 
 ```text
-[ ] Add Provider Save returns 400 with errorCode "blocked-network".
-[ ] The connector is NOT created (re-list /api/connectors to confirm).
+[ ] Add Provider Save returns 400 with errorClass "blocked-network" /
+    errorCode "blocked-network" for EACH of the four addresses above.
+[ ] No connector is created for any of them
+    (re-list /api/connectors to confirm).
+[ ] SSRF guard runs at config-add time AND testConnection time. At
+    invoke time, redirect: "manual" prevents 3xx-based rebinding;
+    DNS-TTL rebinding between testConnection and invoke is the named
+    M4a-5 follow-up (NOT verified here).
 [ ] Toggling `Allow local network` and re-saving the SAME baseUrl
     succeeds (assuming a local endpoint is actually reachable;
     otherwise it surfaces a neutral testConnection failure but the
@@ -109,32 +185,39 @@ Try to add a custom OpenAI-compatible endpoint pointing at
 
 ## Step 6 — Hermes read-only Kanban
 
-`kanban.board.list` / `kanban.task.list` / `kanban.task.show` via the
-router against the Hermes instance:
+**As with Step 3, `kanban.*` capabilities are not HTTP-exposed in M4a**
+(no `/api/capabilities/invoke`). The Hermes `kanban.board.list` /
+`kanban.task.list` / `kanban.task.show` paths are verified by
+`tests/hermes-kanban.test.ts` (9 tests covering projection, slug
+guards, binary-not-found, missing-stderr-leak); they will become
+HTTP-callable when the future capability-invoke route lands (see
+follow-ups).
 
-```bash
-curl -X POST http://127.0.0.1:3000/api/capabilities/invoke \
-  -H 'content-type: application/json' \
-  -d '{ "capabilityId": "kanban.board.list", "connectorId": "hermes",
-        "input": {} }'
+What M4a verifies live for the Hermes side:
 
-curl -X POST http://127.0.0.1:3000/api/capabilities/invoke \
-  -H 'content-type: application/json' \
-  -d '{ "capabilityId": "kanban.task.list", "connectorId": "hermes",
-        "input": { "boardId": "<a-real-board-id>" } }'
+- `POST /api/connectors/hermes/test` succeeds (Step 1 already covers this).
+- The router-internal kanban paths are green in the test suite
+  (Step 9).
 
-curl -X POST http://127.0.0.1:3000/api/capabilities/invoke \
-  -H 'content-type: application/json' \
-  -d '{ "capabilityId": "kanban.task.show", "connectorId": "hermes",
-        "input": { "taskId": "<a-real-task-id>" } }'
-```
+Per-instance capability narrowing assertion (M4a is read-only by
+design; M4a-FU2 / #25 adds explicit regression tests):
 
 ```text
-[ ] Each returns a neutral DTO (boards / tasks / task) — no `~/.hermes`
-    path, no stderr text, no Hermes binary path in the result.
-[ ] /api/runs entries are present and neutral.
-[ ] `kanban.task.create` returns `connector-unknown` (no advertising
-    connector — M4a is read-only by design).
+[ ] tests/cli-acp-connector.test.ts asserts the family's advertised set
+    is exactly {agent.run, kanban.board.list, kanban.task.list,
+    kanban.task.show} — no kanban.task.create.
+[ ] `kanban.task.create` has no advertising connector in M4a — calling
+    it via the router must FAIL NEUTRALLY (no Hermes write path
+    reached, no raw write attempt logged). The exact neutral errorCode
+    is router-internal; the live assertion is "no advertising
+    connector" via the registry probe — explicit regression test
+    tracked in M4a-FU2 / #25.
+[ ] A narrowed instance (e.g. a manifest declaring
+    `capabilities: [agent.run]`) must NOT serve `kanban.board.list` —
+    `runtime.ts` computes effective capabilities as the family ∩
+    preset ∩ instance narrowing, and the router refuses any capability
+    outside that set. Covered by router tests today and pinned as an
+    explicit regression in M4a-FU2 / #25.
 ```
 
 ## Step 7 — Secret hygiene sweep
@@ -153,10 +236,18 @@ curl http://127.0.0.1:3000/api/runs       | grep "$KEY_PREFIX"  # MUST be empty
 
 ```text
 [ ] All four greps return ZERO matches.
-[ ] /api/connectors response carries authRef: "env:OPENAI_API_KEY" only.
-[ ] Audit lines carry connector.test / capability.invoke envelopes with
-    neutral fields only — no Authorization, no baseUrl in plaintext, no
-    raw provider response, no env var name's resolved value.
+[ ] cat ~/.agentic-os/config.yaml — the instance entry carries
+    `authRef: "env:OPENAI_API_KEY"`. (The config DOES contain the env
+    var NAME — that is intended; it is the lookup key, not the secret.)
+[ ] /api/connectors response carries `authRefKind: "env"` ONLY (per
+    the UI-safe projection in src/app/api/connectors/_shared.ts).
+    It must NOT contain the env var name `OPENAI_API_KEY`.
+    It must NOT contain the prefix `env:`.
+    It must NOT contain the resolved secret value.
+[ ] Audit lines carry `connector.test` (and any future capability.invoke)
+    envelopes with neutral fields only — no Authorization, no baseUrl
+    in plaintext, no raw provider response, no env var name's resolved
+    value, no env var NAME either.
 [ ] `Authorization` header NEVER appears in any audit / log / response.
 ```
 
@@ -201,6 +292,18 @@ git checkout -- next-env.d.ts          # build rewrites it; ADR-0014
 
 ---
 
+**Follow-ups referenced above**
+
+- **HTTP capability-invoke route.** `/api/capabilities/invoke` does NOT
+  ship in M4a. Steps 1, 3, and 6 rely on `/api/connectors/[id]/test`
+  and the test suite to verify router-driven behaviour. A user-facing
+  capability-invoke HTTP route is a tracked follow-up (separate issue,
+  not part of this PR).
+- **Settings UI enable/disable toggle.** PR3c shipped a read-only
+  enabled/disabled badge; toggling lives in a future UI follow-up.
+- **DNS-TTL rebinding** between testConnection and invoke. The parked
+  M4a-5 design covers request-time DNS re-resolution / IP-pinning.
+
 **Out of scope for this checklist** (do NOT block acceptance on these):
 
 - M4a-5 implementation. The parked design (`m4a-5-task-spec.md` v1.2)
@@ -208,7 +311,8 @@ git checkout -- next-env.d.ts          # build rewrites it; ADR-0014
   closed `RouterErrorCode` union, IPv4-compatible IPv6) + model
   discovery + searchable picker. Gated on Rex's explicit go-ahead per §0.
 - M4a-FU2 (#25) test hardening — non-blocking regression tests for
-  PR #23.
+  PR #23 (stdout cap, malformed projection, narrowed-instance refusal,
+  write-capability refusal, audit privacy).
 - M5 artifacts/approvals — a separate milestone.
 - OAuth-mediated LLM family or native-vendor-API family — explicitly
   deferred in v8 §M4a.

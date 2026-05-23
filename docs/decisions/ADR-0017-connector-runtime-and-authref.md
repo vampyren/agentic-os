@@ -126,10 +126,11 @@ shape is also the template M4a-5 reuses for `connector.models.discover`
    neutral `RouterErrorCode` envelope (per ADR-0012 / B13 — `config-invalid`,
    `connector-unknown`, `connector-invoke-threw`, `connector-returned-failure`).
 
-`ConnectorInvokeContext` carries `connectorId`, the resolved settings, the
-optional `secret`, an `AbortSignal`, and a request id — nothing more. A
-family must NOT reach for `process.env` itself; the kernel resolves the
-auth pathway exactly once.
+`ConnectorInvokeContext` carries `connectorId`, the connector's
+`typeFamily`, the resolved `settings`, an optional `secret`, and an
+optional `AbortSignal` — nothing more. A family must NOT reach for
+`process.env` itself; the kernel resolves the auth pathway exactly
+once.
 
 ### Subprocess discipline (CLI families)
 
@@ -147,8 +148,12 @@ HTTP connector families (`openai-compatible-llm` and any future
 descendant) MUST:
 
 - pass through the SSRF guard (`assertPublicBaseUrl`, ADR-companion to
-  ADR-0012 / spec §8) at `config-add` time, at `testConnection` time, and
-  at `invoke` time;
+  ADR-0012 / spec §8) at `config-add` time and at `testConnection`
+  time. At `invoke` time, `redirect: "manual"` blocks 3xx-based
+  rebinding (B11); pure **DNS-TTL** rebinding between testConnection
+  and invoke is an acknowledged limitation tracked in the parked
+  M4a-5 design (request-time DNS re-resolution / IP-pinning is a
+  named follow-up, not shipped in M4a);
 - set `redirect: "manual"` so a 3xx response is treated as
   `network-unreachable`, NEVER auto-followed (B11);
 - send `Authorization: Bearer <ctx.secret>` **only when a secret is
