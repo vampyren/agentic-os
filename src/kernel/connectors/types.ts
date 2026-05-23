@@ -72,6 +72,10 @@ export type ConnectorErrorCode =
   | "external-system-unavailable"
   | "binary-not-found"
   | "blocked-network"
+  // M4a-5 PR AB — readBoundedJson over-cap. A 2xx response whose body
+  // exceeded the family-side byte budget. Disjoint from
+  // `external-system-unavailable` so the UI can render an accurate hint.
+  | "response-too-large"
   | "unknown";
 
 /** Result of a connector test (spec §5 / v8 §5.4). */
@@ -109,6 +113,22 @@ export interface ConnectorInvokeContext {
   signal?: AbortSignal;
 }
 
+/** One model entry returned by a family's `listModels` (M4a-5 PR AB). */
+export interface ConnectorModelEntry {
+  id: string;
+  /** Operator-friendly display name; absent → render `id`. */
+  label?: string;
+  /** Reserved — provider-supplied flags ("chat-capable", "vision", …).
+   *  M4a-5 surfaces them only if the provider already includes them; the
+   *  family never invents. */
+  flags?: ReadonlyArray<string>;
+}
+
+/** Result of a family's `listModels` (M4a-5 PR AB). */
+export type ConnectorModelsResult =
+  | { ok: true; models: ConnectorModelEntry[] }
+  | { ok: false; errorCode: ConnectorErrorCode };
+
 /**
  * A connector type family — registered in CODE. `capabilities` is the
  * MAXIMUM set any instance of the family may expose; an instance narrows it
@@ -127,6 +147,18 @@ export interface ConnectorFamilyDefinition {
   sideEffects: ReadonlyArray<ConnectorSideEffect>;
   defaultTrust: ConnectorTrust;
   settingsSchema: z.ZodTypeAny;
+  /**
+   * Schema for the SUBSET of settings discovery needs — NOT the same as
+   * `settingsSchema`. For `openai-compatible-llm` this is `{ baseUrl }`
+   * only (no `model`, because Load-models exists precisely so the operator
+   * doesn't know the model yet).
+   *
+   * REQUIRED whenever `listModels` is declared; the registry enforces this
+   * invariant at register() time. Optional only when the family does NOT
+   * declare `listModels` (e.g. `cli-acp-agent`). Discovery NEVER falls
+   * back to `settingsSchema` and NEVER silently skips validation.
+   */
+  modelDiscoverySettingsSchema?: z.ZodTypeAny;
   defaultSettings: unknown;
   auth: ConnectorAuth;
   health?: (ctx: ConnectorInvokeContext) => Promise<ConnectorHealth>;
@@ -134,6 +166,14 @@ export interface ConnectorFamilyDefinition {
     ctx: ConnectorInvokeContext,
     opts?: { signal?: AbortSignal; runId?: string },
   ) => Promise<ConnectorValidation>;
+  /**
+   * Optional model-discovery surface (M4a-5 PR AB). A family that declares
+   * this MUST also declare `modelDiscoverySettingsSchema` — the registry
+   * throws at registration time otherwise. A family without `listModels`
+   * routes the preview endpoint to `capability-not-supported` (the
+   * existing ConnectorErrorCode; no new code).
+   */
+  listModels?: (ctx: ConnectorInvokeContext) => Promise<ConnectorModelsResult>;
   invoke: (
     ctx: ConnectorInvokeContext,
     capability: CapabilityId,

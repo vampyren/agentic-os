@@ -14,10 +14,23 @@ import type { ConnectorFamilyDefinition, ConnectorTypeFamily } from "./types";
 class ConnectorRegistry {
   private families = new Map<ConnectorTypeFamily, ConnectorFamilyDefinition>();
 
-  /** Register a connector family definition. Throws on a duplicate id. */
+  /**
+   * Register a connector family definition. Throws on:
+   *   * a duplicate id;
+   *   * a family declaring `listModels` without `modelDiscoverySettingsSchema`
+   *     (M4a-5 PR AB — invariant: discovery NEVER falls back to
+   *     `settingsSchema`, which can require `model` and defeat Load-models).
+   */
   register(family: ConnectorFamilyDefinition): void {
     if (this.families.has(family.id)) {
       throw new Error(`connector family already registered: ${family.id}`);
+    }
+    if (family.listModels && !family.modelDiscoverySettingsSchema) {
+      throw new Error(
+        `connector family "${family.id}" declares listModels but is missing `
+        + `modelDiscoverySettingsSchema — discovery would fall back to `
+        + `settingsSchema and require model, defeating Load-models`,
+      );
     }
     this.families.set(family.id, family);
   }

@@ -123,8 +123,14 @@ shape is also the template M4a-5 reuses for `connector.models.discover`
 6. Builds a transient `ConnectorInvokeContext` and calls
    `family.invoke(capabilityId, input, ctx)`.
 7. **Sanitises** the family's thrown or returned failure into the closed
-   neutral `RouterErrorCode` envelope (per ADR-0012 / B13 — `config-invalid`,
-   `connector-unknown`, `connector-invoke-threw`, `connector-returned-failure`).
+   neutral `RouterErrorCode` envelope (per ADR-0012 / B13). The union has
+   five members: the four router-side sanitisation codes
+   `config-invalid`, `connector-unknown`, `connector-invoke-threw`,
+   `connector-returned-failure`, plus `permission-denied`. The fifth
+   exists because the scheduler's mission-runner adapter implements
+   `CapabilityRouter` and emits `permission-denied` BEFORE the real
+   router is reached, so the error sits on the same router-contract
+   surface; it is not a `ConnectorErrorCode`.
 
 `ConnectorInvokeContext` carries `connectorId`, the connector's
 `typeFamily`, the resolved `settings`, an optional `secret`, and an
@@ -199,10 +205,14 @@ non-negotiable.
 - M4a ships only `cli-acp-agent` and `openai-compatible-llm`. The
   `oauth-mediated-llm` and `native-vendor-api` families are deferred and
   named in v8 §M4a; they will reuse this runtime contract.
-- The closed `RouterErrorCode` union is currently a typed string set
-  (`ROUTER_ERROR_CODES` constant) but `CapabilityInvokeResult.errorCode`
-  is still `string | undefined` at the type boundary. The closed-union
-  type tightening is part of the parked M4a-5 PR A.
+- The closed `RouterErrorCode` union is a typed string set
+  (`ROUTER_ERROR_CODES` constant) AND `CapabilityInvokeResult.errorCode`
+  is now typed `RouterErrorCode | undefined` at the type boundary — the
+  tightening landed in M4a-5 PR AB. A `CapabilityRouter` implementation
+  can no longer emit an arbitrary string at compile time. The five-member
+  union is documented in `src/kernel/capabilities/errorCodes.ts`;
+  `ConnectorErrorCode` remains a separate union and never crosses into
+  the router-emitted result.
 
 ## Alternatives considered
 

@@ -8,6 +8,7 @@
 
 import { z } from "zod";
 import type { ConnectorTrust, ConnectorTypeFamily } from "../connectors/types";
+import type { RouterErrorCode } from "./errorCodes";
 
 // Hard enum — every well-known capability. Adding one is a core type change
 // (+ an ADR). `vault.note.write` and `kanban.task.create` are declared but
@@ -43,6 +44,12 @@ export type CapabilityId = z.infer<typeof CapabilityIdSchema>;
  * failed result never carry a secret, an authRef value, raw input, command
  * args, env, or a private filesystem path. The router constructs only generic
  * strings and a SANITIZED errorCode (B13).
+ *
+ * `errorCode` is typed as the closed RouterErrorCode union (M4a-5 PR AB,
+ * spec §9): a CapabilityRouter implementation cannot emit an arbitrary
+ * string; consumers can switch over a finite set. ConnectorErrorCode values
+ * (e.g. `auth-failed`, `blocked-network`) NEVER cross through here — the
+ * router collapses them to `connector-returned-failure`.
  */
 export interface CapabilityInvokeResult<T = unknown> {
   status: "success" | "failed" | "skipped";
@@ -50,7 +57,7 @@ export interface CapabilityInvokeResult<T = unknown> {
   /** The connector INSTANCE id that handled (or was selected for) the invoke. */
   connectorId?: string;
   output?: T;
-  errorCode?: string;
+  errorCode?: RouterErrorCode;
   message?: string;
   metadata?: Record<string, unknown>;
 }

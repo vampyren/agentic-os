@@ -24,9 +24,34 @@
 import { z } from "zod";
 import type {
   ConnectorFamilyDefinition,
+  ConnectorModelsResult,
   ConnectorResult,
   ConnectorValidation,
 } from "@/kernel/connectors/types";
+import { effectiveSignal } from "@/kernel/connectors/timeout";
+import {
+  CHAT_GENERATE_MAX_BYTES,
+  LIST_MODELS_MAX_BYTES,
+  TEST_CONNECTION_MAX_BYTES,
+  readBoundedJson,
+} from "@/kernel/connectors/bodyCap";
+
+// Default per-operation timeouts (ms). Tight enough that a misbehaving
+// provider cannot wedge a request indefinitely; loose enough that a healthy
+// provider can answer.
+//
+// Deliberate spec deviation (M4a-5 PR AB): the m4a-5-task-spec v1.2 names a
+// DEFAULT_INVOKE_MS of 30_000 as a starting point. We ship 60_000 for
+// `chat.generate` because real LLM completions — especially long-context
+// tool-calling responses against GPT-4-class models — routinely take longer
+// than 30s under normal conditions; a 30s default would surface
+// `network-unreachable` on legitimate slow generations. testConnection
+// (`/models`, no work on the server) stays well under 30s and uses 10_000;
+// listModels (`/models`, potentially a large catalogue) uses 15_000.
+// All three are bounded — effectiveSignal cannot be opted out of.
+const CHAT_GENERATE_TIMEOUT_MS = 60_000;
+const TEST_CONNECTION_TIMEOUT_MS = 10_000;
+const LIST_MODELS_TIMEOUT_MS = 15_000;
 
 const settingsSchema = z
   .object({
@@ -37,6 +62,16 @@ const settingsSchema = z
   })
   .strict();
 type Settings = z.infer<typeof settingsSchema>;
+
+// Discovery surface — what `listModels` actually needs from the merged
+// settings. NOT the full settingsSchema (which requires `model`). The
+// registry's invariant check refuses a family declaring `listModels`
+// without this schema.
+const modelDiscoverySettingsSchema = z
+  .object({
+    baseUrl: z.string().url(),
+  })
+  .passthrough();
 
 const chatGenerateInputSchema = z
   .object({
@@ -59,7 +94,14 @@ export interface OpenAiCompatibleLlmDeps {
 export function createOpenAiCompatibleLlmFamily(
   deps: OpenAiCompatibleLlmDeps = {},
 ): ConnectorFamilyDefinition {
-  const doFetch: typeof fetch = deps.fetch ?? fetch;
+  // When `deps.fetch` is supplied (unit tests inject a fake), we capture
+  // the function once. Otherwise we look up `globalThis.fetch` at CALL
+  // time, not module-load time, so vi.stubGlobal('fetch', …) in route-
+  // level tests reaches the production family. (Capturing the global at
+  // module-load time would let early imports freeze the binding before
+  // the stub is installed.)
+  const doFetch: typeof fetch = deps.fetch
+    ?? ((input, init) => globalThis.fetch(input, init));
 
   function parseSettings(ctxSettings: unknown): Settings | null {
     const r = settingsSchema.safeParse(ctxSettings);
@@ -82,6 +124,7 @@ export function createOpenAiCompatibleLlmFamily(
     sideEffects: ["external-api", "network"],
     defaultTrust: "first-party",
     settingsSchema,
+    modelDiscoverySettingsSchema,
     defaultSettings: {},
     // Spec deviation: declared `false` so a no-auth Ollama preset works
     // through buildConnectorContext; the family adds the Bearer header only
@@ -122,9 +165,11 @@ export function createOpenAiCompatibleLlmFamily(
           headers,
           body,
           redirect: "manual", // B11 — NEVER auto-follow a 3xx
-          ...(ctx.signal ? { signal: ctx.signal } : {}),
+          signal: effectiveSignal(ctx.signal, CHAT_GENERATE_TIMEOUT_MS),
         });
 
+        // Status checks FIRST — body is only read on 2xx. response-too-large
+        // applies ONLY to a 2xx whose body exceeded the cap.
         if (res.status >= 300 && res.status < 400) {
           // The redirected Location is NOT read; nothing about it crosses
           // into the result, audit, ledger, or log line (B11).
@@ -143,13 +188,16 @@ export function createOpenAiCompatibleLlmFamily(
           return { status: "failed", errorCode: "external-system-unavailable" };
         }
 
-        let data: { choices?: Array<{ message?: { content?: string } }> };
-        try {
-          data = (await res.json()) as typeof data;
-        } catch {
+        const read = await readBoundedJson<{
+          choices?: Array<{ message?: { content?: string } }>;
+        }>(res, CHAT_GENERATE_MAX_BYTES);
+        if (!read.ok) {
+          if (read.reason === "too-large") {
+            return { status: "failed", errorCode: "response-too-large" };
+          }
           return { status: "failed", errorCode: "external-system-unavailable" };
         }
-        const text = data.choices?.[0]?.message?.content ?? "";
+        const text = read.value.choices?.[0]?.message?.content ?? "";
         return { status: "success", output: { text } };
       } catch {
         console.error("[openai-compatible-llm] invoke threw");
@@ -178,7 +226,7 @@ export function createOpenAiCompatibleLlmFamily(
           method: "GET",
           headers,
           redirect: "manual",
-          ...(ctx.signal ? { signal: ctx.signal } : {}),
+          signal: effectiveSignal(ctx.signal, TEST_CONNECTION_TIMEOUT_MS),
         });
         const durationMs = Date.now() - startedAt;
         if (res.status >= 300 && res.status < 400) {
@@ -208,6 +256,27 @@ export function createOpenAiCompatibleLlmFamily(
             durationMs,
           };
         }
+        // testConnection only needs the status code to declare validity,
+        // but we still drain the body through the bounded reader so an
+        // over-cap response cannot quietly pass as valid. An over-cap
+        // 2xx is a real signal — a hostile or misbehaving provider is
+        // emitting unexpectedly large output — and we surface it
+        // neutrally rather than reporting `valid`.
+        //
+        // `invalid-json` from the bounded reader is intentionally
+        // tolerated here: the family doesn't parse the /models payload
+        // at testConnection time, and a non-JSON-but-2xx body from
+        // (say) a misconfigured proxy is still evidence the endpoint is
+        // reachable. Only `too-large` becomes a non-valid result.
+        const drain = await readBoundedJson(res, TEST_CONNECTION_MAX_BYTES);
+        if (!drain.ok && drain.reason === "too-large") {
+          return {
+            status: "unreachable",
+            errorCode: "response-too-large",
+            testedAt,
+            durationMs,
+          };
+        }
         return { status: "valid", testedAt, durationMs };
       } catch {
         return {
@@ -216,6 +285,71 @@ export function createOpenAiCompatibleLlmFamily(
           testedAt,
           durationMs: Date.now() - startedAt,
         };
+      }
+    },
+
+    async listModels(ctx): Promise<ConnectorModelsResult> {
+      // Validation surface for listModels is NARROW — `baseUrl` only.
+      // `model` is intentionally absent (Load-models exists because the
+      // operator may not know the model yet).
+      const r = modelDiscoverySettingsSchema.safeParse(ctx.settings);
+      if (!r.success) {
+        return { ok: false, errorCode: "config-invalid" };
+      }
+      const baseUrl = r.data.baseUrl;
+
+      const headers: Record<string, string> = { accept: "application/json" };
+      if (ctx.secret) headers.authorization = `Bearer ${ctx.secret}`;
+
+      try {
+        const res = await doFetch(modelsUrl(baseUrl), {
+          method: "GET",
+          headers,
+          redirect: "manual",
+          signal: effectiveSignal(ctx.signal, LIST_MODELS_TIMEOUT_MS),
+        });
+
+        // Status checks happen BEFORE body read. `response-too-large`
+        // applies ONLY to a 2xx over-cap body — it is not a fall-through.
+        if (res.status >= 300 && res.status < 400) {
+          // B11 — Location is never read or surfaced.
+          return { ok: false, errorCode: "network-unreachable" };
+        }
+        if (res.status === 401 || res.status === 403) {
+          return { ok: false, errorCode: "auth-failed" };
+        }
+        if (res.status === 429) {
+          return { ok: false, errorCode: "rate-limited" };
+        }
+        if (!res.ok) {
+          return { ok: false, errorCode: "external-system-unavailable" };
+        }
+
+        const read = await readBoundedJson<{
+          data?: Array<{ id?: unknown }>;
+        }>(res, LIST_MODELS_MAX_BYTES);
+        if (!read.ok) {
+          if (read.reason === "too-large") {
+            return { ok: false, errorCode: "response-too-large" };
+          }
+          return { ok: false, errorCode: "external-system-unavailable" };
+        }
+        const raw = read.value.data;
+        if (!Array.isArray(raw)) {
+          // Malformed shape — be neutral; this is NOT a network failure.
+          return { ok: false, errorCode: "external-system-unavailable" };
+        }
+        const models = raw
+          .map((m): { id?: unknown } | null =>
+            m && typeof m === "object" ? (m as { id?: unknown }) : null,
+          )
+          .filter((m): m is { id?: unknown } => m !== null)
+          .map((m) => (typeof m.id === "string" ? { id: m.id } : null))
+          .filter((m): m is { id: string } => m !== null);
+        return { ok: true, models };
+      } catch {
+        // Raw fetch error NEVER crosses into the result.
+        return { ok: false, errorCode: "external-system-unavailable" };
       }
     },
   };
