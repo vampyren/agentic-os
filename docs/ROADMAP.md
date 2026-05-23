@@ -100,7 +100,28 @@ Split into three slices so each is small enough to review end-to-end. See ADR-00
 
 **Goal:** The OS does work for the operator on a schedule.
 
-**Current status:** Complete in `v0.3.0`. M1–M4 merged through PR #8 and PR #9; PR #10 added the scheduled runtime slice. `src/instrumentation.ts` starts an opt-in in-process `node-cron` scheduler, enabled mission plans fire through the existing `runMission({ trigger: "scheduled" })` path, built-in missions return useful summary/review drafts or heartbeat events, and `GET /api/scheduler/status` exposes a neutral scheduler snapshot. The scheduler remains disabled by default unless `features.scheduler.enabled: true` is set.
+**Current status:** Complete in `v0.3.0`. The Phase-1C M1–M4 (mission runner, vault writer, mission-run API) merged through PR #8 and PR #9; PR #10 added the scheduled runtime slice. `src/instrumentation.ts` starts an opt-in in-process `node-cron` scheduler, enabled mission plans fire through the existing `runMission({ trigger: "scheduled" })` path, built-in missions return useful summary/review drafts or heartbeat events, and `GET /api/scheduler/status` exposes a neutral scheduler snapshot. The scheduler remains disabled by default unless `features.scheduler.enabled: true` is set.
+
+> **Naming caveat:** the Phase-1C M1–M4 numbering above is unrelated to the **Expandability Foundation M1–M4a** layered on top — that is a separate milestone series tracked in [`specs/expandability-foundation/`](specs/expandability-foundation/) and summarised in the next section.
+
+---
+
+### Expandability Foundation — M1 → M4a (post-v0.3.0)
+
+**Goal:** Turn the Phase-1C kernel into a feature-and-connector platform — features become metadata, connectors become operator-installable, capabilities flow through a real router.
+
+**Current status (2026-05-23):**
+
+- **M1 — Feature foundation** — complete (PR #11).
+- **M2 — Registry-driven shell** — complete (PR #12; side-fix PR #13).
+- **M3 — SQLite run ledger foundation** — complete (PRs #14 / #15 / #16 + closeout PR #17).
+- **M4a — Connector runtime + local connectors + preset catalog** — complete (PRs #18 / #19 / #20 / #21 / #22 / #23 + closeout PR #26). Live acceptance passed 2026-05-23 against the operator's running server: `openai-live` connector test returned `status: valid`; SSRF probe against `169.254.169.254` blocked neutrally; secret-grep across `/api/connectors` and `/api/runs` clean; full test suite (576 tests) + `npm run build` green.
+- **M4a-5 — Connector hardening + model discovery** — **parked, design only** (`docs/specs/expandability-foundation/m4a-5-task-spec.md` v1.2). Gated on operator decision; may be deferred until after M5.
+- **M5 — Artifacts + approvals** — **not started**.
+
+Open follow-ups tracked as issues: #24 (M4a-FU1, folded into M4a-5), #25 (M4a-FU2, Hermes Kanban test hardening), #27 (M4a-FU3, user-facing HTTP capability invoke route).
+
+Detailed specs, status table, and execution PR references live in [`specs/expandability-foundation/README.md`](specs/expandability-foundation/README.md).
 
 **In scope**
 
