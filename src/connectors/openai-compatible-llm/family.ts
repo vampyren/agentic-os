@@ -39,6 +39,16 @@ import {
 // Default per-operation timeouts (ms). Tight enough that a misbehaving
 // provider cannot wedge a request indefinitely; loose enough that a healthy
 // provider can answer.
+//
+// Deliberate spec deviation (M4a-5 PR AB): the m4a-5-task-spec v1.2 names a
+// DEFAULT_INVOKE_MS of 30_000 as a starting point. We ship 60_000 for
+// `chat.generate` because real LLM completions — especially long-context
+// tool-calling responses against GPT-4-class models — routinely take longer
+// than 30s under normal conditions; a 30s default would surface
+// `network-unreachable` on legitimate slow generations. testConnection
+// (`/models`, no work on the server) stays well under 30s and uses 10_000;
+// listModels (`/models`, potentially a large catalogue) uses 15_000.
+// All three are bounded — effectiveSignal cannot be opted out of.
 const CHAT_GENERATE_TIMEOUT_MS = 60_000;
 const TEST_CONNECTION_TIMEOUT_MS = 10_000;
 const LIST_MODELS_TIMEOUT_MS = 15_000;
@@ -84,7 +94,14 @@ export interface OpenAiCompatibleLlmDeps {
 export function createOpenAiCompatibleLlmFamily(
   deps: OpenAiCompatibleLlmDeps = {},
 ): ConnectorFamilyDefinition {
-  const doFetch: typeof fetch = deps.fetch ?? fetch;
+  // When `deps.fetch` is supplied (unit tests inject a fake), we capture
+  // the function once. Otherwise we look up `globalThis.fetch` at CALL
+  // time, not module-load time, so vi.stubGlobal('fetch', …) in route-
+  // level tests reaches the production family. (Capturing the global at
+  // module-load time would let early imports freeze the binding before
+  // the stub is installed.)
+  const doFetch: typeof fetch = deps.fetch
+    ?? ((input, init) => globalThis.fetch(input, init));
 
   function parseSettings(ctxSettings: unknown): Settings | null {
     const r = settingsSchema.safeParse(ctxSettings);
@@ -239,12 +256,27 @@ export function createOpenAiCompatibleLlmFamily(
             durationMs,
           };
         }
-        // For testConnection we don't NEED the body, but we still drain it
-        // through the bounded reader so we observe the over-cap path
-        // symmetrically with chat.generate / listModels. Failure to read
-        // the body is NOT a testConnection failure (the status code was
-        // already 2xx) — we simply don't surface anything about it.
-        await readBoundedJson(res, TEST_CONNECTION_MAX_BYTES).catch(() => null);
+        // testConnection only needs the status code to declare validity,
+        // but we still drain the body through the bounded reader so an
+        // over-cap response cannot quietly pass as valid. An over-cap
+        // 2xx is a real signal — a hostile or misbehaving provider is
+        // emitting unexpectedly large output — and we surface it
+        // neutrally rather than reporting `valid`.
+        //
+        // `invalid-json` from the bounded reader is intentionally
+        // tolerated here: the family doesn't parse the /models payload
+        // at testConnection time, and a non-JSON-but-2xx body from
+        // (say) a misconfigured proxy is still evidence the endpoint is
+        // reachable. Only `too-large` becomes a non-valid result.
+        const drain = await readBoundedJson(res, TEST_CONNECTION_MAX_BYTES);
+        if (!drain.ok && drain.reason === "too-large") {
+          return {
+            status: "unreachable",
+            errorCode: "response-too-large",
+            testedAt,
+            durationMs,
+          };
+        }
         return { status: "valid", testedAt, durationMs };
       } catch {
         return {

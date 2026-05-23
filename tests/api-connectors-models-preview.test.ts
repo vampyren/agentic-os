@@ -2,13 +2,11 @@
 //
 // Mirrors the api-connectors.test.ts setup: tmp config + first-party + user
 // preset dirs, tmp audit dir. No DNS — every test uses IP-literal baseUrls.
-// The openai-compatible-llm family's fetch is NOT injected here; tests use a
-// FAKE family registered on a tmp registry where possible. Where the real
-// registered family is exercised (e.g. CORS + content-length checks), we
-// rely on the route's secret-key + body validation + SSRF guard to short-
-// circuit BEFORE any HTTP call.
+// For the happy-path test we stub global.fetch with `vi.stubGlobal('fetch',
+// …)` so the route can drive the production openai-compatible-llm family
+// through to a fake /models response without touching the network.
 
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { promises as fs, existsSync } from "node:fs";
 import path from "node:path";
 import os from "node:os";
@@ -207,5 +205,72 @@ describe("POST /api/connectors/models/preview — CORS", () => {
     });
     const r = await POST(req);
     expect(r.status).toBe(403);
+  });
+});
+
+describe("POST /api/connectors/models/preview — happy path (stubbed fetch)", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("returns ok:true with the projected model list when /models responds 200", async () => {
+    const captured: Array<{ url: string; init?: RequestInit }> = [];
+    vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
+      captured.push({ url: String(input), init });
+      return new Response(
+        JSON.stringify({
+          data: [
+            { id: "gpt-4o", object: "model" },
+            { id: "gpt-4o-mini", object: "model" },
+            // Malformed entries must be dropped silently — the family
+            // projects only `{ id: string }` shaped rows.
+            { id: 42 },
+            "not-an-object",
+          ],
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    });
+
+    const r = await POST(POST_REQ({ presetId: "test-public" }));
+    expect(r.status).toBe(200);
+    const body = await r.json();
+    expect(body).toEqual({
+      ok: true,
+      models: [{ id: "gpt-4o" }, { id: "gpt-4o-mini" }],
+    });
+
+    // The family did call out — to the preset's baseUrl `/models`.
+    expect(captured.length).toBe(1);
+    expect(captured[0]!.url).toBe("https://1.1.1.1/v1/models");
+
+    // Audit line must be on disk before the response returned — and it
+    // must carry presetId + modelCount and NO `connectorId` (pre-save
+    // discovery never creates an instance).
+    const audit = JSON.parse((await readAudit()).slice(-1)[0]!);
+    expect(audit.kind).toBe("connector.models.discover");
+    expect(audit.presetId).toBe("test-public");
+    expect(audit.status).toBe("success");
+    expect(audit.modelCount).toBe(2);
+    expect(audit.connectorId).toBeUndefined();
+    // Neutral envelope — no model id list, no baseUrl, no Authorization
+    // header, no env var name.
+    expect(JSON.stringify(audit)).not.toContain("gpt-4o");
+    expect(JSON.stringify(audit)).not.toContain("1.1.1.1");
+  });
+
+  it("returns response-too-large when the provider 2xx body exceeds the 2 MB cap", async () => {
+    vi.stubGlobal("fetch", async () =>
+      new Response("x".repeat(3 * 1024 * 1024), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+    const r = await POST(POST_REQ({ presetId: "test-public" }));
+    expect(r.status).toBe(400);
+    const body = await r.json();
+    expect(body.errorClass).toBe("response-too-large");
+    const audit = JSON.parse((await readAudit()).slice(-1)[0]!);
+    expect(audit.errorCode).toBe("response-too-large");
   });
 });

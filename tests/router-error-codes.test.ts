@@ -26,12 +26,17 @@ import type {
 import { z } from "zod";
 
 describe("RouterErrorCode (closed neutral union)", () => {
-  it("ROUTER_ERROR_CODES has exactly the four locked members", () => {
+  it("ROUTER_ERROR_CODES has exactly the locked members", () => {
+    // Closed set: the four router-side sanitisation codes plus the
+    // mission-runner's pre-router permission-denied gate (see
+    // src/kernel/capabilities/errorCodes.ts for why permission-denied
+    // sits inside the router contract surface).
     const expected: RouterErrorCode[] = [
       "connector-returned-failure",
       "connector-invoke-threw",
       "config-invalid",
       "connector-unknown",
+      "permission-denied",
     ];
     expect(ROUTER_ERROR_CODES.size).toBe(expected.length);
     for (const code of expected) expect(ROUTER_ERROR_CODES.has(code)).toBe(true);
@@ -39,8 +44,12 @@ describe("RouterErrorCode (closed neutral union)", () => {
 
   it("isRouterErrorCode accepts members and rejects non-members", () => {
     for (const code of ROUTER_ERROR_CODES) expect(isRouterErrorCode(code)).toBe(true);
-    expect(isRouterErrorCode("auth-failed")).toBe(false);     // ConnectorErrorCode
-    expect(isRouterErrorCode("blocked-network")).toBe(false); // ConnectorErrorCode
+    // ConnectorErrorCode values must NOT cross through router.invoke —
+    // the router collapses them to connector-returned-failure (B13).
+    expect(isRouterErrorCode("auth-failed")).toBe(false);
+    expect(isRouterErrorCode("blocked-network")).toBe(false);
+    expect(isRouterErrorCode("rate-limited")).toBe(false);
+    expect(isRouterErrorCode("response-too-large")).toBe(false);
     expect(isRouterErrorCode("")).toBe(false);
     expect(isRouterErrorCode(undefined)).toBe(false);
     expect(isRouterErrorCode(42)).toBe(false);

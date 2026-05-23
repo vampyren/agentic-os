@@ -36,6 +36,17 @@ function ctxFor(baseUrl: string, secret?: string): ConnectorInvokeContext {
   };
 }
 
+function fullCtxFor(baseUrl: string, model: string, secret?: string): ConnectorInvokeContext {
+  // testConnection requires the FULL settings (baseUrl + model). listModels
+  // requires only baseUrl. This helper builds the testConnection-shaped ctx.
+  return {
+    connectorId: "test:test",
+    typeFamily: "openai-compatible-llm",
+    settings: { baseUrl, model } as Record<string, unknown>,
+    ...(secret ? { secret } : {}),
+  };
+}
+
 describe("openai-compatible-llm.listModels", () => {
   it("validates ONLY baseUrl — `model` is NOT required", async () => {
     let captured: { url: string; init?: RequestInit } | null = null;
@@ -113,6 +124,30 @@ describe("openai-compatible-llm.listModels", () => {
     });
     const r = await family.listModels!(ctxFor("https://x/v1"));
     expect(r).toEqual({ ok: false, errorCode: "external-system-unavailable" });
+  });
+
+  it("testConnection on a 2xx over-cap body returns unreachable with response-too-large, NOT valid", async () => {
+    // Regression guard: an over-cap testConnection body MUST fail neutrally
+    // rather than slip through as `valid`. Symmetric with chat.generate +
+    // listModels.
+    const body = "x".repeat(512 * 1024); // 512 KB > 256 KB testConnection cap
+    const family = createOpenAiCompatibleLlmFamily({
+      fetch: async () => new Response(body, { status: 200 }),
+    });
+    const v = await family.testConnection!(fullCtxFor("https://x/v1", "m"));
+    expect(v.status).toBe("unreachable");
+    expect(v.errorCode).toBe("response-too-large");
+  });
+
+  it("testConnection on a 2xx invalid-JSON body STILL returns valid (status code is enough)", async () => {
+    // testConnection only needs the status code to declare validity — a
+    // non-JSON but 2xx response from a misconfigured proxy is still
+    // evidence the endpoint is reachable. Only `too-large` is fatal.
+    const family = createOpenAiCompatibleLlmFamily({
+      fetch: async () => new Response("<<<not-json>>>", { status: 200 }),
+    });
+    const v = await family.testConnection!(fullCtxFor("https://x/v1", "m"));
+    expect(v.status).toBe("valid");
   });
 
   it("sends Authorization: Bearer only when ctx.secret is present", async () => {
