@@ -33,6 +33,7 @@ import { ensureBuiltinMissions } from "./builtin";
 import { loadConfig } from "@/kernel/config";
 import type { AppConfig } from "@/kernel/schemas/appConfig";
 import { createCapabilityRouter } from "@/kernel/capabilities/router";
+import { ensureConnectorsRegistered } from "@/kernel/connectors/registered";
 import type {
   CapabilityId,
   CapabilityInvokeResult,
@@ -213,9 +214,10 @@ export async function runMission(
   );
 
   // Production path uses the global registry — make sure the built-in
-  // missions are registered into it before the lookup.
+  // missions and connector families are registered into it before lookup.
   if (!overrides?.registry) {
     ensureBuiltinMissions();
+    ensureConnectorsRegistered();
   }
   const registry = overrides?.registry ?? missionRegistry;
 
