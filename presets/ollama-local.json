@@ -1,0 +1,12 @@
+{
+  "id": "ollama-local",
+  "label": "Ollama (local)",
+  "description": "Local Ollama server — local network allowed; no API key required.",
+  "typeFamily": "openai-compatible-llm",
+  "defaultSettings": {
+    "baseUrl": "http://localhost:11434/v1",
+    "model": "llama3"
+  },
+  "allowLocalNetwork": true,
+  "trust": "first-party"
+}
