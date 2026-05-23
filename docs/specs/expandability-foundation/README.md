@@ -36,6 +36,7 @@ Status values:
 | [`m3-task-spec.md`](m3-task-spec.md) | complete | PR #14 (state DB), PR #15 (RunLedger + restart recovery), PR #16 (`/api/runs` + scheduler wiring), closeout PR #17 | None — final. |
 | [`m4-task-spec.md`](m4-task-spec.md) | complete | PR #18 (M4a-1), PR #19 (M4a-2), PR #20 (M4a-3a), PR #21 (M4a-3b), PR #22 (M4a-3c), PR #23 (M4a-4), closeout PR #26 | None — final. Live `docs/M4A-ACCEPTANCE.md` checklist passed 2026-05-23. |
 | [`m4a-5-task-spec.md`](m4a-5-task-spec.md) | parked (design only — v1.2) | None merged (issue #24 folds in; issue #27 = HTTP capability-invoke route) | Rex decides M4a-5 PR AB vs M5 directly. Optional — may be deferred until after M5. |
+| [`m4a-6-task-spec.md`](m4a-6-task-spec.md) | parked (design only — v1 draft) | None — provider picker + UI-managed connector secrets; OAuth + native vendor families explicitly deferred | M4a-5 closeout merge + M4a-5 operator acceptance tick + Rex green-light on PR A (secret store + authRef extension). |
 
 ## Naming caveat
 
