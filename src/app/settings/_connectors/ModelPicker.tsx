@@ -63,8 +63,14 @@ export function ModelPicker({
   const activeId = visible.length > 0 ? optId(highlightedIndex) : undefined;
 
   if (visible.length === 0) {
+    // The container keeps `id={listId}` + `role="listbox"` even when empty
+    // so the combobox input's `aria-controls` always points to a real
+    // listbox element (assistive tech doesn't get a dangling reference).
     return (
       <div
+        id={listId}
+        role="listbox"
+        aria-activedescendant={undefined}
         className="panel mt-1 p-2"
         style={{ borderColor: "var(--panel-border)" }}
       >

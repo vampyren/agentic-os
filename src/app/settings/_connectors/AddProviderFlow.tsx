@@ -282,6 +282,7 @@ function PresetForm(props: PresetFormProps) {
   const [pickerOpen, setPickerOpen] = useState(false);
   const [highlightedIndex, setHighlightedIndex] = useState(0);
   const modelInputRef = useRef<HTMLInputElement | null>(null);
+  const blurCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Filter against the typed value. Preserves provider order (no client
   // sort), case-insensitive substring match.
@@ -298,6 +299,33 @@ function PresetForm(props: PresetFormProps) {
   useEffect(() => {
     setHighlightedIndex(0);
   }, [filter]);
+
+  // Stale-result guard: when ANY discovery input changes after a model
+  // list has been loaded (or a discovery error has surfaced), clear the
+  // cached state so the operator never sees results that don't match
+  // the currently-typed inputs. The Model field itself is NOT cleared —
+  // manual entry must stay intact.
+  useEffect(() => {
+    if (models === null && discoveryError === null) return;
+    setModels(null);
+    setDiscoveryError(null);
+    setPickerOpen(false);
+    setHighlightedIndex(0);
+    // Note: re-running discovery is the operator's call — we don't
+    // auto-retry on input change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [baseUrl, envVar, allowLocalNetwork, preset.id]);
+
+  // Cancel any pending blur-close on unmount so a tab-out followed by
+  // immediate close doesn't fire setState on a stale component.
+  useEffect(() => {
+    return () => {
+      if (blurCloseTimerRef.current) {
+        clearTimeout(blurCloseTimerRef.current);
+        blurCloseTimerRef.current = null;
+      }
+    };
+  }, []);
 
   async function onLoadModels() {
     if (!canDiscover || discovering) return;
@@ -332,9 +360,36 @@ function PresetForm(props: PresetFormProps) {
   }
 
   function onModelKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    // Escape and Enter need to run regardless of whether the visible
+    // list is empty — otherwise an open picker with a zero-match
+    // filter would leak Escape to the outer modal and let Enter
+    // submit the Add Provider form.
+    if (pickerOpen && e.key === "Escape") {
+      // Locked behaviour (spec §11): Escape closes the picker, keeps
+      // focus on the Model field, and does NOT clear the typed value.
+      // stopPropagation prevents the outer modal from also closing.
+      e.preventDefault();
+      e.stopPropagation();
+      setPickerOpen(false);
+      return;
+    }
+    if (pickerOpen && e.key === "Enter") {
+      // With matches: select the highlighted model. With zero matches:
+      // swallow Enter so the form does not submit on an empty picker.
+      const sel = visible[highlightedIndex];
+      if (sel) {
+        e.preventDefault();
+        setModel(sel.id);
+        setPickerOpen(false);
+      } else {
+        e.preventDefault();
+      }
+      return;
+    }
     if (!pickerOpen || visible.length === 0) {
-      // Keyboard nav does nothing when the picker is closed or empty —
-      // the operator can keep typing without interference.
+      // Arrow-key navigation does nothing when the picker is closed or
+      // when the filter yields zero rows — the operator can keep
+      // typing without interference.
       return;
     }
     if (e.key === "ArrowDown") {
@@ -343,21 +398,28 @@ function PresetForm(props: PresetFormProps) {
     } else if (e.key === "ArrowUp") {
       e.preventDefault();
       setHighlightedIndex((i) => Math.max(i - 1, 0));
-    } else if (e.key === "Enter") {
-      const sel = visible[highlightedIndex];
-      if (sel) {
-        e.preventDefault();
-        setModel(sel.id);
-        setPickerOpen(false);
-      }
-    } else if (e.key === "Escape") {
-      // Locked behaviour (spec §11): Escape closes the picker, keeps
-      // focus on the Model field, and does NOT clear the typed value.
-      // stopPropagation prevents the outer modal from also closing.
-      e.preventDefault();
-      e.stopPropagation();
-      setPickerOpen(false);
     }
+  }
+
+  function onModelBlur() {
+    // SHOULD-FIX (PR #30 review): Tab out of the Model field should
+    // close the picker. setTimeout(0) defers the close so a click on
+    // a picker row (which keeps focus on the input via
+    // onMouseDown.preventDefault) still registers before the close
+    // fires. Cleared on the next focus event.
+    if (blurCloseTimerRef.current) clearTimeout(blurCloseTimerRef.current);
+    blurCloseTimerRef.current = setTimeout(() => {
+      setPickerOpen(false);
+      blurCloseTimerRef.current = null;
+    }, 0);
+  }
+
+  function onModelFocus() {
+    if (blurCloseTimerRef.current) {
+      clearTimeout(blurCloseTimerRef.current);
+      blurCloseTimerRef.current = null;
+    }
+    if (models) setPickerOpen(true);
   }
 
   return (
@@ -457,12 +519,15 @@ function PresetForm(props: PresetFormProps) {
                   setModel(e.target.value);
                   if (models) setPickerOpen(true);
                 }}
-                onFocus={() => {
-                  if (models) setPickerOpen(true);
-                }}
+                onFocus={onModelFocus}
+                onBlur={onModelBlur}
                 onKeyDown={onModelKeyDown}
                 role="combobox"
                 aria-autocomplete="list"
+                // aria-controls always points to a real element when
+                // expanded: ModelPicker renders a stable container with
+                // id="model-picker" and role="listbox" even in its empty
+                // state, so this reference is never dangling.
                 aria-controls={pickerOpen ? "model-picker" : undefined}
                 aria-expanded={pickerOpen}
               />
@@ -486,12 +551,7 @@ function PresetForm(props: PresetFormProps) {
                 </span>
               </p>
             )}
-            {models !== null && models.length === 0 && !discoveryError && (
-              <p className="text-[12px] text-[var(--fg-dim)]">
-                Provider returned no models — enter a model id manually.
-              </p>
-            )}
-            {pickerOpen && models !== null && models.length > 0 && (
+            {pickerOpen && models !== null && (
               <ModelPicker
                 listId="model-picker"
                 visible={visible}
@@ -502,6 +562,11 @@ function PresetForm(props: PresetFormProps) {
                   setModel(id);
                   setPickerOpen(false);
                 }}
+                emptyState={
+                  models.length === 0
+                    ? "Provider returned no models — enter a model id manually."
+                    : `No matches for “${model}” — keep typing or enter a model id manually.`
+                }
               />
             )}
           </div>
