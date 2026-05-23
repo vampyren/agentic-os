@@ -29,6 +29,11 @@ export const dynamic = "force-dynamic";
 
 const SLUG_REGEX = /^[a-z0-9][a-z0-9-]{0,63}$/;
 const AUTHREF_REGEX = /^(none|env:[A-Za-z_][A-Za-z0-9_]*)$/;
+// 64 KB is the cap for connector CONFIG-ADD JSON only. Chat prompts, agent
+// context, file inputs, and future run payloads must use a different
+// endpoint / storage path; do not raise this cap to accommodate them.
+// Streaming byte-count enforcement (vs. the declared Content-Length here) is
+// tracked as a separate hardening item.
 const MAX_BODY_BYTES = 64 * 1024;
 
 // ── GET ────────────────────────────────────────────────────────────────────

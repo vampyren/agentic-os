@@ -398,6 +398,30 @@ describe("POST /api/connectors — failed audits are neutral and leak-free", () 
   });
 });
 
+describe("POST /api/connectors — body size cap (64 KB)", () => {
+  it("returns 413 invalid-body when Content-Length exceeds 64 KB; no config write", async () => {
+    const before = await readConfigYaml();
+    // The cap is on the DECLARED Content-Length header (per spec; a true
+    // streaming byte-count cap is tracked separately). Set the header
+    // explicitly above the cap; body content doesn't matter because the
+    // cap short-circuits before req.json() runs.
+    const res = await addConnector(
+      new Request(BASE, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "content-length": "100000",
+        },
+        body: "{}",
+      }),
+    );
+    expect(res.status).toBe(413);
+    expect((await res.json()).errorClass).toBe("invalid-body");
+    // No write happened — config bytes unchanged.
+    expect(await readConfigYaml()).toBe(before);
+  });
+});
+
 describe("GET /api/connectors/presets — helpUrl scheme guard", () => {
   it("skips a user preset whose helpUrl is a javascript: URL", async () => {
     await writePreset(userPresetsDir, "evil.json", {
