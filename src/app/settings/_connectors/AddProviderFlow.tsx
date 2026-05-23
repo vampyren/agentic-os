@@ -13,15 +13,18 @@
 
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   addConnector,
+  discoverModels,
   fetchPresets,
   testConnector,
   type AddConnectorResult,
   type ConnectorPreset,
   type ConnectorValidation,
+  type DiscoveredModel,
 } from "./api";
+import { ModelPicker, MODEL_PICKER_VISIBLE_CAP } from "./ModelPicker";
 
 type Step = "picking" | "filling" | "result";
 
@@ -257,7 +260,167 @@ function PresetForm(props: PresetFormProps) {
   const wantsBaseUrl = preset.typeFamily === "openai-compatible-llm"
     || Boolean(preset.authPrompt?.baseUrl)
     || !(preset.defaultSettings.baseUrl as string | undefined);
-  const wantsModel = !(preset.defaultSettings.model as string | undefined);
+  // The Model field is rendered for openai-compatible-llm presets (so the
+  // discovery picker can pre-fill it) and for any other preset that has no
+  // default model. Manual entry remains available either way.
+  const wantsModel = preset.typeFamily === "openai-compatible-llm"
+    || !(preset.defaultSettings.model as string | undefined);
+  // Discovery is wired for openai-compatible-llm; other families lack a
+  // listModels surface. (The route still returns capability-not-supported
+  // neutrally if the operator triggers it on a non-discovery family.)
+  const canDiscover = preset.typeFamily === "openai-compatible-llm";
+
+  // ── Model discovery state (M4a-5 PR C) ───────────────────────────────────
+  // - `models === null`  -> Load models hasn't run yet (or failed cleanly).
+  // - `models === []`    -> Loaded but provider returned an empty list.
+  // - `models === [...]` -> Searchable picker is available.
+  // Discovery failure NEVER disables / clears / hides the Model field;
+  // manual entry stays available regardless.
+  const [models, setModels] = useState<ReadonlyArray<DiscoveredModel> | null>(null);
+  const [discovering, setDiscovering] = useState(false);
+  const [discoveryError, setDiscoveryError] = useState<string | null>(null);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [highlightedIndex, setHighlightedIndex] = useState(0);
+  const modelInputRef = useRef<HTMLInputElement | null>(null);
+  const blurCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Filter against the typed value. Preserves provider order (no client
+  // sort), case-insensitive substring match.
+  const filter = model.trim().toLowerCase();
+  const filtered = useMemo(() => {
+    if (!models) return [];
+    if (!filter) return models;
+    return models.filter((m) => m.id.toLowerCase().includes(filter));
+  }, [models, filter]);
+  const visible = filtered.slice(0, MODEL_PICKER_VISIBLE_CAP);
+
+  // Reset the picker highlight when the filter changes — without this,
+  // moving past the end of a newly-shorter list would highlight nothing.
+  useEffect(() => {
+    setHighlightedIndex(0);
+  }, [filter]);
+
+  // Stale-result guard: when ANY discovery input changes after a model
+  // list has been loaded (or a discovery error has surfaced), clear the
+  // cached state so the operator never sees results that don't match
+  // the currently-typed inputs. The Model field itself is NOT cleared —
+  // manual entry must stay intact.
+  useEffect(() => {
+    if (models === null && discoveryError === null) return;
+    setModels(null);
+    setDiscoveryError(null);
+    setPickerOpen(false);
+    setHighlightedIndex(0);
+    // Note: re-running discovery is the operator's call — we don't
+    // auto-retry on input change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [baseUrl, envVar, allowLocalNetwork, preset.id]);
+
+  // Cancel any pending blur-close on unmount so a tab-out followed by
+  // immediate close doesn't fire setState on a stale component.
+  useEffect(() => {
+    return () => {
+      if (blurCloseTimerRef.current) {
+        clearTimeout(blurCloseTimerRef.current);
+        blurCloseTimerRef.current = null;
+      }
+    };
+  }, []);
+
+  async function onLoadModels() {
+    if (!canDiscover || discovering) return;
+    setDiscovering(true);
+    setDiscoveryError(null);
+    try {
+      const settings: Record<string, unknown> = {};
+      if (baseUrl) settings.baseUrl = baseUrl;
+      const result = await discoverModels({
+        presetId: preset.id,
+        ...(envVar.trim() ? { authRef: `env:${envVar.trim()}` } : {}),
+        ...(Object.keys(settings).length > 0 ? { settings } : {}),
+        ...(allowLocalNetwork ? { allowLocalNetwork: true } : {}),
+      });
+      if (result.ok) {
+        setModels(result.models);
+        setPickerOpen(true);
+        setHighlightedIndex(0);
+        // Keep focus on the Model input so keyboard navigation works
+        // immediately after Load models.
+        modelInputRef.current?.focus();
+      } else {
+        // Discovery failure: surface the neutral message; do NOT clear,
+        // disable, or hide the Model field. Manual entry stays available.
+        setModels(null);
+        setDiscoveryError(result.message);
+        setPickerOpen(false);
+      }
+    } finally {
+      setDiscovering(false);
+    }
+  }
+
+  function onModelKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    // Escape and Enter need to run regardless of whether the visible
+    // list is empty — otherwise an open picker with a zero-match
+    // filter would leak Escape to the outer modal and let Enter
+    // submit the Add Provider form.
+    if (pickerOpen && e.key === "Escape") {
+      // Locked behaviour (spec §11): Escape closes the picker, keeps
+      // focus on the Model field, and does NOT clear the typed value.
+      // stopPropagation prevents the outer modal from also closing.
+      e.preventDefault();
+      e.stopPropagation();
+      setPickerOpen(false);
+      return;
+    }
+    if (pickerOpen && e.key === "Enter") {
+      // With matches: select the highlighted model. With zero matches:
+      // swallow Enter so the form does not submit on an empty picker.
+      const sel = visible[highlightedIndex];
+      if (sel) {
+        e.preventDefault();
+        setModel(sel.id);
+        setPickerOpen(false);
+      } else {
+        e.preventDefault();
+      }
+      return;
+    }
+    if (!pickerOpen || visible.length === 0) {
+      // Arrow-key navigation does nothing when the picker is closed or
+      // when the filter yields zero rows — the operator can keep
+      // typing without interference.
+      return;
+    }
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setHighlightedIndex((i) => Math.min(i + 1, visible.length - 1));
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setHighlightedIndex((i) => Math.max(i - 1, 0));
+    }
+  }
+
+  function onModelBlur() {
+    // SHOULD-FIX (PR #30 review): Tab out of the Model field should
+    // close the picker. setTimeout(0) defers the close so a click on
+    // a picker row (which keeps focus on the input via
+    // onMouseDown.preventDefault) still registers before the close
+    // fires. Cleared on the next focus event.
+    if (blurCloseTimerRef.current) clearTimeout(blurCloseTimerRef.current);
+    blurCloseTimerRef.current = setTimeout(() => {
+      setPickerOpen(false);
+      blurCloseTimerRef.current = null;
+    }, 0);
+  }
+
+  function onModelFocus() {
+    if (blurCloseTimerRef.current) {
+      clearTimeout(blurCloseTimerRef.current);
+      blurCloseTimerRef.current = null;
+    }
+    if (models) setPickerOpen(true);
+  }
 
   return (
     <form
@@ -337,13 +500,76 @@ function PresetForm(props: PresetFormProps) {
         </Field>
       )}
       {wantsModel && (
-        <Field label="Model">
-          <input
-            className="w-full bg-transparent border rounded-md px-2.5 py-1.5 text-[13px] font-mono outline-none focus:border-[color:var(--panel-border-hot)]"
-            style={{ borderColor: "var(--panel-border)" }}
-            value={model}
-            onChange={(e) => setModel(e.target.value)}
-          />
+        <Field
+          label="Model"
+          hint={
+            canDiscover
+              ? "Type a model id manually, or click Load models to pick from the provider's catalog. Discovery failures never disable this field."
+              : undefined
+          }
+        >
+          <div className="flex flex-col gap-1">
+            <div className="flex items-stretch gap-2">
+              <input
+                ref={modelInputRef}
+                className="flex-1 bg-transparent border rounded-md px-2.5 py-1.5 text-[13px] font-mono outline-none focus:border-[color:var(--panel-border-hot)]"
+                style={{ borderColor: "var(--panel-border)" }}
+                value={model}
+                onChange={(e) => {
+                  setModel(e.target.value);
+                  if (models) setPickerOpen(true);
+                }}
+                onFocus={onModelFocus}
+                onBlur={onModelBlur}
+                onKeyDown={onModelKeyDown}
+                role="combobox"
+                aria-autocomplete="list"
+                // aria-controls always points to a real element when
+                // expanded: ModelPicker renders a stable container with
+                // id="model-picker" and role="listbox" even in its empty
+                // state, so this reference is never dangling.
+                aria-controls={pickerOpen ? "model-picker" : undefined}
+                aria-expanded={pickerOpen}
+              />
+              {canDiscover && (
+                <button
+                  type="button"
+                  className="px-3 py-1.5 text-[12px] border rounded-md hover:opacity-80 disabled:opacity-50 whitespace-nowrap"
+                  style={{ borderColor: "var(--panel-border)", background: "var(--panel)" }}
+                  onClick={onLoadModels}
+                  disabled={discovering}
+                >
+                  {discovering ? "Loading…" : "Load models"}
+                </button>
+              )}
+            </div>
+            {discoveryError && (
+              <p className="text-[12px]" style={{ color: "#fbbf24" }}>
+                {discoveryError}{" "}
+                <span className="text-[var(--fg-dimmer)]">
+                  — enter a model id manually.
+                </span>
+              </p>
+            )}
+            {pickerOpen && models !== null && (
+              <ModelPicker
+                listId="model-picker"
+                visible={visible}
+                totalMatches={filtered.length}
+                highlightedIndex={highlightedIndex}
+                onHover={setHighlightedIndex}
+                onSelect={(id) => {
+                  setModel(id);
+                  setPickerOpen(false);
+                }}
+                emptyState={
+                  models.length === 0
+                    ? "Provider returned no models — enter a model id manually."
+                    : `No matches for “${model}” — keep typing or enter a model id manually.`
+                }
+              />
+            )}
+          </div>
         </Field>
       )}
 
