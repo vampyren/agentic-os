@@ -3,10 +3,24 @@
 // Lists configured connector instances + the Add Provider entry point.
 // The UI surface is a thin renderer over the public projection from
 // GET /api/connectors (no raw settings / authRef / secrets cross the wire).
+//
+// Add Provider flow (post-M4a-5 acceptance UX, this commit):
+// AddProviderFlow auto-closes on a successful add and hands the new
+// connectorId + its testConnection ConnectorValidation back via
+// onAdded(). This panel:
+//   * refreshes the list,
+//   * pre-populates testResults[connectorId] with the validation so the
+//     row's ValidationBadge renders immediately (valid OR non-valid;
+//     auth-missing surfaces here, same as if the operator had clicked
+//     Test), and
+//   * highlights the new row for HIGHLIGHT_MS ms so the operator
+//     visually locates it without scrolling.
+// There is no separate "Added <id>" result screen any more — see the
+// comment on AddProviderFlowProps for the full rationale.
 
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   fetchConnectors,
   testConnector,
@@ -14,6 +28,8 @@ import {
   type ConnectorValidation,
 } from "./api";
 import { AddProviderFlow } from "./AddProviderFlow";
+
+const HIGHLIGHT_MS = 3000;
 
 const TRUST_COLORS = {
   "first-party": "#4ade80",
@@ -29,6 +45,8 @@ export function ConnectorsPanel() {
     Record<string, ConnectorValidation | null>
   >({});
   const [testing, setTesting] = useState<Record<string, boolean>>({});
+  const [highlightedId, setHighlightedId] = useState<string | null>(null);
+  const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const refresh = useCallback(() => {
     void fetchConnectors().then(setConnectors);
@@ -36,11 +54,40 @@ export function ConnectorsPanel() {
 
   useEffect(() => refresh(), [refresh]);
 
+  // Cancel any in-flight highlight timer on unmount so a fast nav-away
+  // doesn't fire setState on a stale component.
+  useEffect(() => {
+    return () => {
+      if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
+    };
+  }, []);
+
   async function onTest(id: string) {
     setTesting((t) => ({ ...t, [id]: true }));
     const v = await testConnector(id);
     setTestResults((r) => ({ ...r, [id]: v }));
     setTesting((t) => ({ ...t, [id]: false }));
+  }
+
+  function onAdded(connectorId: string, validation: ConnectorValidation | null) {
+    refresh();
+    // Pre-populate the test result so the new row's ValidationBadge
+    // renders immediately — valid OR non-valid. This is what replaces
+    // the removed "Added <id>" result screen: the operator sees the
+    // testConnection outcome on the row itself, same surface as the
+    // Test button would produce.
+    if (validation) {
+      setTestResults((r) => ({ ...r, [connectorId]: validation }));
+    }
+    // Brief highlight so the operator visually locates the new row.
+    setHighlightedId(connectorId);
+    if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
+    highlightTimerRef.current = setTimeout(() => {
+      setHighlightedId((current) =>
+        current === connectorId ? null : current,
+      );
+      highlightTimerRef.current = null;
+    }, HIGHLIGHT_MS);
   }
 
   return (
@@ -79,6 +126,7 @@ export function ConnectorsPanel() {
               connector={c}
               testing={testing[c.connectorId] ?? false}
               validation={testResults[c.connectorId] ?? null}
+              highlighted={highlightedId === c.connectorId}
               onTest={() => onTest(c.connectorId)}
             />
           ))}
@@ -88,7 +136,10 @@ export function ConnectorsPanel() {
       {addOpen && (
         <AddProviderFlow
           onClose={() => setAddOpen(false)}
-          onAdded={refresh}
+          onAdded={(connectorId, validation) => {
+            setAddOpen(false);
+            onAdded(connectorId, validation);
+          }}
         />
       )}
     </section>
@@ -96,17 +147,36 @@ export function ConnectorsPanel() {
 }
 
 function ConnectorRow({
-  connector, testing, validation, onTest,
+  connector, testing, validation, highlighted, onTest,
 }: {
   connector: ConnectorListItem;
   testing: boolean;
   validation: ConnectorValidation | null;
+  /** True for HIGHLIGHT_MS after a successful Add Provider flow — the
+   *  row pulses + carries a colored ring so the operator visually
+   *  locates the new connector without scrolling. */
+  highlighted: boolean;
   onTest(): void;
 }) {
   const trustColor = TRUST_COLORS[connector.trust];
   return (
-    <li className="panel p-4 flex flex-col gap-3">
+    <li
+      className={
+        "panel p-4 flex flex-col gap-3 transition-shadow"
+        + (highlighted ? " ring-2 ring-emerald-400 animate-pulse" : "")
+      }
+      style={{
+        transitionDuration: "300ms",
+      }}
+    >
       <div className="flex items-start justify-between gap-3">
+        {/*
+          Add-flow highlight: when `highlighted` is true the row gets
+          ring-2 ring-emerald-400 + animate-pulse for HIGHLIGHT_MS
+          (cleared by the parent timeout in ConnectorsPanel). animate-
+          pulse fades the row opacity twice over ~3s; the ring keeps a
+          steady colored outline so the row stays locatable mid-pulse.
+        */}
         <div className="min-w-0">
           <div className="flex items-center gap-2">
             <span className="text-[14px] font-medium">
