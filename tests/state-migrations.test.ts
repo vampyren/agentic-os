@@ -187,6 +187,18 @@ describe("state DB migrations", () => {
     expect(await getStateDb()).toBe(db);
   });
 
+  it("test-isolation guard: getStateDb() refuses to open ~/.agentic-os/state.db from a vitest process", async () => {
+    // Force the resolved path to point at the operator's real DB by
+    // clearing AGENTIC_OS_STATE_DB; the guard MUST throw before any
+    // file open or migration runs. VITEST is set by the vitest runner;
+    // we don't unset it here (this very test relies on vitest semantics).
+    delete process.env.AGENTIC_OS_STATE_DB;
+    closeStateDbForTests();
+    await expect(getStateDb()).rejects.toThrow(
+      /test isolation violation/i,
+    );
+  });
+
   it("getStateDb recovers in the same process after a failed init", async () => {
     // DB A — future-stamped so the forward guard rejects init.
     const futureDb = path.join(tmpDir, "future.db");

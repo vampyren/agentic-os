@@ -37,8 +37,9 @@ CREATE TABLE IF NOT EXISTS _meta (
 `;
 
 // ── Migration 1 — run-ledger tables (M3) ──────────────────────────────────
-// runs / run_steps / external_refs. Other v8 §7.2 tables (artifacts,
-// approvals, connector_health, …) arrive in later milestones' migrations.
+// runs / run_steps / external_refs. Migration 2 (M4a-FU5) adds
+// connector_health. Other v8 §7.2 tables (artifacts, approvals, …) arrive
+// in later milestones' migrations.
 const MIGRATION_1_RUN_LEDGER = `
 CREATE TABLE IF NOT EXISTS runs (
   id              TEXT PRIMARY KEY,
@@ -102,12 +103,52 @@ CREATE INDEX IF NOT EXISTS idx_external_refs_lookup
   ON external_refs(system, ref_kind, ref_id, scope);
 `;
 
+// ── Migration 2 — connector_health (M4a-FU5, spec §4.1/§4.2) ─────────────
+// One row per connector INSTANCE; the denormalised current-state projection
+// of the connector's last-known ConnectorValidation. Read by GET
+// /api/connectors (PR B) so a browser refresh / server restart preserves
+// the operator's "valid / invalid / unreachable / misconfigured" signal
+// instead of falling back to "not tested" (the M4a-5 transient-state bug).
+//
+// Freshness ordering (§4.5): the UPSERT used by recordTest carries a WHERE
+// clause that skips a stale write whose `test_started_at` is older than the
+// stored row's — a slow older test cannot clobber a newer faster test for
+// the same connector. `test_started_at` is the denormalised
+// runs.created_at of the producing connector-test run.
+//
+// Non-leak (§9): the row carries status / error_code / neutral message /
+// timing + a SHA-256 config_hash. NEVER the raw env var name, the secret
+// value, the Authorization header, the baseUrl, the settings blob, or any
+// raw provider response.
+const MIGRATION_2_CONNECTOR_HEALTH = `
+CREATE TABLE IF NOT EXISTS connector_health (
+  connector_id    TEXT PRIMARY KEY,
+  status          TEXT NOT NULL,
+  error_code      TEXT,
+  message         TEXT,
+  tested_at       TEXT NOT NULL,
+  duration_ms     INTEGER NOT NULL,
+  test_started_at TEXT NOT NULL,
+  config_hash     TEXT NOT NULL,
+  run_id          TEXT REFERENCES runs(id) ON DELETE SET NULL,
+  updated_at      TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS connector_health_updated_at
+  ON connector_health(updated_at);
+`;
+
 /** The ordered migration list. Append-only — never edit a shipped entry. */
 export const MIGRATIONS: readonly Migration[] = [
   {
     version: 1,
     name: "run-ledger",
     up: (db) => db.exec(MIGRATION_1_RUN_LEDGER),
+  },
+  {
+    version: 2,
+    name: "connector-health",
+    up: (db) => db.exec(MIGRATION_2_CONNECTOR_HEALTH),
   },
 ];
 
