@@ -186,13 +186,19 @@ new connector's testConnection result surfaces on the row itself.
 [ ] The new row has a brief visual highlight (ring + pulse) for
     ~3 seconds so it's easy to find. The highlight clears on its
     own; no manual dismiss.
-[ ] The row's ValidationBadge renders the connector-test result
-    immediately:
-      * valid    -> green pill, no errorCode.
-      * non-valid (e.g. auth-missing) -> amber/red pill, errorCode
-        visible, and for auth-missing the row carries the
-        "set the named env var; restart Agentic OS" hint. The
-        operator does NOT have to click Test again to see this.
+[ ] The new row's RIGHT-SIDE STATUS PILL shows the test outcome
+    at a glance — green dot + "valid" / red dot +
+    "invalid"/"unreachable"/"misconfigured" / yellow dot +
+    "unknown". The pill replaces the old "ENABLED" label, which
+    is gone (it had no functional meaning without an
+    enable/disable toggle and duplicated the per-row trust
+    label on the left). Rows that have never been tested in
+    this session show a dimmed "not tested" instead — never
+    "ENABLED".
+[ ] BELOW the row separator, the existing ValidationBadge
+    continues to render the detail (status + errorCode + the
+    auth-missing hint when the named env var isn't set). The
+    operator does NOT have to click Test again to see this.
 [ ] If the Add itself FAILS (e.g. duplicate id, blocked-network,
     settings-invalid), the modal stays open at the form step with a
     neutral submitError shown inline. The modal only auto-closes on
@@ -201,9 +207,11 @@ new connector's testConnection result surfaces on the row itself.
 
 The trade-off: previously the operator saw "Added <id> · connection
 test: <status>" in a dedicated modal step before Done; now they see
-the same status on the row's ValidationBadge after the highlight
-draws their eye. One source of truth (the row badge); one fewer
-click; no contradiction between modal status and row status.
+the same status on (a) the new row's right-side status pill (glance
+read) and (b) the existing ValidationBadge below the row separator
+(detail read). One source of truth (the row, with both glance + detail
+surfaces); one fewer click; no contradiction between modal status and
+row status.
 
 ## Step 9 — Save + secret hygiene sweep
 

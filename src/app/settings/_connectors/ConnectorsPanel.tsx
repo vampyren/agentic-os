@@ -200,12 +200,30 @@ function ConnectorRow({
           </p>
         </div>
         <div className="flex flex-col items-end gap-2 shrink-0">
-          <span
-            className="text-[10px] uppercase tracking-wider"
-            style={{ opacity: connector.enabled ? 1 : 0.5 }}
-          >
-            {connector.enabled ? "enabled" : "disabled"}
-          </span>
+          {/*
+            Right-side status pill (replaces the previous "ENABLED"
+            label per live M4a-5 acceptance feedback). The old badge
+            was meaningless without an enable/disable toggle and just
+            duplicated the per-row trust label on the left. The useful
+            info is the connection-test outcome, glance-readable here:
+
+              - validation present + valid    -> green dot + "valid"
+              - validation present + non-valid -> red/yellow dot +
+                the status word (invalid / unreachable /
+                misconfigured / unknown)
+              - validation absent              -> dimmed "not tested"
+
+            The detail ValidationBadge below the row separator stays
+            and renders the errorCode + auth-missing hint when
+            present. The pill is the glance read; the badge is the
+            detail read.
+
+            An enable/disable toggle is intentionally NOT shipped in
+            this commit (see issue #35 — M4a-FU4 management modal).
+            Until a real toggle exists, surfacing a static "ENABLED"
+            label is worse than no label.
+          */}
+          <StatusPill validation={validation} />
           <button
             type="button"
             onClick={onTest}
@@ -219,6 +237,45 @@ function ConnectorRow({
       </div>
       {validation && <ValidationBadge validation={validation} />}
     </li>
+  );
+}
+
+/** Compact at-a-glance status pill in the row's right column.
+ *  Reuses the same status -> color mapping as ValidationBadge so the
+ *  pill and the below-row detail badge agree. When `validation` is
+ *  null (the connector has never been tested in this session), a
+ *  subtle "not tested" label renders instead of any colored dot. */
+function StatusPill({
+  validation,
+}: {
+  validation: ConnectorValidation | null;
+}) {
+  if (!validation) {
+    return (
+      <span
+        className="text-[10px] uppercase tracking-wider"
+        style={{ color: "var(--fg-dimmer)" }}
+      >
+        not tested
+      </span>
+    );
+  }
+  const { status } = validation;
+  const color =
+    status === "valid" ? "#4ade80"
+    : status === "unknown" ? "#fbbf24"
+    : "#f87171";
+  return (
+    <span
+      className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider"
+      style={{ color }}
+    >
+      <span
+        className="w-1.5 h-1.5 rounded-full"
+        style={{ background: color }}
+      />
+      {status}
+    </span>
   );
 }
 
