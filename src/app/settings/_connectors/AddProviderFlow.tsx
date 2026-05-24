@@ -588,15 +588,23 @@ function PresetForm(props: PresetFormProps) {
         </p>
       )}
 
+      {/*
+        Three close-related buttons used to live in this modal:
+          - Close   (header)      — exits the modal entirely.
+          - ← Back  (header)      — returns to the preset picker step.
+          - Cancel  (here, removed) — pointed at `onBack` and did the
+                                     same thing as ← Back, just at the
+                                     bottom of the form.
+
+        The Cancel button promised "abandon the whole add-provider
+        flow" (the conventional reading of a bottom-row Cancel paired
+        with a primary Add) while actually duplicating ← Back's
+        previous-step behaviour. Dropped. Three buttons → two buttons
+        (← Back top-left, Close top-right) each with one distinct
+        meaning. Operators abandoning the flow use Close; operators
+        wanting a different preset use ← Back.
+      */}
       <div className="flex items-center justify-end gap-2 pt-2">
-        <button
-          type="button"
-          className="text-[12px] text-[var(--fg-dimmer)]"
-          onClick={onBack}
-          disabled={submitting}
-        >
-          Cancel
-        </button>
         <button type="submit" className="px-3 py-1.5 text-[12px] border rounded-md hover:opacity-80 disabled:opacity-50"
           style={{ borderColor: "var(--panel-border)", background: "var(--panel)" }} disabled={submitting}>
           {submitting ? "Adding…" : "Add"}
