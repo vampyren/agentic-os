@@ -47,6 +47,40 @@
   --panel:            rgba(18, 18, 38, 0.55);
   --panel-border:     rgba(255, 255, 255, 0.06);
   --panel-border-hot: rgba(255, 255, 255, 0.16);
+
+  /* ─── M4a-FU6 PR A: connector-test status discriminant ──────────────
+     New token family for the ConnectorValidation discriminant
+     (valid / invalid / unreachable / misconfigured / unknown / not tested)
+     surfaced by ConnectorsPanel.StatusPill + ValidationDetail.
+
+     Semantically distinct from the Mission Control --status-* family
+     above. --status-unknown REMAINS Mission Control grey; the
+     connector-test "unknown" outcome uses a separate
+     --status-test-unknown (yellow) to mark "we tested and the result
+     was inconclusive — operator may want to look." See FU6 spec §5.2
+     and ADR-0017 / ADR-0018 for context.
+
+     These tokens are INTRODUCED in PR A but NOT YET CONSUMED. PR C
+     (bounded color-token swap) replaces the inline hex in
+     ConnectorsPanel.StatusPill / TRUST_COLORS with these references.
+     Until then, the tokens compile but the visual surface is
+     unchanged. */
+  --status-valid:           var(--status-live);    /* alias of #10b981 */
+  --status-invalid:         #f87171;               /* softer than --status-offline; matches ConnectorsPanel inline */
+  --status-unreachable:     var(--status-invalid); /* alias; may diverge */
+  --status-misconfigured:   var(--status-invalid); /* alias; may diverge */
+  --status-test-unknown:    #fbbf24;               /* YELLOW; distinct from --status-unknown (grey) */
+  --status-not-tested:      var(--fg-dimmer);      /* alias of #71717a */
+
+  /* ─── M4a-FU6 PR A: trust badges (provenance, NOT validation status)
+     Conceptually separate from --status-* even if some hex values
+     overlap today. Trust = where did this connector come from
+     (first-party preset / community / untrusted). See ADR-0018 preset
+     trust clamp; downward-only. */
+  --trust-first-party:      #4ade80;
+  --trust-community:        #fbbf24;
+  --trust-untrusted:        #f87171;
+  --trust-unknown:          #71717a;
 }
 
 html, body {
