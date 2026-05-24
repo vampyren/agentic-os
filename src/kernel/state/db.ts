@@ -10,10 +10,49 @@
 // getVaultIndex() in vaultIndex.ts.
 
 import path from "node:path";
+import { homedir } from "node:os";
 import { mkdirSync } from "node:fs";
 import Database from "better-sqlite3";
 import { stateDbPath } from "./paths";
 import { runMigrations, type MigrationResult } from "./migrations";
+
+/**
+ * Test-mode guard (FU5 PR A). Refuses to open the operator's real
+ * `~/.agentic-os/state.db` from a vitest process. Forces every test to
+ * point `AGENTIC_OS_STATE_DB` at a tmp file explicitly.
+ *
+ * Background: M4a-FU5 PR A added a second persistence singleton
+ * (`getConnectorHealthStore()`) that fans out to `getStateDb()`. Several
+ * pre-existing test files set `AGENTIC_OS_AUDIT_DIR` / `AGENTIC_OS_CONFIG`
+ * but not `AGENTIC_OS_STATE_DB`, so during the test run a kernel path
+ * resolved the state-DB singleton against the real file and ran the new
+ * v2 migration there. The migration was non-destructive (additive
+ * `CREATE TABLE IF NOT EXISTS`), but writing to the operator's home dir
+ * from tests is a hard no.
+ *
+ * The guard fires only when:
+ *   - we're inside a vitest process (`VITEST` env), AND
+ *   - the resolved path is the default `~/.agentic-os/state.db`.
+ * `AGENTIC_OS_STATE_DB` always wins — set it to a tmp path and the
+ * guard is silent.
+ */
+function isVitest(): boolean {
+  return Boolean(process.env.VITEST) || process.env.NODE_ENV === "test";
+}
+
+function assertNotRealDbInTests(resolvedPath: string): void {
+  if (!isVitest()) return;
+  const defaultPath = path.join(homedir(), ".agentic-os", "state.db");
+  if (resolvedPath === defaultPath) {
+    throw new Error(
+      "test isolation violation: getStateDb() resolved to the operator's real "
+        + `~/.agentic-os/state.db (${resolvedPath}). Set process.env.AGENTIC_OS_STATE_DB `
+        + "to a tmp path in beforeEach (and restore in afterEach) before calling any "
+        + "kernel path that may resolve a state-DB singleton — e.g. getRunLedger(), "
+        + "getConnectorHealthStore(), or any API route that does so internally.",
+    );
+  }
+}
 
 interface OpenState {
   db: Database.Database;
@@ -37,6 +76,7 @@ let lastMigration: MigrationResult | null = null;
  */
 export async function getStateDb(): Promise<Database.Database> {
   const dbPath = stateDbPath();
+  assertNotRealDbInTests(dbPath);
 
   const open = G.__agenticStateDb;
   if (open && open.dbPath === dbPath) return open.db;

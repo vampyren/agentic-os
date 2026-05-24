@@ -14,8 +14,14 @@ import {
   connectorRegistry as globalRegistry,
   type ConnectorRegistry,
 } from "./registry";
-import { buildConnectorContext } from "./runtime";
+import {
+  getConnectorHealthStore,
+  type ConnectorHealthStore,
+} from "./connectorHealth";
+import { fingerprintConnectorConfig } from "./connectorFingerprint";
+import { buildConnectorContext, type ResolvedConnectorInstance } from "./runtime";
 import { assertPublicBaseUrl } from "./ssrf";
+import type { ConnectorInstanceConfig } from "./schema";
 import type { ConnectorErrorCode, ConnectorValidation } from "./types";
 
 // The closed neutral errorCode registry — a connector cannot smuggle a secret
@@ -67,6 +73,11 @@ export interface RunConnectorTestDeps {
   ledger?: RunLedger | null;
   registry?: ConnectorRegistry;
   config?: AppConfig;
+  /** FU5: connector_health store. Tests pass an injected store (or null
+   *  to skip the write entirely); production resolves the process
+   *  singleton. A resolution failure is logged neutrally and swallowed
+   *  (audit JSONL remains source-of-truth). */
+  connectorHealth?: ConnectorHealthStore | null;
 }
 
 export async function runConnectorTest(
@@ -74,6 +85,12 @@ export async function runConnectorTest(
   deps?: RunConnectorTestDeps,
 ): Promise<ConnectorValidation> {
   const startedAt = Date.now();
+  // Captured BEFORE the run is opened so it's available even when the
+  // ledger is unavailable — used as the freshness source for the
+  // connector_health UPSERT guard (§4.5). When a runId exists we prefer
+  // the ledger's recorded `createdAt` (which is set in the same instant);
+  // they match in practice.
+  const testStartedAt = new Date(startedAt).toISOString();
   const registry = deps?.registry ?? globalRegistry;
 
   // Ledger: a test passes deps.ledger (or null); production resolves the
@@ -86,6 +103,22 @@ export async function runConnectorTest(
       ledger = await getRunLedger();
     } catch {
       console.error("[connector-test] run ledger unavailable");
+    }
+  }
+
+  // Connector health store (FU5). Same pattern as the ledger above — a
+  // test passes an injected store (or null to skip the write); production
+  // resolves the process singleton. Init failure is swallowed; a missing
+  // store means we just don't write a connector_health row, which surfaces
+  // as "not tested" in the UI until the next successful test.
+  let connectorHealth: ConnectorHealthStore | null = null;
+  if (deps && "connectorHealth" in deps) {
+    connectorHealth = deps.connectorHealth ?? null;
+  } else {
+    try {
+      connectorHealth = await getConnectorHealthStore();
+    } catch {
+      console.error("[connector-test] connector health store unavailable");
     }
   }
 
@@ -106,6 +139,13 @@ export async function runConnectorTest(
     }
   }
 
+  // Fingerprint inputs are populated once the instance config + resolved
+  // instance are known; `finish` reads from these closures. Null until
+  // populated means the fingerprint write is skipped for that finish call
+  // (e.g. config-load failure — there's nothing meaningful to hash).
+  let healthInstanceConfig: ConnectorInstanceConfig | null = null;
+  let healthResolvedInstance: ResolvedConnectorInstance | null = null;
+
   const finish = async (
     v: ConnectorValidation,
   ): Promise<ConnectorValidation> => {
@@ -123,6 +163,38 @@ export async function runConnectorTest(
         console.error("[connector-test] could not transition connector-test run");
       }
     }
+
+    // FU5: project the outcome into connector_health BEFORE the audit
+    // line so a write failure can be logged without delaying the audit.
+    // The write is best-effort: a failure is swallowed (the audit JSONL
+    // remains source-of-truth, the run transition has already happened,
+    // and the operator gets the validation back from this function's
+    // return). The fingerprint is computed from the SAME instance config
+    // the test actually ran against — not re-loaded from disk — so a
+    // mid-test config edit doesn't poison the row.
+    if (connectorHealth && healthInstanceConfig && healthResolvedInstance) {
+      try {
+        const configHash = fingerprintConnectorConfig(connectorId, {
+          typeFamily: healthInstanceConfig.typeFamily,
+          presetId: healthInstanceConfig.presetId ?? null,
+          settings: healthResolvedInstance.ctx.settings,
+          capabilities: healthResolvedInstance.effectiveCapabilities,
+          allowLocalNetwork:
+            healthInstanceConfig.allowLocalNetwork ?? false,
+          authRef: healthInstanceConfig.authRef,
+        });
+        connectorHealth.recordTest({
+          connectorId,
+          validation: v,
+          testStartedAt,
+          configHash,
+          runId: runId ?? null,
+        });
+      } catch {
+        console.error("[connector-test] could not write connector health row");
+      }
+    }
+
     await auditConnectorTest({
       connectorId,
       runId,
@@ -158,6 +230,12 @@ export async function runConnectorTest(
   if (!instanceConfig) {
     return fail("misconfigured", "config-invalid", "no such connector instance");
   }
+  // Recorded for the connector_health write in `finish` so the
+  // fingerprint reflects the config the test actually ran against —
+  // even on misconfigured / blocked-network paths where the build can
+  // still produce a resolved instance (we'd want a fingerprint that
+  // matches the operator's current view for those cases too).
+  healthInstanceConfig = instanceConfig;
   const family = registry.get(instanceConfig.typeFamily);
   if (!family) {
     return fail("misconfigured", "config-invalid", "connector type family is not registered");
@@ -167,6 +245,7 @@ export async function runConnectorTest(
   if (!build.ok) {
     return finish({ ...build.validation, durationMs: Date.now() - startedAt });
   }
+  healthResolvedInstance = build.instance;
 
   // HTTP families re-verify the baseUrl is not in a blocked range at test
   // time (spec §8). `effectiveAllowLocalNetwork` is the operator's instance
