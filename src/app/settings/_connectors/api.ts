@@ -15,6 +15,14 @@ export interface ConnectorListItem {
   capabilities: CapabilityId[];
   authRefKind: "env" | "none" | "unset";
   allowLocalNetwork?: boolean;
+  /**
+   * Last-known test outcome, populated by the server when a stored
+   * `connector_health` row's `config_hash` matches the recomputed
+   * current fingerprint for this connector (FU5 PR B). Absent for
+   * never-tested connectors AND when the operator has edited the
+   * config since the last test ("stale, show as not tested").
+   */
+  lastValidation?: ConnectorValidation;
 }
 
 export interface ConnectorPreset {

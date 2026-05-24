@@ -49,7 +49,28 @@ export function ConnectorsPanel() {
   const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const refresh = useCallback(() => {
-    void fetchConnectors().then(setConnectors);
+    void fetchConnectors().then((list) => {
+      setConnectors(list);
+      // FU5 PR B — hydrate testResults from the server-provided
+      // `lastValidation` for each connector. The server only sends
+      // `lastValidation` when the stored connector_health row's
+      // configHash matches the recomputed current fingerprint, so an
+      // edited-since-test row arrives without `lastValidation` and the
+      // UI naturally falls back to "not tested" via StatusPill.
+      //
+      // We MERGE rather than REPLACE so a fresh local Test or a
+      // post-add validation (set via onAdded / onTest) isn't clobbered
+      // by a slightly-older server projection. Local writes win for
+      // their connectorId; the server fills the gaps.
+      setTestResults((prev) => {
+        const next: Record<string, ConnectorValidation | null> = { ...prev };
+        for (const c of list) {
+          if (next[c.connectorId] !== undefined) continue;
+          if (c.lastValidation) next[c.connectorId] = c.lastValidation;
+        }
+        return next;
+      });
+    });
   }, []);
 
   useEffect(() => refresh(), [refresh]);

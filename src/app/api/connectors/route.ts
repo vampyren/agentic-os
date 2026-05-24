@@ -21,6 +21,11 @@ import { findSecretLookingKey } from "@/kernel/connectors/secretKeys";
 import { assertPublicBaseUrl } from "@/kernel/connectors/ssrf";
 import { loadPresets } from "@/kernel/connectors/presets";
 import { auditConnectorAdd } from "@/kernel/audit";
+import {
+  getConnectorHealthStore,
+  type ConnectorHealthRow,
+} from "@/kernel/connectors/connectorHealth";
+import { computeCurrentFingerprint } from "@/kernel/connectors/connectorFingerprint";
 import type { ConnectorInstanceConfig } from "@/kernel/connectors/schema";
 import { corsGate, neutral, projectConnector } from "./_shared";
 
@@ -45,9 +50,50 @@ export async function GET(req: Request) {
   try {
     ensureConnectorsRegistered();
     const config = await loadConfig();
-    const connectors = Object.entries(config.connectors)
-      .map(([id, entry]) => projectConnector(id, entry))
+    const entries = Object.entries(config.connectors);
+
+    // FU5 PR B — hydrate `lastValidation` from connector_health where the
+    // stored config_hash matches the recomputed current fingerprint.
+    //
+    // Reads are best-effort: a connector_health resolution or read failure
+    // is logged neutrally and swallowed; the route still returns the
+    // projection without `lastValidation`. The audit JSONL + run ledger
+    // remain source-of-truth (ADR-0009 / ADR-0014). The fingerprint is
+    // recomputed per connector via `computeCurrentFingerprint`, which
+    // mirrors the testConnection write-path dispatch (success → effective
+    // config; build-failure → raw config fallback with secret-value
+    // redaction). The two-path symmetry is asserted by
+    // `tests/connector-fingerprint-symmetry.test.ts`.
+    let healthRows: Map<string, ConnectorHealthRow> = new Map();
+    try {
+      const store = await getConnectorHealthStore();
+      healthRows = store.getMany(entries.map(([id]) => id));
+    } catch {
+      console.error("[api/connectors] connector_health hydration skipped");
+    }
+
+    const connectors = entries
+      .map(([id, entry]) => {
+        const row = healthRows.get(id);
+        let lastValidation = row?.validation;
+        if (row) {
+          let currentHash: string | null = null;
+          try {
+            currentHash = computeCurrentFingerprint(id, entry, connectorRegistry);
+          } catch {
+            // Defensive — computeCurrentFingerprint shouldn't throw, but
+            // if it ever does, treat as a mismatch (UI falls back to
+            // "not tested" rather than showing stale data).
+            console.error("[api/connectors] fingerprint recompute failed");
+          }
+          if (currentHash === null || currentHash !== row.configHash) {
+            lastValidation = undefined;
+          }
+        }
+        return projectConnector(id, entry, lastValidation);
+      })
       .sort((a, b) => a.connectorId.localeCompare(b.connectorId));
+
     return Response.json({ ok: true, connectors });
   } catch {
     return neutral("internal-error", "could not list connectors", 500);
