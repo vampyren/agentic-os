@@ -28,6 +28,8 @@
 
 import { createHash } from "node:crypto";
 import type { CapabilityId } from "../capabilities/types";
+import type { ConnectorInstanceConfig } from "./schema";
+import { SECRET_LOOKING_KEYS } from "./secretKeys";
 import type { ConnectorTypeFamily } from "./types";
 
 /**
@@ -108,6 +110,16 @@ function canonicaliseValue(v: unknown): unknown {
  *  The hash is of the IDENTITY part (after the `env:` / `secret:` prefix),
  *  not the prefix itself — so an env var "FOO" and a secret named "FOO"
  *  still hash to different `env:<x>` / `secret:<y>` strings via the prefix.
+ *
+ *  NOTE (FU5 PR A — doc/code alignment TODO for the closeout PR):
+ *  the spec §4.4 example wording showed `sha256(authRef)` (the WHOLE
+ *  string including the `env:` prefix). The implementation hashes only
+ *  the identity part and re-applies the prefix as plaintext. The two
+ *  approaches are equivalent for non-leak posture (the env var NAME
+ *  never crosses) but produce different hex strings. The implementation
+ *  choice was confirmed cleaner in the PR review; the spec example
+ *  needs updating to match in the PR D closeout. PR B MUST use this
+ *  helper directly, never reimplement.
  */
 function hashAuthRefIdentity(authRef: string | undefined): string {
   if (!authRef || authRef === "none") return "none";
@@ -118,4 +130,83 @@ function hashAuthRefIdentity(authRef: string | undefined): string {
     prefix === "env" || prefix === "secret" ? prefix : "unknown";
   const hash = createHash("sha256").update(identity).digest("hex").slice(0, 16);
   return `${allowedPrefix}:${hash}`;
+}
+
+// ── Build-failure fallback (FU5 PR A — fix #1) ────────────────────────────
+//
+// When `buildConnectorContext` fails (auth-missing, settings invalid,
+// secret-looking key, etc.) there is no EFFECTIVE config to hash. But we
+// still want connector_health to record the `misconfigured` outcome so the
+// operator sees it survive a refresh — otherwise common broken-config
+// states fall back to "not tested" instead of staying "misconfigured /
+// auth-missing".
+//
+// The fallback hashes the RAW operator-supplied instance config (no
+// preset / family-default merge — those merges happen INSIDE
+// buildConnectorContext and aren't available when it fails). PR B's
+// hydration path uses the SAME helper for the same broken config, so
+// stored vs current fingerprints match.
+//
+// Non-leak: any secret-looking key in `settings` (per
+// `findSecretLookingKey` / `SECRET_LOOKING_KEYS`) has its VALUE replaced
+// with `[redacted:<sha16>]` before the canonical input is hashed. The
+// hash of the redacted value is still value-sensitive (changing the
+// secret value changes the fingerprint), but the raw value itself never
+// enters the JSON-string fed to SHA-256.
+
+const SECRET_KEY_SET = new Set(SECRET_LOOKING_KEYS);
+
+/** Replace any secret-looking key's value with a deterministic
+ *  irreversible sentinel. Walks objects + arrays at any depth. The
+ *  redaction is value-sensitive: changing the secret value changes the
+ *  sentinel (so the fingerprint changes), but the raw value is never
+ *  serialised. */
+function redactSecretValues(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(redactSecretValues);
+  if (value !== null && typeof value === "object") {
+    const out: Record<string, unknown> = {};
+    for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
+      if (SECRET_KEY_SET.has(key.toLowerCase())) {
+        // Don't recurse — replace the whole subtree.
+        const hash = createHash("sha256")
+          .update(JSON.stringify(child ?? null))
+          .digest("hex")
+          .slice(0, 16);
+        out[key] = `[redacted:${hash}]`;
+      } else {
+        out[key] = redactSecretValues(child);
+      }
+    }
+    return out;
+  }
+  return value;
+}
+
+/**
+ * Fingerprint a connector from its RAW operator-supplied instance config
+ * (the shape stored in `config.yaml`). Used by the testConnection write
+ * path when `buildConnectorContext` fails (build-failure fallback) AND
+ * by PR B's hydration path when its own build attempt for the same
+ * connector also fails. Same algorithm both sides → deterministic match
+ * on a still-broken config.
+ *
+ * Capabilities: uses `instanceConfig.capabilities ?? []` because the
+ * family's max set isn't reliably available on the build-failure path
+ * (the family may not even be registered). PR B does the same.
+ *
+ * Non-leak: secret-looking values are SHA-256-sentinel-redacted before
+ * the canonical input is hashed — see `redactSecretValues` above.
+ */
+export function fingerprintFromInstanceConfig(
+  connectorId: string,
+  instanceConfig: ConnectorInstanceConfig,
+): string {
+  return fingerprintConnectorConfig(connectorId, {
+    typeFamily: instanceConfig.typeFamily,
+    presetId: instanceConfig.presetId ?? null,
+    settings: redactSecretValues(instanceConfig.settings ?? {}),
+    capabilities: instanceConfig.capabilities ?? [],
+    allowLocalNetwork: instanceConfig.allowLocalNetwork ?? false,
+    authRef: instanceConfig.authRef,
+  });
 }

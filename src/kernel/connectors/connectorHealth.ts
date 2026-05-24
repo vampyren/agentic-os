@@ -26,7 +26,11 @@
 
 import type DatabaseType from "better-sqlite3";
 import { getStateDb } from "../state/db";
-import type { ConnectorErrorCode, ConnectorValidation } from "./types";
+import {
+  CONNECTOR_ERROR_CODE_SET,
+  type ConnectorErrorCode,
+  type ConnectorValidation,
+} from "./types";
 
 type Db = DatabaseType.Database;
 
@@ -40,16 +44,6 @@ const VALID_STATUSES: ReadonlySet<ConnectorValidation["status"]> = new Set([
   "unreachable",
   "misconfigured",
   "unknown",
-]);
-
-/** The closed neutral ConnectorErrorCode set, copied from testConnection.ts.
- *  Kept local here so the deserialiser can fail closed on an unknown code
- *  without coupling the store to the full type module beyond its types. */
-const VALID_ERROR_CODES: ReadonlySet<string> = new Set<ConnectorErrorCode>([
-  "auth-failed", "auth-missing", "rate-limited", "network-unreachable",
-  "config-invalid", "capability-not-supported", "capability-unavailable",
-  "external-system-unavailable", "binary-not-found", "blocked-network",
-  "response-too-large", "unknown",
 ]);
 
 /** The deserialised projection of one `connector_health` row. */
@@ -114,7 +108,8 @@ export function parseValidationRow(
     return null;
   }
   const errorCode =
-    row.error_code !== null && VALID_ERROR_CODES.has(row.error_code)
+    row.error_code !== null
+    && CONNECTOR_ERROR_CODE_SET.has(row.error_code as ConnectorErrorCode)
       ? (row.error_code as ConnectorErrorCode)
       : undefined;
   return {

@@ -259,4 +259,86 @@ describe("connector_health row non-leak (§9)", () => {
     expect(dump).not.toContain("sk-marker-XXX");
     expect(dump).not.toContain("/home/operator/private.json");
   });
+
+  // ── Fix #1 — build-context failure paths must also be leak-free ─────
+  //
+  // After FU5 PR A's first round, runConnectorTest persists a row on
+  // EVERY misconfigured path (missing auth, settings parse failure,
+  // secret-looking key). The row's config_hash is computed by the
+  // `fingerprintFromInstanceConfig` fallback, which redacts
+  // secret-looking values before hashing. These tests prove the
+  // redaction holds end-to-end against the on-disk row.
+
+  it("secret-looking value in settings does NOT enter the row on build-failure path (fix #1)", async () => {
+    // See `connector-test-run-persists-health.test.ts` for the
+    // schema-bypass rationale: connectorInstanceConfigSchema's B4
+    // screen rejects this at config-load in real usage; the
+    // buildContext-internal B4 is the defensive layer this test
+    // exercises. The cast bypasses appConfigSchema.parse so the test
+    // can reach the build-context fallback fingerprint path.
+    const SECRET_MARKER = "sk-fix1-nonleak-marker-must-not-leak";
+    const cfg = {
+      vault: { root: tmpDir },
+      connectors: {
+        "my-c": {
+          enabled: true,
+          typeFamily: "openai-compatible-llm" as const,
+          settings: { apiKey: SECRET_MARKER },
+        },
+      },
+    } as unknown as AppConfig;
+    const fam = httpFamily({
+      testConnection: async () => {
+        throw new Error("must not reach family — settings should be rejected first");
+      },
+    });
+    setEnv("OPENAI_API_KEY", "sk-anything");
+    const result = await runConnectorTest("my-c", {
+      ledger, connectorHealth, registry: registryWith(fam), config: cfg,
+    });
+    expect(result.status).toBe("misconfigured");
+    expect(result.errorCode).toBe("config-invalid");
+
+    // Marker absent from BOTH the table dump AND the raw DB bytes.
+    const dump = dumpHealthTable();
+    expect(dump).not.toContain(SECRET_MARKER);
+    const bytes = rawRowBytes();
+    expect(bytes.indexOf(Buffer.from(SECRET_MARKER))).toBe(-1);
+  });
+
+  it("auth-missing path: env var NAME does not appear in the row (fix #1)", async () => {
+    const ENV_MARKER = "FU5_FIX1_AUTH_MISSING_MARKER_QWERTY";
+    // Don't set the env var → resolveAuthRef returns auth-missing.
+    const cfg = appConfigSchema.parse({
+      vault: { root: tmpDir },
+      connectors: {
+        "my-c": {
+          enabled: true,
+          typeFamily: "openai-compatible-llm",
+          authRef: `env:${ENV_MARKER}`,
+          settings: { baseUrl: "https://1.1.1.1/v1", model: "m" },
+        },
+      },
+    });
+    const fam = httpFamily({
+      // required: true forces the resolveAuthRef path; the missing env
+      // var triggers auth-missing → build-failure → fallback fingerprint.
+      auth: { required: true, supportedRefs: ["env"] },
+      testConnection: async () => {
+        throw new Error("must not reach family — auth should be unresolved");
+      },
+    });
+    const result = await runConnectorTest("my-c", {
+      ledger, connectorHealth, registry: registryWith(fam), config: cfg,
+    });
+    expect(result.status).toBe("misconfigured");
+    expect(result.errorCode).toBe("auth-missing");
+
+    // The env var NAME is hashed by the authRef-identity logic; never
+    // plaintext in the row.
+    const dump = dumpHealthTable();
+    expect(dump).not.toContain(ENV_MARKER);
+    const bytes = rawRowBytes();
+    expect(bytes.indexOf(Buffer.from(ENV_MARKER))).toBe(-1);
+  });
 });

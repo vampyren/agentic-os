@@ -255,6 +255,292 @@ describe("runConnectorTest — persists connector_health on failure", () => {
     expect(row!.validation.status).toBe("invalid");
     expect(row!.validation.errorCode).toBe("unknown");
   });
+
+  it("preserves `response-too-large` from a family (fix #2 — drift regression)", async () => {
+    // Before fix #2, testConnection.ts's local VALID_ERROR_CODES set
+    // didn't include `response-too-large` (added to the type by
+    // M4a-5 PR AB) so a family returning it got normalized to
+    // `unknown`. The fix moved both sanitisers to a shared
+    // CONNECTOR_ERROR_CODE_SET sourced from the type. This test
+    // proves the round-trip through the run record, the
+    // ConnectorValidation return value, and the connector_health row.
+    const fam = family({
+      testConnection: async () =>
+        validation({ status: "invalid", errorCode: "response-too-large" }),
+    });
+    const result = await runConnectorTest("my-c", {
+      ledger, connectorHealth, registry: registryWith(fam), config: configWith(),
+    });
+    expect(result.errorCode).toBe("response-too-large");
+    expect(ledger.listRuns({ kind: "connector-test" })[0]!.errorCode).toBe(
+      "response-too-large",
+    );
+    expect(connectorHealth.get("my-c")!.validation.errorCode).toBe(
+      "response-too-large",
+    );
+  });
+});
+
+// ── Fix #1 — persist on every build-context failure ──────────────────────
+//
+// Before fix #1, runConnectorTest only wrote a connector_health row when
+// `buildConnectorContext` SUCCEEDED, because the wiring required both
+// `healthInstanceConfig` AND `healthResolvedInstance` to be non-null.
+// Common misconfigured cases — missing required env, invalid settings,
+// secret-looking settings key — therefore fell back to "not tested"
+// after a refresh instead of staying "misconfigured / <errorCode>".
+// The fix makes `healthResolvedInstance` optional: when build fails but
+// we have the raw instance config, persist using the
+// `fingerprintFromInstanceConfig` fallback (raw config + secret-value
+// redaction).
+
+describe("runConnectorTest — fix #1: persists health on build-context failure", () => {
+  it("missing required env / auth-missing writes misconfigured + auth-missing row", async () => {
+    const fam = family({
+      auth: { required: true, supportedRefs: ["env"] },
+      // family.testConnection should NOT be invoked on this path.
+      testConnection: async () => {
+        throw new Error("should not be called when auth resolution fails");
+      },
+    });
+    const result = await runConnectorTest("my-c", {
+      ledger, connectorHealth, registry: registryWith(fam), config: configWith(),
+      // No authRef supplied for a family that requires auth → auth-missing.
+    });
+    expect(result.status).toBe("misconfigured");
+    expect(result.errorCode).toBe("auth-missing");
+
+    const row = connectorHealth.get("my-c");
+    expect(row).toBeDefined();
+    expect(row!.validation.status).toBe("misconfigured");
+    expect(row!.validation.errorCode).toBe("auth-missing");
+    expect(row!.configHash).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  it("invalid settings (schema parse failure) writes misconfigured + config-invalid row", async () => {
+    const fam = family({
+      // Force a parse failure: the family demands a `mustHave` field
+      // that the instance config doesn't supply.
+      settingsSchema: z.object({ mustHave: z.string() }),
+      testConnection: async () => validation({ status: "valid" }),
+    });
+    const result = await runConnectorTest("my-c", {
+      ledger, connectorHealth, registry: registryWith(fam), config: configWith(),
+    });
+    expect(result.status).toBe("misconfigured");
+    expect(result.errorCode).toBe("config-invalid");
+
+    const row = connectorHealth.get("my-c");
+    expect(row).toBeDefined();
+    expect(row!.validation.status).toBe("misconfigured");
+    expect(row!.validation.errorCode).toBe("config-invalid");
+  });
+
+  it("secret-looking settings key writes a row without leaking the value (buildContext B4 path)", async () => {
+    // The connectorInstanceConfigSchema's B4 screen (M4a-1, secretKeys.ts)
+    // catches a secret-looking key at config-load time. In production
+    // this means a config.yaml with `apiKey` in settings never loads,
+    // so the per-connector "build-context failure" path documented in
+    // §4.3 doesn't see it.
+    //
+    // buildConnectorContext ALSO has its own defensive B4 check (line ~88
+    // of runtime.ts). That defensive layer only fires if someone bypasses
+    // the schema — which is what this test does, by injecting a
+    // hand-constructed AppConfig via `deps.config`. The point of the test
+    // is to prove the fallback fingerprint's redaction holds even on the
+    // defensive code path. The cast is what permits the test scenario.
+    const SECRET_MARKER = "sk-leaky-fu5-fix1-marker";
+    const cfg = {
+      vault: { root: tmpDir },
+      connectors: {
+        "my-c": {
+          enabled: true,
+          typeFamily: "cli-acp-agent" as const,
+          settings: { apiKey: SECRET_MARKER },
+        },
+      },
+    } as unknown as AppConfig;
+    const fam = family({
+      testConnection: async () => {
+        throw new Error("must not reach family — B4 should reject first");
+      },
+    });
+    const result = await runConnectorTest("my-c", {
+      ledger, connectorHealth, registry: registryWith(fam), config: cfg,
+    });
+    expect(result.status).toBe("misconfigured");
+    expect(result.errorCode).toBe("config-invalid");
+
+    // Row was written via the fallback fingerprint path.
+    const row = connectorHealth.get("my-c");
+    expect(row).toBeDefined();
+    expect(row!.validation.status).toBe("misconfigured");
+
+    // The secret value did NOT enter the row anywhere — config_hash is
+    // a SHA-256 of a redacted shape; message + error_code are neutral.
+    const rowDump = JSON.stringify(row);
+    expect(rowDump).not.toContain(SECRET_MARKER);
+    expect(row!.configHash).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  it("fingerprint changes when the broken config changes (fallback path is value-sensitive)", async () => {
+    // Two runs against the same connector with DIFFERENT broken settings.
+    // The fingerprints stored in connector_health must differ — proves
+    // the fallback is sensitive to changes even when the build still
+    // fails, so PR B's hydration can detect "config edited since last
+    // test" and fall back to "not tested" when appropriate.
+    const fam = family({
+      settingsSchema: z.object({ mustHave: z.string() }),
+    });
+
+    // First run with one bad config.
+    await runConnectorTest("my-c", {
+      ledger,
+      connectorHealth,
+      registry: registryWith(fam),
+      config: appConfigSchema.parse({
+        vault: { root: tmpDir },
+        connectors: {
+          "my-c": {
+            enabled: true, typeFamily: "cli-acp-agent",
+            settings: { baseUrl: "http://first.example/" },
+          },
+        },
+      }),
+    });
+    const firstHash = connectorHealth.get("my-c")!.configHash;
+
+    // Edit the broken config — different settings, still broken.
+    await runConnectorTest("my-c", {
+      ledger,
+      connectorHealth,
+      registry: registryWith(fam),
+      config: appConfigSchema.parse({
+        vault: { root: tmpDir },
+        connectors: {
+          "my-c": {
+            enabled: true, typeFamily: "cli-acp-agent",
+            settings: { baseUrl: "http://second.example/" },
+          },
+        },
+      }),
+    });
+    const secondHash = connectorHealth.get("my-c")!.configHash;
+
+    expect(secondHash).not.toBe(firstHash);
+  });
+
+  it("editing a SECRET-LOOKING value also changes the fallback fingerprint", async () => {
+    // Same schema-bypass scenario as the secret-looking-key test above
+    // (the schema-level B4 prevents real config.yaml from carrying
+    // these values, but the buildContext-internal B4 defends against
+    // a programmatic bypass). Proves the redaction is value-sensitive:
+    // SHA-256 of the value, not a constant sentinel.
+    const cfgWith = (val: string): AppConfig =>
+      ({
+        vault: { root: tmpDir },
+        connectors: {
+          "my-c": {
+            enabled: true, typeFamily: "cli-acp-agent" as const,
+            settings: { apiKey: val },
+          },
+        },
+      } as unknown as AppConfig);
+    const fam = family();
+
+    await runConnectorTest("my-c", {
+      ledger, connectorHealth, registry: registryWith(fam), config: cfgWith("alpha"),
+    });
+    const firstHash = connectorHealth.get("my-c")!.configHash;
+
+    await runConnectorTest("my-c", {
+      ledger, connectorHealth, registry: registryWith(fam), config: cfgWith("beta"),
+    });
+    const secondHash = connectorHealth.get("my-c")!.configHash;
+
+    expect(secondHash).not.toBe(firstHash);
+  });
+
+  it("blocked-network (HTTP SSRF guard) also writes a row — build SUCCEEDED, then blocked at test time", async () => {
+    // This is the OTHER post-build-success failure path the spec
+    // mentioned; it currently writes a row (because
+    // healthResolvedInstance is populated before the SSRF check), but
+    // the contract is worth asserting alongside the build-failure
+    // cases so a refactor that re-orders the SSRF check doesn't drop
+    // the row silently.
+    const httpFam: ConnectorFamilyDefinition = {
+      id: "openai-compatible-llm",
+      title: "Fake HTTP",
+      kind: "ai-provider",
+      transport: "http",
+      capabilities: ["chat.generate"],
+      sideEffects: ["external-api", "network"],
+      defaultTrust: "first-party",
+      settingsSchema: z.object({ baseUrl: z.string().url(), model: z.string().optional() }).passthrough(),
+      defaultSettings: {},
+      auth: { required: false, supportedRefs: ["env"] },
+      invoke: async () => ({ status: "success" }),
+    };
+    const cfg = appConfigSchema.parse({
+      vault: { root: tmpDir },
+      connectors: {
+        "my-c": {
+          enabled: true, typeFamily: "openai-compatible-llm",
+          settings: { baseUrl: "http://localhost:11434", model: "m" },
+          // allowLocalNetwork omitted → false → blocked-network.
+        },
+      },
+    });
+    await runConnectorTest("my-c", {
+      ledger, connectorHealth, registry: registryWith(httpFam), config: cfg,
+    });
+    const row = connectorHealth.get("my-c")!;
+    expect(row.validation.status).toBe("misconfigured");
+    expect(row.validation.errorCode).toBe("blocked-network");
+  });
+});
+
+// ── Fix #3 — test_started_at sourced from runs.createdAt ─────────────────
+
+describe("runConnectorTest — fix #3: test_started_at IS runs.created_at", () => {
+  it("persisted testStartedAt equals the run record's createdAt when a run was opened", async () => {
+    const fam = family({
+      testConnection: async () => validation({ status: "valid" }),
+    });
+    await runConnectorTest("my-c", {
+      ledger, connectorHealth, registry: registryWith(fam), config: configWith(),
+    });
+    const runs = ledger.listRuns({ kind: "connector-test" });
+    expect(runs).toHaveLength(1);
+    const row = connectorHealth.get("my-c")!;
+    expect(row.testStartedAt).toBe(runs[0]!.createdAt);
+  });
+
+  it("falls back to a function-entry timestamp when the ledger is unavailable", async () => {
+    // No ledger → no runId → testStartedAt falls back to the
+    // function-entry timestamp captured before any I/O. Still valid
+    // ISO 8601, still earlier than the row's tested_at.
+    const fam = family({
+      testConnection: async () => validation({ status: "valid" }),
+    });
+    const before = new Date().toISOString();
+    await runConnectorTest("my-c", {
+      ledger: null,
+      connectorHealth,
+      registry: registryWith(fam),
+      config: configWith(),
+    });
+    const after = new Date().toISOString();
+    const row = connectorHealth.get("my-c")!;
+    expect(row.runId).toBeNull();
+    expect(row.testStartedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+    expect(Date.parse(row.testStartedAt)).toBeGreaterThanOrEqual(
+      Date.parse(before),
+    );
+    expect(Date.parse(row.testStartedAt)).toBeLessThanOrEqual(
+      Date.parse(after),
+    );
+  });
 });
 
 describe("runConnectorTest — connector_health write failure is swallowed", () => {

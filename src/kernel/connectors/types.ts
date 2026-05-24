@@ -60,23 +60,41 @@ export interface ConnectorResult<T = unknown> {
   metadata?: Record<string, unknown>;
 }
 
-/** The fixed neutral errorCode registry for connector validation (v8 §5.4). */
-export type ConnectorErrorCode =
-  | "auth-failed"
-  | "auth-missing"
-  | "rate-limited"
-  | "network-unreachable"
-  | "config-invalid"
-  | "capability-not-supported"
-  | "capability-unavailable"
-  | "external-system-unavailable"
-  | "binary-not-found"
-  | "blocked-network"
+/**
+ * The fixed neutral errorCode registry for connector validation (v8 §5.4).
+ *
+ * Const-asserted array → derived type. Both the type AND any runtime
+ * allowlist (sanitiser, deserialiser, drift tests) consume the SAME
+ * source so a new code can't ship in the type without the runtime
+ * allowlists catching up. Added in FU5 PR A after `response-too-large`
+ * drifted between the type (added by M4a-5 PR AB) and the testConnection
+ * sanitiser (which still rejected it). See
+ * `tests/connector-error-code-allowlists.test.ts` for the drift guard.
+ */
+export const CONNECTOR_ERROR_CODES = [
+  "auth-failed",
+  "auth-missing",
+  "rate-limited",
+  "network-unreachable",
+  "config-invalid",
+  "capability-not-supported",
+  "capability-unavailable",
+  "external-system-unavailable",
+  "binary-not-found",
+  "blocked-network",
   // M4a-5 PR AB — readBoundedJson over-cap. A 2xx response whose body
   // exceeded the family-side byte budget. Disjoint from
   // `external-system-unavailable` so the UI can render an accurate hint.
-  | "response-too-large"
-  | "unknown";
+  "response-too-large",
+  "unknown",
+] as const;
+
+export type ConnectorErrorCode = typeof CONNECTOR_ERROR_CODES[number];
+
+/** Read-only Set form for `has()` lookups in sanitisers / deserialisers. */
+export const CONNECTOR_ERROR_CODE_SET: ReadonlySet<ConnectorErrorCode> = new Set(
+  CONNECTOR_ERROR_CODES,
+);
 
 /** Result of a connector test (spec §5 / v8 §5.4). */
 export interface ConnectorValidation {

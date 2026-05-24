@@ -18,23 +18,26 @@ import {
   getConnectorHealthStore,
   type ConnectorHealthStore,
 } from "./connectorHealth";
-import { fingerprintConnectorConfig } from "./connectorFingerprint";
+import {
+  fingerprintConnectorConfig,
+  fingerprintFromInstanceConfig,
+} from "./connectorFingerprint";
 import { buildConnectorContext, type ResolvedConnectorInstance } from "./runtime";
 import { assertPublicBaseUrl } from "./ssrf";
 import type { ConnectorInstanceConfig } from "./schema";
-import type { ConnectorErrorCode, ConnectorValidation } from "./types";
+import {
+  CONNECTOR_ERROR_CODE_SET,
+  type ConnectorErrorCode,
+  type ConnectorValidation,
+} from "./types";
 
 // The closed neutral errorCode registry — a connector cannot smuggle a secret
-// or path into a Run/audit through errorCode (B13).
-const VALID_ERROR_CODES: ReadonlySet<string> = new Set<ConnectorErrorCode>([
-  "auth-failed", "auth-missing", "rate-limited", "network-unreachable",
-  "config-invalid", "capability-not-supported", "capability-unavailable",
-  "external-system-unavailable", "binary-not-found", "blocked-network",
-  "unknown",
-]);
-
+// or path into a Run/audit through errorCode (B13). The Set is the single
+// source of truth from `types.ts` (FU5 PR A — fix #2: previously a local
+// copy here drifted away from the type and dropped `response-too-large`).
 function normalizeErrorCode(code: string | undefined): ConnectorErrorCode {
-  return code !== undefined && VALID_ERROR_CODES.has(code)
+  return code !== undefined
+    && CONNECTOR_ERROR_CODE_SET.has(code as ConnectorErrorCode)
     ? (code as ConnectorErrorCode)
     : "unknown";
 }
@@ -85,12 +88,15 @@ export async function runConnectorTest(
   deps?: RunConnectorTestDeps,
 ): Promise<ConnectorValidation> {
   const startedAt = Date.now();
-  // Captured BEFORE the run is opened so it's available even when the
-  // ledger is unavailable — used as the freshness source for the
-  // connector_health UPSERT guard (§4.5). When a runId exists we prefer
-  // the ledger's recorded `createdAt` (which is set in the same instant);
-  // they match in practice.
-  const testStartedAt = new Date(startedAt).toISOString();
+  // Fallback for the connector_health UPSERT guard's freshness source
+  // when the ledger is unavailable or createRun fails. The PRIMARY
+  // source is the run record's `createdAt` (spec §4.1 — denormalised
+  // copy of `runs.created_at`); the fallback timestamp is only used
+  // when there is no run record to read from. Set BEFORE any I/O so
+  // the value is stable.
+  const entryTimestamp = new Date(startedAt).toISOString();
+  // Populated below once the run is created; null while no run exists.
+  let testStartedAt: string = entryTimestamp;
   const registry = deps?.registry ?? globalRegistry;
 
   // Ledger: a test passes deps.ledger (or null); production resolves the
@@ -125,7 +131,7 @@ export async function runConnectorTest(
   let runId: string | undefined;
   if (ledger) {
     try {
-      runId = ledger.createRun({
+      const run = ledger.createRun({
         kind: "connector-test",
         featureId: "connectors",
         trigger: "manual",
@@ -133,7 +139,14 @@ export async function runConnectorTest(
         status: "running",
         onRestart: "mark-interrupted",
         inputSummary: `connector test · ${connectorId}`,
-      }).id;
+      });
+      runId = run.id;
+      // Spec §4.1 — `test_started_at` IS the denormalised copy of
+      // `runs.created_at` (set at run-creation time, before the
+      // family's testConnection executes). Use the ledger's
+      // canonical timestamp when a run exists; the entry-timestamp
+      // fallback is only used when the ledger is unavailable.
+      testStartedAt = run.createdAt;
     } catch {
       console.error("[connector-test] could not open connector-test run");
     }
@@ -169,20 +182,37 @@ export async function runConnectorTest(
     // The write is best-effort: a failure is swallowed (the audit JSONL
     // remains source-of-truth, the run transition has already happened,
     // and the operator gets the validation back from this function's
-    // return). The fingerprint is computed from the SAME instance config
-    // the test actually ran against — not re-loaded from disk — so a
-    // mid-test config edit doesn't poison the row.
-    if (connectorHealth && healthInstanceConfig && healthResolvedInstance) {
+    // return).
+    //
+    // Two fingerprint paths (FU5 PR A — fix #1):
+    //   - Build SUCCEEDED → use the EFFECTIVE post-merge/post-validation
+    //     config (the shape the family actually ran against). A mid-test
+    //     config edit can't poison the row because we read from the
+    //     captured `healthResolvedInstance.ctx.settings`, not from disk.
+    //   - Build FAILED but we still have the raw instance config →
+    //     fallback fingerprint over the raw instance config (secret-
+    //     looking values redacted). Lets common misconfigured cases
+    //     (auth-missing, config-invalid, secret-looking-key) survive
+    //     refresh as "misconfigured" instead of falling back to
+    //     "not tested". PR B's hydration uses the SAME helper for the
+    //     same broken config → fingerprints match → row hydrates.
+    //
+    // Skipped entirely when we have no instance config (e.g. the
+    // config-load itself failed, or no such connector instance) —
+    // there's nothing meaningful to identify the row by.
+    if (connectorHealth && healthInstanceConfig) {
       try {
-        const configHash = fingerprintConnectorConfig(connectorId, {
-          typeFamily: healthInstanceConfig.typeFamily,
-          presetId: healthInstanceConfig.presetId ?? null,
-          settings: healthResolvedInstance.ctx.settings,
-          capabilities: healthResolvedInstance.effectiveCapabilities,
-          allowLocalNetwork:
-            healthInstanceConfig.allowLocalNetwork ?? false,
-          authRef: healthInstanceConfig.authRef,
-        });
+        const configHash = healthResolvedInstance
+          ? fingerprintConnectorConfig(connectorId, {
+              typeFamily: healthInstanceConfig.typeFamily,
+              presetId: healthInstanceConfig.presetId ?? null,
+              settings: healthResolvedInstance.ctx.settings,
+              capabilities: healthResolvedInstance.effectiveCapabilities,
+              allowLocalNetwork:
+                healthInstanceConfig.allowLocalNetwork ?? false,
+              authRef: healthInstanceConfig.authRef,
+            })
+          : fingerprintFromInstanceConfig(connectorId, healthInstanceConfig);
         connectorHealth.recordTest({
           connectorId,
           validation: v,
