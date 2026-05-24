@@ -162,14 +162,24 @@ that drop a connector that won't work.
 **Active in M4a-6** (configurable end-to-end via the existing
 `openai-compatible-llm` family):
 
-| Card | Preset source | Notes |
-|---|---|---|
-| **OpenAI** | existing `openai` | API key via secret store. |
-| **OpenRouter** | existing `openrouter` | API key via secret store. |
-| **Ollama local** | existing `ollama-local` | No key; `allowLocalNetwork: true`; default `baseUrl: http://localhost:11434/v1`. |
-| **LM Studio local** | **NEW** `presets/lm-studio-local.json` | No key; `allowLocalNetwork: true`; default `baseUrl: http://localhost:1234/v1`. Mirrors `ollama-local.json` shape. |
-| **Custom OpenAI-compatible** | existing `openai-compatible-custom` | Operator edits everything. |
-| **DeepSeek** | **NEW** `presets/deepseek.json` | DeepSeek publishes an OpenAI-compatible chat-completions surface at `https://api.deepseek.com/v1`; standard `Authorization: Bearer …` auth. Sits cleanly on `openai-compatible-llm` with no family changes — only a new first-party preset. **Active in M4a-6.** Operator verification step added to acceptance §13. |
+| Card | Preset source | 6a credential path | 6b credential path |
+|---|---|---|---|
+| **OpenAI** | existing `openai` | `env:VAR_NAME` only (e.g. `env:OPENAI_API_KEY`) | adds `secret:<id>` UI-managed key |
+| **OpenRouter** | existing `openrouter` | `env:VAR_NAME` only (e.g. `env:OPENROUTER_API_KEY`) | adds `secret:<id>` UI-managed key |
+| **Ollama local** | existing `ollama-local` | No key; `allowLocalNetwork: true`; default `baseUrl: http://localhost:11434/v1` | unchanged (no key needed) |
+| **LM Studio local** | **NEW** `presets/lm-studio-local.json` | No key; `allowLocalNetwork: true`; default `baseUrl: http://localhost:1234/v1`. Mirrors `ollama-local.json` shape | unchanged (no key needed) |
+| **Custom OpenAI-compatible** | existing `openai-compatible-custom` | Operator edits everything; auth via `env:VAR_NAME` | adds `secret:<id>` UI-managed key |
+| **DeepSeek** | **NEW** `presets/deepseek.json` | `env:DEEPSEEK_API_KEY` — acceptance verifies real-key end-to-end on the `openai-compatible-llm` family at `https://api.deepseek.com/v1`. If acceptance fails, DeepSeek demotes to PLANNED before 6a closeout (O9 demote rule). | adds `secret:<id>` UI-managed key once 6b ships |
+
+**Reading the table:** the **6a credential path** column is what
+operators get when M4a-6a merges — every active card configurable
+via the existing `env:VAR_NAME` flow, no new authRef kind. The
+**6b credential path** column names what M4a-6b adds on top of 6a:
+the same card stays configurable via env-var, AND gains the
+"Save key locally" option backed by the secret store. DeepSeek
+publishes an OpenAI-compatible chat-completions surface with
+standard `Authorization: Bearer …` auth; it sits on the
+`openai-compatible-llm` family with no family changes.
 
 **Planned** (no active card; surfaced as "Coming later — needs <family>"
 or omitted entirely — see §1.2):
@@ -223,13 +233,58 @@ low visual cost and zero risk of looking broken.
 
 ### 1.3 In scope (capabilities)
 
-- A new `secret:<id>` `authRef` variant + a local secret store the kernel reads from.
-- Card-based provider picker UI (replaces the terminal-style list).
-- API-key paste field, **never re-displayed after save**.
-- Pre-save "Test connection" against a transient context (no persistence).
-- Edit / rotate / delete connector with explicit secret-cleanup confirmation.
-- Existing `env:VAR_NAME` flow stays as **Advanced: use server env var** mode.
-- Card presentation that distinguishes active from planned providers per §1.1 / §1.2.
+Split by sub-milestone per §0.5. The 6a list is what ships in
+M4a-6a's single PR; the 6b list is what M4a-6b's four PRs add on
+top. Anything not on either list is out of scope (see §1.4).
+
+#### 1.3.A In scope for M4a-6a (provider catalog expansion)
+
+- **Card-based provider picker UI** replacing the terminal-style
+  preset list shipped in M4a-5 PR C.
+- **Card presentation that distinguishes active from planned
+  providers** per §1.1 / §1.2 — collapsed "More providers coming
+  later" disclosure with static, non-clickable rows + "needs
+  <family>" captions.
+- **New first-party presets:** `presets/lm-studio-local.json` and
+  `presets/deepseek.json` (DeepSeek subject to the demote-on-
+  acceptance-failure rule per O9).
+- **Hardcoded `PLANNED_PROVIDERS` constant** in the picker module
+  listing the planned cards from §1.1 with their "needs <family>"
+  captions per §1.5.
+- **Existing `env:VAR_NAME` flow remains the only credential
+  mechanism in 6a.** No new authRef kind, no secret persistence,
+  no new auth APIs. The picker hosts the existing `PresetForm`
+  (shipped in M4a-5 PR C) when a card needs a key — operator
+  types an env var name; same behaviour as today.
+
+NOT in 6a: secret store, `secret:<id>` authRef, new routes for
+secret CRUD or pre-save test-draft, paste/rotate/clear key UI,
+SecretField component, ADR-0019. All of those are 6b.
+
+#### 1.3.B In scope for M4a-6b (UI-managed connector secrets)
+
+- A new **`secret:<id>` `authRef` variant** + a **local file-backed
+  secret store** the kernel reads from (path, perms, atomic writes
+  documented in §3 + §10.1).
+- **API-key paste field** in the Add Provider form, **never
+  re-displayed after save**.
+- **Pre-save "Test connection"** against a transient context (no
+  persistence) — new `POST /api/connectors/test-draft`.
+- **Edit / rotate / delete connector** with explicit secret-cleanup
+  confirmation — new `PATCH /api/connectors/[id]` and `DELETE
+  /api/connectors/[id]` with the `?deleteSecret=true|false` query
+  flag.
+- **Standalone secret CRUD** — `GET/POST /api/secrets`,
+  `DELETE /api/secrets/[id]`.
+- **`authRefKind` projection widens** to include `"secret"` (O5).
+- **Existing `env:VAR_NAME` flow** stays as the
+  **Advanced: use server env var** mode — the operator picks
+  between "Save key locally" and "Use server env var" inside the
+  6a-shipped card picker.
+- **ADR-0019** documenting the secret store + downward-only
+  cleanup rule + the deliberate no-encryption-yet posture.
+- **SECURITY.md** updated with the verbatim plaintext-on-disk
+  paragraph per §10.3.
 
 ### 1.4 Out of scope (explicitly)
 
