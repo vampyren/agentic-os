@@ -29,6 +29,8 @@
 import { createHash } from "node:crypto";
 import type { CapabilityId } from "../capabilities/types";
 import type { ConnectorInstanceConfig } from "./schema";
+import type { ConnectorRegistry } from "./registry";
+import { buildConnectorContext } from "./runtime";
 import { SECRET_LOOKING_KEYS } from "./secretKeys";
 import type { ConnectorTypeFamily } from "./types";
 
@@ -206,6 +208,66 @@ export function fingerprintFromInstanceConfig(
     presetId: instanceConfig.presetId ?? null,
     settings: redactSecretValues(instanceConfig.settings ?? {}),
     capabilities: instanceConfig.capabilities ?? [],
+    allowLocalNetwork: instanceConfig.allowLocalNetwork ?? false,
+    authRef: instanceConfig.authRef,
+  });
+}
+
+// ── Symmetric write+read fingerprint (FU5 PR B) ──────────────────────────
+//
+// `computeCurrentFingerprint` is the SINGLE helper both ends call:
+//
+//   - testConnection (PR A) — writes the fingerprint computed for the
+//     instance config it actually tested against.
+//   - GET /api/connectors (PR B) — recomputes the fingerprint for the
+//     same connector's CURRENT instance config; matches against the
+//     stored row's configHash; hydrates `lastValidation` on match,
+//     omits it on mismatch.
+//
+// Two paths, mirroring PR A's `finish()` wiring:
+//
+//   1. `buildConnectorContext` succeeds → fingerprint over the
+//      EFFECTIVE post-merge/post-validation config
+//      (`fingerprintConnectorConfig`).
+//   2. `buildConnectorContext` fails (family missing, settings invalid,
+//      auth-missing, defensive B4) → fingerprint over the RAW instance
+//      config with secret-value redaction (`fingerprintFromInstanceConfig`).
+//
+// PR B's hydration MUST use this helper, NEVER reimplement the dispatch.
+// The fingerprint-symmetry test (`tests/connector-fingerprint-symmetry.test.ts`)
+// asserts the testConnection write path and this helper produce the
+// SAME hash for the same instance config — both branches.
+
+/**
+ * Resolve the connector's family and recompute the canonical
+ * fingerprint for its CURRENT instance config. Pure: takes its
+ * registry by parameter (production passes the global registry;
+ * tests pass an isolated one). No I/O.
+ *
+ * Returns the SHA-256 hex string. Never throws — a family-missing
+ * scenario routes to the build-failure fallback.
+ */
+export function computeCurrentFingerprint(
+  connectorId: string,
+  instanceConfig: ConnectorInstanceConfig,
+  registry: ConnectorRegistry,
+): string {
+  const family = registry.get(instanceConfig.typeFamily);
+  if (!family) {
+    // Family was de-registered between testConnection and now (or never
+    // registered). buildConnectorContext would fail with config-invalid;
+    // mirror that path with the fallback fingerprint.
+    return fingerprintFromInstanceConfig(connectorId, instanceConfig);
+  }
+  const build = buildConnectorContext(connectorId, instanceConfig, family);
+  if (!build.ok) {
+    return fingerprintFromInstanceConfig(connectorId, instanceConfig);
+  }
+  return fingerprintConnectorConfig(connectorId, {
+    typeFamily: instanceConfig.typeFamily,
+    presetId: instanceConfig.presetId ?? null,
+    settings: build.instance.ctx.settings,
+    capabilities: build.instance.effectiveCapabilities,
     allowLocalNetwork: instanceConfig.allowLocalNetwork ?? false,
     authRef: instanceConfig.authRef,
   });

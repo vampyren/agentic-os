@@ -215,16 +215,40 @@ new connector's testConnection result surfaces on the row itself.
     `?section=features`). Switching tabs updates the URL via
     `router.replace`; the back button is NOT polluted with one
     history entry per tab switch.
-[ ] **Known limitation (tracked as M4a-FU5 — issue #36):** after
-    a refresh, validation status on a previously-tested row
-    falls back to "not tested" because validation state is held
-    in transient React state and isn't yet hydrated from the run
-    ledger. The row reappears; the right-side pill reads
-    "not tested" until the operator clicks Test or re-adds. The
-    auto-close + highlight path on a fresh add is unaffected —
-    the pill renders the test result immediately for that row,
-    in-session, and the issue only surfaces after a hard page
-    refresh.
+[ ] **Validation status survives a browser refresh** (FU5 —
+    issue #36, shipped in PR B). After clicking Test on a row
+    and getting a result (valid / invalid / unreachable /
+    misconfigured / unknown), hard-refresh the browser. The row's
+    right-side StatusPill should render the SAME status it had
+    pre-refresh — NOT "not tested". The below-row detail line
+    (errorCode + auth-missing hint when applicable) also
+    reappears for non-valid outcomes.
+[ ] **Server restart preserves validation status** (FU5 durability
+    check). Kill the dev server, restart it, refresh the browser.
+    The row's StatusPill still reads the previously-tested status.
+    Validation state is persisted in `~/.agentic-os/state.db` via
+    the `connector_health` table (M4a-FU5 PR A migration v2).
+[ ] **Edited config falls back to "not tested"** (FU5 fingerprint
+    invariant). Edit the connector's config (e.g. change the
+    `model` field in `~/.agentic-os/config.yaml`, or use a future
+    edit modal). Refresh. The row's StatusPill should read
+    "not tested" — the fingerprint mismatch elides
+    `lastValidation` from the API response so the operator is
+    prompted to re-test after a config change rather than seeing
+    a stale status.
+[ ] **Broken-config status also survives refresh** (FU5 build-
+    failure fingerprint path). With a connector that fails
+    `buildConnectorContext` (e.g. an unset required env var → 
+    `auth-missing`, or invalid settings → `config-invalid`),
+    click Test once. Refresh. The row's StatusPill still reads
+    the broken-config status — NOT "not tested". This proves the
+    fingerprint fallback path (`fingerprintFromInstanceConfig`)
+    matches between the test write site and the hydration read
+    site.
+[ ] **API does NOT expose `config_hash`** (FU5 §9 non-leak):
+       curl http://127.0.0.1:3000/api/connectors | grep -i 'config[_-]\?hash\|fingerprint'
+    MUST be empty. The fingerprint is server-internal; only the
+    hydrated `lastValidation` object crosses the API boundary.
 ```
 
 The trade-off: previously the operator saw "Added <id> · connection

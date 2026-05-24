@@ -13,6 +13,7 @@ import path from "node:path";
 import os from "node:os";
 import { closeStateDbForTests } from "../src/kernel/state/db";
 import { resetRunLedgerForTests } from "../src/kernel/state/runLedger";
+import { resetConnectorHealthStoreForTests } from "../src/kernel/connectors/connectorHealth";
 import { GET as listConnectors, POST as addConnector } from "../src/app/api/connectors/route";
 import { GET as listPresets } from "../src/app/api/connectors/presets/route";
 import { POST as testConnector } from "../src/app/api/connectors/[id]/test/route";
@@ -57,6 +58,11 @@ beforeEach(async () => {
   process.env.AGENTIC_OS_PRESETS_DIR = userPresetsDir;
   process.env.AGENTIC_OS_AUDIT_DIR = auditDir;
   process.env.AGENTIC_OS_STATE_DB = stateDbPath;
+  // Reset state singletons left over from earlier suites so the
+  // AGENTIC_OS_STATE_DB redirect takes effect on the next resolution.
+  closeStateDbForTests();
+  resetRunLedgerForTests();
+  resetConnectorHealthStoreForTests();
 
   // Default starting config — vault + scheduler enabled + one pre-existing
   // connector (used by the preserve-unrelated-config test).
@@ -97,6 +103,10 @@ beforeEach(async () => {
 afterEach(async () => {
   closeStateDbForTests();
   resetRunLedgerForTests();
+  // FU5 PR B — GET /api/connectors now resolves the
+  // connector_health singleton; reset it between tests so the next
+  // test's AGENTIC_OS_STATE_DB redirect actually takes effect.
+  resetConnectorHealthStoreForTests();
   restoreEnv("AGENTIC_OS_CONFIG", originalConfig);
   restoreEnv("AGENTIC_OS_FIRST_PARTY_PRESETS_DIR", originalFirstParty);
   restoreEnv("AGENTIC_OS_PRESETS_DIR", originalUser);
