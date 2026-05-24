@@ -1,9 +1,9 @@
-# M4a-FU5 Task Spec — Persisted Connector Validation Status (v1.1 draft)
+# M4a-FU5 Task Spec — Persisted Connector Validation Status (v1.1)
 
 **Date:** 2026-05-24
-**Version:** v1.1 — nine spec-fix amendments folded in (concurrency / freshness ordering via `test_started_at` reusing the existing `runs.created_at`; DELETE-contradiction grep-and-fix across the whole spec; ADR-0020 generalisation hedge; store wiring pinned to share the existing `state.db` connection; no-backfill rationale extended with the audit-JSONL note; fingerprint input shape pinned to the post-merge / post-validation effective config; fingerprint algorithm versioning note; preset-default change effect documented; authRef hashing wording tightened to not overclaim against local-DB access). v1 pinned O1–O7. v0 was the first design pass. **Committed to the repo as a design-accepted draft** per `docs/MAINTENANCE.md` only after Rex confirms v1.1.
-**Milestone:** M4a-FU5 — Persisted connector validation status; the next implementation candidate per Rex/Jarvis preference order (#36 → #37 → M4a-6a).
-**Status:** **DRAFT v1.1 — DESIGN ONLY**. Sub-option, open questions, and the nine v1.1 amendments locked per Rex (2026-05-24). No branch, no implementation until Rex green-lights FU5 PR A.
+**Version:** v1.1 — nine spec-fix amendments folded in (concurrency / freshness ordering via `test_started_at` reusing the existing `runs.created_at`; DELETE-contradiction grep-and-fix across the whole spec; ADR-0020 generalisation hedge; store wiring pinned to share the existing `state.db` connection; no-backfill rationale extended with the audit-JSONL note; fingerprint input shape pinned to the post-merge / post-validation effective config; fingerprint algorithm versioning note; preset-default change effect documented; authRef hashing wording tightened to not overclaim against local-DB access). v1 pinned O1–O7. v0 was the first design pass.
+**Milestone:** M4a-FU5 — Persisted connector validation status (issue #36).
+**Status:** **CODE COMPLETE** as of 2026-05-24. PR #38 promoted the spec; PR #39 shipped PR A (kernel — `connector_health` migration v2 + `ConnectorHealthStore` + fingerprint helpers + `runConnectorTest` wiring + kernel test-isolation guard); PR #40 shipped PR B (route projection + UI hydration + `M4A5-ACCEPTANCE.md` Step 8 rewrite). Live operator acceptance passed 2026-05-24. Closeout PR ships [ADR-0020](../../decisions/ADR-0020-connector-health-table.md), `ARCHITECTURE.md` §7 paragraph, `ROADMAP.md` entry, this status header bump, and two text alignments (see §4.1 `test_started_at` wording and §4.4 `hashAuthRefIdentity` example below).
 **Parent design:** `m4-task-spec.md` v2.1 (M4a connector runtime); `m4a-5-task-spec.md` v1.2 (model discovery); ADR-0014 (persistence four-store split); ADR-0016 (run ledger foundation).
 **Predecessor milestone:** M4a-5 — VERIFIED 2026-05-24 (PRs #29 / #30 / #31 / #33 / #34 all merged; live operator acceptance passed against `main` at `05ad6b9`).
 **Successor work:** **M4a-FU6 / issue #37** (UI design system / pattern library) — runs in parallel or after; **M4a-6a** (provider catalog UI) — gated on Rex's explicit green-light AFTER FU5 and FU6.
@@ -381,18 +381,31 @@ CREATE INDEX IF NOT EXISTS connector_health_updated_at
 - `message` is the kernel-generated neutral message (`testConnection.ts`
   already generates this from status + errorCode; no raw provider
   text crosses).
-- `test_started_at` is the **denormalised copy of `runs.created_at`**
-  for the producing connector-test run. Used by the UPSERT guard
-  in §4.5 to ensure a slow older test cannot clobber a newer
-  faster test for the same connectorId. **Design choice (per
-  Rex's "check what exists first" directive):** the M3 `runs`
-  table already carries `created_at` (set at run-creation time,
-  i.e. test-START order — `src/kernel/state/migrations.ts:56`)
-  AND `started_at` (set at the `queued → running` transition).
+- `test_started_at` is the **denormalised copy of the producing
+  connector-test run's `createdAt`**. Used by the UPSERT guard in
+  §4.5 to ensure a slow older test cannot clobber a newer faster
+  test for the same connectorId. **Design choice (per Rex's
+  "check what exists first" directive):** the M3 `runs` table
+  already carries `created_at` (set at run-creation time, i.e.
+  test-START order — `src/kernel/state/migrations.ts:56`) AND
+  `started_at` (set at the `queued → running` transition).
   `created_at` is the right freshness source for the race we
   care about, because it's set BEFORE the family's
   `testConnection` executes — completion-time ordering can lie
   (a slow older test can complete after a newer faster test).
+
+  **Sourcing rule (PR A wiring, codified in closeout):**
+
+  1. **Primary source** — `ledger.createRun(...)` returns a
+     `RunRecord`; the route assigns `testStartedAt = run.createdAt`
+     at that point, BEFORE the family's `testConnection` executes.
+     This is the path that runs in normal operation.
+  2. **Fallback** — when the ledger is unavailable OR
+     `createRun` throws, no `RunRecord` exists; the route then
+     uses a function-entry timestamp (captured at the top of
+     `runConnectorTest`, before any I/O) as `testStartedAt`. The
+     row's `runId` is `NULL` in this case (no run was opened).
+
   Denormalising into `connector_health` (rather than JOINing on
   every hydration query) keeps the hot-path read O(1) and
   matches the v8 §7.2 denormalised-current-state pattern.
@@ -665,18 +678,33 @@ function canonicaliseValue(v: unknown): unknown {
 }
 
 /** Hashed authRef identity. Never the raw env var name (§9
- *  non-leak). `env:VAR_NAME` -> `env:<sha256(authRef).slice(0,16)>`.
- *  Future `secret:<id>` (M4a-6b) -> the same shape. `none` /
- *  absent -> literal "none". */
+ *  non-leak). Hashes the IDENTITY part only (the bit AFTER the
+ *  `env:` / `secret:` prefix) and re-applies the prefix as
+ *  plaintext:
+ *
+ *    none / undefined        -> "none"
+ *    "env:VAR_NAME"          -> "env:<sha256(VAR_NAME).slice(0,16)>"
+ *    "secret:<id>" (M4a-6b)  -> "secret:<sha256(<id>).slice(0,16)>"
+ *    anything else           -> "unknown:<sha256(authRef).slice(0,16)>"
+ *
+ *  Identity-only hashing makes `env:FOO` and `secret:FOO` trivially
+ *  distinguishable in the canonical input (they hash to
+ *  `env:<x>` and `secret:<y>` respectively via the prefix). An
+ *  earlier draft of the spec example showed `sha256(authRef)` (the
+ *  whole string including the `env:` prefix); both approaches are
+ *  equivalent for §9 non-leak posture (the env var NAME never
+ *  crosses) but produce different hex strings. The implementation
+ *  picked identity-only; this spec example was updated to match
+ *  in the M4a-FU5 closeout PR (PR review feedback). */
 function hashAuthRefIdentity(authRef: string | undefined): string {
   if (!authRef || authRef === "none") return "none";
-  const prefix = authRef.startsWith("env:")
-    ? "env"
-    : authRef.startsWith("secret:")
-      ? "secret"
-      : "unknown";
-  const hash = createHash("sha256").update(authRef).digest("hex").slice(0, 16);
-  return `${prefix}:${hash}`;
+  const colon = authRef.indexOf(":");
+  const prefix = colon > 0 ? authRef.slice(0, colon) : "unknown";
+  const identity = colon > 0 ? authRef.slice(colon + 1) : authRef;
+  const allowedPrefix =
+    prefix === "env" || prefix === "secret" ? prefix : "unknown";
+  const hash = createHash("sha256").update(identity).digest("hex").slice(0, 16);
+  return `${allowedPrefix}:${hash}`;
 }
 ```
 
@@ -1422,7 +1450,7 @@ O8  [NEW in v1] Stale-config UI affordance.
 
 ---
 
-**End of M4a-FU5 task spec (v1.1 draft, design only).** O1–O7
+**End of M4a-FU5 task spec (v1.1, CODE COMPLETE).** O1–O7
 all pinned per Rex (2026-05-24); v1 folded in four amendments
 (stale-config fingerprinting; softened DELETE atomicity
 wording; acceptance command corrected to drop the M4a-6b-scope
@@ -1472,5 +1500,65 @@ v1.1 (2026-05-24) folded in nine cleanups:
    contains no raw values.
 
 Committed to `docs/specs/expandability-foundation/m4a-fu5-task-spec.md`
-per `docs/MAINTENANCE.md` when Rex accepts v1.1. No implementation
-begins until that commit lands AND Rex green-lights FU5 PR A.
+per `docs/MAINTENANCE.md` in PR #38 on Rex's v1.1 acceptance
+(2026-05-24).
+
+**Implementation history (CODE COMPLETE, 2026-05-24):**
+
+- **PR #38** — spec v1.1 promoted to the repo (`009b9db`).
+- **PR #39** — PR A kernel (`715b113`): migration v2
+  (`connector_health` table), `ConnectorHealthStore` class +
+  lazy singleton, `fingerprintConnectorConfig` +
+  `fingerprintFromInstanceConfig` helpers, `runConnectorTest`
+  UPSERT wiring with `test_started_at` freshness guard, plus
+  the kernel-side test-isolation guard
+  (`getStateDb()` refuses the real `~/.agentic-os/state.db`
+  path from vitest).
+- **PR #40** — PR B route + UI (`636be08`):
+  `computeCurrentFingerprint(connectorId, instanceConfig, registry)`
+  shared dispatch helper; `GET /api/connectors` projection
+  hydrates `lastValidation` from `connector_health` gated on
+  fingerprint match (success-path uses
+  `fingerprintConnectorConfig` over the effective config;
+  build-failure path uses `fingerprintFromInstanceConfig` over
+  the raw config with secret-value redaction);
+  `ConnectorsPanel.refresh()` merges hydrated `testResults`;
+  `docs/M4A5-ACCEPTANCE.md` Step 8 rewritten (removed the
+  issue-#36 known-limitation block; added five new acceptance
+  lines covering refresh + restart durability +
+  edit-detection + broken-config-survives + `config_hash`
+  non-leak).
+- **Closeout PR (this one)** — [ADR-0020](../../decisions/ADR-0020-connector-health-table.md);
+  `docs/ARCHITECTURE.md` §7 paragraph on `connector_health`;
+  `docs/ROADMAP.md` entry; `docs/specs/expandability-foundation/README.md`
+  status row bump; this spec header bump from DRAFT to CODE
+  COMPLETE; two text alignments folded in (§4.1
+  `test_started_at` wording now matches the implementation's
+  `ledger.createRun(...).createdAt` primary source + entry-
+  timestamp fallback; §4.4 `hashAuthRefIdentity` example
+  updated from `sha256(authRef)` to identity-only
+  `sha256(VAR_NAME).slice(0,16)`). Closes issue #36.
+
+**Live operator acceptance:** `docs/M4A5-ACCEPTANCE.md` Step 8
+(rewritten by PR #40) PASSED 2026-05-24.
+
+**No follow-ups.** The known limitation that motivated FU5
+(issue #36) is closed. The `<thing>_health` denormalised-
+current-state template codified in ADR-0020 is available for
+future statusful surfaces (MCP server health, agent capability
+probes, …) when those land. The two reviewer notes carried
+forward from FU5:
+
+- **M4a-6b PR B reviewer note** — when the DELETE
+  `/api/connectors/[id]` handler ships, it MUST call
+  `connectorHealth.delete(connectorId)` best-effort after
+  config removal. Not a cross-store atomic transaction; an
+  orphaned row is harmless because `GET /api/connectors`
+  iterates connectors from `config.yaml`.
+- **PR B hydration symmetry** — any future change to the
+  fingerprint dispatch logic MUST update BOTH the
+  testConnection write path AND `computeCurrentFingerprint`
+  together (or break
+  `tests/connector-fingerprint-symmetry.test.ts`). The single
+  helper exists precisely so a future contributor can't drift
+  one end without the other failing loudly.
