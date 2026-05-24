@@ -233,17 +233,21 @@ git checkout -- next-env.d.ts          # build rewrites it; ADR-0014
     verified".
 [ ] Open follow-ups remain parked: #25 (M4a-FU2 Hermes Kanban test
     hardening), #27 (M4a-FU3 user-facing /api/capabilities/invoke).
-[ ] Rex marks M4a-5 verified: "M4a-5 verified — start M4a-6 PR A"
-    OR "M4a-5 verified — defer M4a-6 and start M5".
+[ ] Rex marks M4a-5 verified: "M4a-5 verified — start M4a-6a PR"
+    (the provider catalog sub-milestone) OR "M4a-5 verified — defer
+    M4a-6 and start M5".
 ```
 
 ---
 
 **Out of scope for this checklist** (do NOT block acceptance on these):
 
-- **M4a-6** — Provider picker + UI-managed connector secrets. Spec
-  in [`docs/specs/expandability-foundation/m4a-6-task-spec.md`](specs/expandability-foundation/m4a-6-task-spec.md)
-  (v1 draft). No code shipped.
+- **M4a-6** — Provider catalog + UI-managed connector secrets. Spec
+  is tracked in a follow-up spec PR (split into sub-milestones
+  **M4a-6a** provider catalog expansion + **M4a-6b** UI-managed
+  connector secrets); not yet on `main` when this closeout PR was
+  prepared, so this checklist does not link directly to the spec
+  file. No M4a-6 code shipped.
 - **M4a-FU2 / #25** — Hermes Kanban test hardening.
 - **M4a-FU3 / #27** — user-facing HTTP `/api/capabilities/invoke` route.
 - **M5** — artifacts + approvals (separate milestone).
