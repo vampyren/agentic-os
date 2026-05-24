@@ -195,23 +195,45 @@ new connector's testConnection result surfaces on the row itself.
     label on the left). Rows that have never been tested in
     this session show a dimmed "not tested" instead — never
     "ENABLED".
-[ ] BELOW the row separator, the existing ValidationBadge
-    continues to render the detail (status + errorCode + the
-    auth-missing hint when the named env var isn't set). The
-    operator does NOT have to click Test again to see this.
+[ ] When the test result is **non-valid**, a BELOW-row detail
+    line renders the actionable info — `errorCode <code>` and, for
+    `auth-missing`, the "set the named env var; restart Agentic
+    OS" hint. When the test result is **valid**, the row shows
+    NO below-row detail line (the green pill on the right is the
+    only status surface — no duplicate "valid" badge). This is
+    the live-review fix: previously valid rows had BOTH a green
+    pill on the right AND a green "valid" badge below; the
+    duplicate is gone.
 [ ] If the Add itself FAILS (e.g. duplicate id, blocked-network,
     settings-invalid), the modal stays open at the form step with a
     neutral submitError shown inline. The modal only auto-closes on
     Add success.
+[ ] **Refresh the browser while viewing Connectors.** You stay on
+    Connectors — the URL contains `?section=connectors` and the
+    page hydrates with that section selected. Refresh from the
+    Features tab keeps you on Features (the URL is empty or
+    `?section=features`). Switching tabs updates the URL via
+    `router.replace`; the back button is NOT polluted with one
+    history entry per tab switch.
+[ ] **Known limitation (tracked as M4a-FU5 — issue #36):** after
+    a refresh, validation status on a previously-tested row
+    falls back to "not tested" because validation state is held
+    in transient React state and isn't yet hydrated from the run
+    ledger. The row reappears; the right-side pill reads
+    "not tested" until the operator clicks Test or re-adds. The
+    auto-close + highlight path on a fresh add is unaffected —
+    the pill renders the test result immediately for that row,
+    in-session, and the issue only surfaces after a hard page
+    refresh.
 ```
 
 The trade-off: previously the operator saw "Added <id> · connection
 test: <status>" in a dedicated modal step before Done; now they see
-the same status on (a) the new row's right-side status pill (glance
-read) and (b) the existing ValidationBadge below the row separator
-(detail read). One source of truth (the row, with both glance + detail
-surfaces); one fewer click; no contradiction between modal status and
-row status.
+the same status on the new row's right-side status pill (and, for
+non-valid outcomes, on a below-row detail line with the actionable
+errorCode / hint). One source of truth (the row); one fewer click;
+no contradiction between modal status and row status; no duplicate
+"valid" labels.
 
 ## Step 9 — Save + secret hygiene sweep
 

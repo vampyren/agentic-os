@@ -235,7 +235,15 @@ function ConnectorRow({
           </button>
         </div>
       </div>
-      {validation && <ValidationBadge validation={validation} />}
+      {validation && validation.status !== "valid" && (
+        // Live UI review (post-PR-#34-first-commit): a green "valid"
+        // pill on the right AND a green "valid" badge on the bottom
+        // is redundant. The pill is the at-a-glance source of truth
+        // for status; the badge below is only shown when there's
+        // useful detail beyond the status word — errorCode or the
+        // auth-missing hint. Successful tests show NO bottom badge.
+        <ValidationDetail validation={validation} />
+      )}
     </li>
   );
 }
@@ -279,29 +287,27 @@ function StatusPill({
   );
 }
 
-function ValidationBadge({
+/** Below-row detail for non-valid validations only. Drops the redundant
+ *  status word (the right-side StatusPill already carries it) and
+ *  surfaces only the operator-actionable detail: errorCode + the
+ *  auth-missing hint + any neutral message. For `status === "valid"`
+ *  this component is intentionally NOT rendered — see the gate at
+ *  the ConnectorRow call site. */
+function ValidationDetail({
   validation,
 }: {
   validation: ConnectorValidation;
 }) {
-  const { status, errorCode } = validation;
-  const color =
-    status === "valid" ? "#4ade80"
-    : status === "unknown" ? "#fbbf24"
-    : "#f87171";
+  const { errorCode, message } = validation;
+  if (!errorCode && !message) return null;
   return (
     <div
-      className="border-t pt-2 flex items-center gap-2 text-[12px]"
+      className="border-t pt-2 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[12px] text-[var(--fg-dim)]"
       style={{ borderColor: "var(--panel-border)" }}
     >
-      <span
-        className="w-1.5 h-1.5 rounded-full"
-        style={{ background: color }}
-      />
-      <span style={{ color }}>{status}</span>
       {errorCode && (
-        <span className="text-[var(--fg-dim)]">
-          · errorCode <code>{errorCode}</code>
+        <span>
+          errorCode <code>{errorCode}</code>
         </span>
       )}
       {errorCode === "auth-missing" && (
@@ -310,6 +316,7 @@ function ValidationBadge({
           restart Agentic OS.
         </span>
       )}
+      {!errorCode && message && <span>{message}</span>}
     </div>
   );
 }
