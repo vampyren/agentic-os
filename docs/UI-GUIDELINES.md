@@ -19,11 +19,48 @@ Two artefacts ship together:
 
 The two reference each other: the doc names the rule; the page shows the rule in action.
 
-## 2. Token catalog
+## 2. Styling stack
+
+The boundaries below are deliberate. They keep the rules in this file enforceable by referencing concrete primitives the contributor is already using, and they prevent FU6 (or any UI-touching PR) from quietly introducing a new layer that fragments the surface.
+
+**What we use:**
+
+- **Next.js App Router + React** is the application framework. Pages are server components by default; `"use client"` only where genuinely needed (hooks, browser APIs, event handlers).
+- **Tailwind** is the **primary** component styling layer. Reach for a Tailwind utility class first.
+- **CSS custom properties in `src/app/globals.css`** are **design tokens only** — status colors, trust colors, per-agent accents, panel surfaces, shared spacing/radius. Tokens are consumed BY Tailwind utilities (typically via arbitrary values, e.g. `bg-[var(--status-invalid)]`), not as a parallel styling layer.
+- **CSS Modules** are allowed only for scoped styling that Tailwind cannot express cleanly (rare — e.g. keyframe animations that span multiple selectors). When you reach for a CSS Module, justify it in the PR description.
+
+**Rules:**
+
+- **Use Tailwind utilities first**, including arbitrary values referencing tokens — e.g. `bg-[var(--status-invalid)]`, `text-[var(--fg-dim)]`, `border-[var(--panel-border)]`.
+- **Do NOT use inline hex colors for semantic status/trust states.** A new `bg-red-500` or `text-#10b981` for "this is an error" / "this is valid" is a rule break. Use the token (`--status-invalid` / `--status-valid`). Pure layout / non-semantic colors (e.g. `bg-black/20` for an overlay) are fine.
+- **Do NOT replace Tailwind with handwritten CSS classes.** If you find yourself authoring a `.my-card { padding: 16px; … }` block to do what `p-4 panel` already does, stop and use the existing primitives.
+- **Do NOT introduce Storybook, shadcn/ui, Radix, or another UI / component library** in FU6 (or any FU6-adjacent PR) without explicit Rex approval. The whole point of FU6 is to reduce drift; adding a third-party component layer adds drift in a different direction. The `/dev/ui` page is the inventory; the canonical components live in `src/components/` and per-feature `_components/` directories.
+- **Do NOT swap the design-token vocabulary for a Tailwind theme extension** without explicit Rex approval. Tokens stay as CSS custom properties so they can vary at runtime if a future "high-contrast mode" or similar lands; Tailwind theme values are baked at build time.
+
+**Practical examples** (PR B will demonstrate these on `/dev/ui` once it lands):
+
+```tsx
+// ✅ Tailwind + token reference
+<span className="text-[var(--status-invalid)] text-[10px] uppercase">
+  invalid
+</span>
+
+// ✅ Tailwind utilities + existing panel class
+<div className="panel p-4 flex flex-col gap-2">…</div>
+
+// ❌ Inline hex for a semantic state (drift)
+<span style={{ color: "#f87171" }}>invalid</span>
+
+// ❌ Handwritten CSS class that replicates Tailwind
+<span className="my-bad-pill">invalid</span>
+```
+
+## 3. Token catalog
 
 All tokens live in `src/app/globals.css :root`. Use tokens by name, not inline hex.
 
-### 2.1 Existing surface / text / panel tokens (unchanged)
+### 3.1 Existing surface / text / panel tokens (unchanged)
 
 | Token | Purpose |
 |---|---|
@@ -34,7 +71,7 @@ All tokens live in `src/app/globals.css :root`. Use tokens by name, not inline h
 | `--radius` | Card / button radius (10px) |
 | `--shadow-glow` | Soft outer glow for live cards |
 
-### 2.2 Mission Control / Vitals status tokens (unchanged)
+### 3.2 Mission Control / Vitals status tokens (unchanged)
 
 Service-health discriminant used by Mission Control top cards, `Vitals`, `AgentPortal`, and feature dashboard cards.
 
@@ -46,7 +83,7 @@ Service-health discriminant used by Mission Control top cards, `Vitals`, `AgentP
 | `--status-offline` | rose `#f43f5e` | Down |
 | `--status-unknown` | **grey** `#71717a` | **No data signal.** Stays grey. **Do NOT recolor this.** |
 
-### 2.3 Per-agent accents (unchanged)
+### 3.3 Per-agent accents (unchanged)
 
 | Token | Agent |
 |---|---|
@@ -57,9 +94,9 @@ Service-health discriminant used by Mission Control top cards, `Vitals`, `AgentP
 | `--accent-openrouter` | OpenRouter |
 | `--accent-default` | Fallback (hash-mapped by agent name) |
 
-### 2.4 Connector-test status discriminant (NEW in M4a-FU6 PR A)
+### 3.4 Connector-test status discriminant (NEW in M4a-FU6 PR A)
 
-`ConnectorValidation` (kernel type) discriminant surfaced by `ConnectorsPanel.StatusPill` + `ValidationDetail`. **Semantically distinct from `--status-*` (Mission Control)** — see §2.6 for why.
+`ConnectorValidation` (kernel type) discriminant surfaced by `ConnectorsPanel.StatusPill` + `ValidationDetail`. **Semantically distinct from `--status-*` (Mission Control)** — see §3.6 for why.
 
 | Token | Color | Meaning |
 |---|---|---|
@@ -70,7 +107,7 @@ Service-health discriminant used by Mission Control top cards, `Vitals`, `AgentP
 | `--status-test-unknown` | **yellow** `#fbbf24` | **Test inconclusive.** NOT to be confused with `--status-unknown` (Mission Control grey). |
 | `--status-not-tested` | dim grey (alias of `--fg-dimmer`) | Pre-test, fingerprint mismatch, or session-fresh row |
 
-### 2.5 Trust badges (NEW in M4a-FU6 PR A)
+### 3.5 Trust badges (NEW in M4a-FU6 PR A)
 
 Provenance, **NOT** validation status. Trust is "where did this connector come from?" — first-party preset, community / operator-loaded preset, or untrusted (see ADR-0018 preset trust clamp; downward-only).
 
@@ -81,7 +118,7 @@ Provenance, **NOT** validation status. Trust is "where did this connector come f
 | `--trust-untrusted` | red `#f87171` | Operator-flagged untrusted |
 | `--trust-unknown` | grey `#71717a` | Provenance can't be determined |
 
-### 2.6 Why two "unknown" tokens?
+### 3.6 Why two "unknown" tokens?
 
 The two "unknown" states are **semantically different** and use **different colors on purpose**:
 
@@ -90,7 +127,7 @@ The two "unknown" states are **semantically different** and use **different colo
 
 Merging them under one token would either silently turn warnings into silence (bad) or recolor all Mission Control "no signal" cards to yellow (worse). The two tokens stay separate.
 
-### 2.7 Token aliasing rule
+### 3.7 Token aliasing rule
 
 Aliasing within a family is acceptable when documented. Every alias (`--status-foo: var(--status-bar)`) must have a comment explaining why. A bare alias is a smell — extract its own hex when the meanings diverge.
 
@@ -101,7 +138,7 @@ The aliases currently present:
 - `--status-misconfigured: var(--status-invalid)` — same rationale as `--status-unreachable`.
 - `--status-not-tested: var(--fg-dimmer)` — text-only dim state with no dot.
 
-## 3. Locked rules — must / must-not
+## 4. Locked rules — must / must-not
 
 These rules were extracted from PR #33 / PR #34 regressions and the issue #37 body. Every UI-touching PR is reviewed against them.
 
@@ -116,7 +153,7 @@ These rules were extracted from PR #33 / PR #34 regressions and the issue #37 bo
 - **Use the same color / status mapping everywhere.** Mission Control: `--status-*`. Connector tests: `--status-{valid,invalid,unreachable,misconfigured,test-unknown,not-tested}`. Trust: `--trust-*`. Do not mix families. Do not introduce a parallel "feature-status" or "agent-status" token family.
 - **Reuse existing components before creating new styles.** Search `/dev/ui` first; ask before adding a new variant.
 
-## 4. UI non-leak rule (locked)
+## 5. UI non-leak rule (locked)
 
 > **No raw provider data, env var values, baseUrl, Authorization headers, raw fetch errors, raw stack traces, or raw provider responses are rendered in UI. Use canned / neutral message maps.**
 
@@ -127,7 +164,7 @@ Codified across three surfaces:
    - A `ValidationDetail` example renders `errorCode auth-missing` + the `discoveryMessageFor`-style hint. Never the raw fetch error string.
    - The preview-only API-key field shows a placeholder value (`••••••••`). Never an example real key shape.
    - The connector row examples never carry an env var NAME in the visible columns.
-3. **The reviewer checklist below (§5)** prompts each UI-touching PR to self-attest.
+3. **The reviewer checklist below (§6)** prompts each UI-touching PR to self-attest.
 
 Prior art:
 
@@ -135,7 +172,7 @@ Prior art:
 - M4a-5 PR #30 review fix `cf97971` — added the closed-set pattern.
 - M4a-FU5 PR A's `testConnection.neutralMessage` — kernel-side re-derivation of `message` from `(status, errorCode)`. Never passes through a family-provided string.
 
-## 5. Reviewer checklist for UI-touching PRs
+## 6. Reviewer checklist for UI-touching PRs
 
 No `PULL_REQUEST_TEMPLATE.md` file exists in this repo (FU6 task spec O10 — keeping it lightweight). Reviewers of UI-touching PRs reference the checklist below directly when leaving review comments.
 
@@ -149,7 +186,7 @@ For any PR that touches UI surfaces, confirm:
 
 The reviewer is expected to link this section in a PR comment when the rule is broken.
 
-## 6. Component index — links into `/dev/ui`
+## 7. Component index — links into `/dev/ui`
 
 | § | Category | `/dev/ui` anchor |
 |---|---|---|
@@ -170,7 +207,7 @@ The reviewer is expected to link this section in a PR comment when the rule is b
 
 Until PR B ships, each anchor renders a placeholder section. PR B fills each with live React component examples.
 
-## 7. Successful-create-flow rule (softened)
+## 8. Successful-create-flow rule (softened)
 
 > **Successful create flows should return to the list and highlight the created row, not leave redundant success modals — UNLESS the success state requires user action such as copy, download, or confirming a one-time value.**
 
@@ -186,7 +223,7 @@ Default behaviour:
 6. Reduced-motion downgrade: ring is static (no pulse) for the 3-second window.
 7. Carve-out: if the success requires user action, the modal stays open at a confirmation step with the explicit action.
 
-## 8. Reduced-motion
+## 9. Reduced-motion
 
 Every pulse / glow / highlight state MUST respect `prefers-reduced-motion: reduce`. Per-category downgrades:
 
@@ -198,7 +235,7 @@ Every pulse / glow / highlight state MUST respect `prefers-reduced-motion: reduc
 
 `/dev/ui` MUST demonstrate the reduced-motion downgrade for the pulse / highlight states (lands in PR B). To verify on the running app: browser devtools → Rendering panel → Emulate CSS media feature → `prefers-reduced-motion: reduce`.
 
-## 9. Out of scope
+## 10. Out of scope
 
 What FU6 does NOT promise:
 
