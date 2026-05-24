@@ -19,18 +19,46 @@ import {
   discoverModels,
   fetchPresets,
   testConnector,
-  type AddConnectorResult,
   type ConnectorPreset,
   type ConnectorValidation,
   type DiscoveredModel,
 } from "./api";
 import { ModelPicker, MODEL_PICKER_VISIBLE_CAP } from "./ModelPicker";
 
-type Step = "picking" | "filling" | "result";
+// Two steps only. The previous third step ("result") rendered an "Added
+// <id>" panel with its own Close + Done buttons on top of the modal's
+// header Close — three close-related affordances for one outcome. Rex
+// hit this during M4a-5 live acceptance and asked for it gone:
+//
+//   * The header Cancel button was removed in PR #33.
+//   * The result step is removed here: after a successful add, the modal
+//     auto-closes and ConnectorsPanel highlights the newly-added row.
+//
+// Failure paths (add itself failed) stay in the "filling" step with a
+// neutral submitError shown inline; the operator doesn't get bounced out
+// of their half-typed form. testConnection results — including non-valid
+// outcomes like `auth-missing` — propagate to ConnectorsPanel via
+// onAdded(connectorId, validation) and surface as the same
+// ValidationBadge the row already uses when the operator clicks Test.
+// One source of truth, no redundant warning screens.
+//
+// Do NOT reintroduce the third step. If a future case truly needs a
+// dedicated post-add warning surface, prefer extending the row badge.
+type Step = "picking" | "filling";
 
 interface AddProviderFlowProps {
   onClose(): void;
-  onAdded(): void;
+  /**
+   * Called after a successful POST /api/connectors + testConnection.
+   *   `connectorId` — the id the server confirmed.
+   *   `validation`  — the testConnection result (may be `null` if the
+   *                   call itself threw; the row will pick up status on
+   *                   the next Test click). Non-valid statuses
+   *                   (`auth-missing`, etc.) flow through here so the
+   *                   parent can pre-populate testResults[connectorId]
+   *                   and the row's ValidationBadge surfaces the warning.
+   */
+  onAdded(connectorId: string, validation: ConnectorValidation | null): void;
 }
 
 const TRUST_COLORS: Record<ConnectorPreset["trust"], string> = {
@@ -50,8 +78,6 @@ export function AddProviderFlow({ onClose, onAdded }: AddProviderFlowProps) {
   const [allowLocalNetwork, setAllowLocalNetwork] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
-  const [addResult, setAddResult] = useState<AddConnectorResult | null>(null);
-  const [validation, setValidation] = useState<ConnectorValidation | null>(null);
 
   useEffect(() => {
     void fetchPresets().then(setPresets);
@@ -91,12 +117,15 @@ export function AddProviderFlow({ onClose, onAdded }: AddProviderFlowProps) {
       if (allowLocalNetwork) body.allowLocalNetwork = true;
 
       const result = await addConnector(body);
-      setAddResult(result);
       if (result.ok) {
-        // Run a connection test immediately so the operator sees the result.
+        // Run a connection test immediately so the new row's
+        // ValidationBadge can render the result without the operator
+        // clicking Test. The validation (valid OR non-valid) is handed
+        // up to ConnectorsPanel via onAdded(); see the explanatory
+        // comment on AddProviderFlowProps above.
         const v = await testConnector(result.connector.connectorId);
-        setValidation(v);
-        setStep("result");
+        onAdded(result.connector.connectorId, v);
+        onClose();
       } else {
         setSubmitError(result.error);
       }
@@ -107,8 +136,9 @@ export function AddProviderFlow({ onClose, onAdded }: AddProviderFlowProps) {
     }
   }
 
-  function close(refreshed: boolean) {
-    if (refreshed) onAdded();
+  // Closes the modal without a successful add (operator hit Close or
+  // clicked the backdrop). No refresh; nothing was added.
+  function closeWithoutAdd() {
     onClose();
   }
 
@@ -116,7 +146,7 @@ export function AddProviderFlow({ onClose, onAdded }: AddProviderFlowProps) {
     <div
       className="fixed inset-0 z-50 flex items-center justify-center p-6"
       style={{ background: "rgba(0,0,0,0.5)" }}
-      onClick={() => close(false)}
+      onClick={closeWithoutAdd}
     >
       <div
         className="panel w-full max-w-[640px] max-h-[80vh] overflow-auto flex flex-col gap-4 p-5"
@@ -127,7 +157,7 @@ export function AddProviderFlow({ onClose, onAdded }: AddProviderFlowProps) {
           <button
             type="button"
             className="text-[12px] text-[var(--fg-dimmer)]"
-            onClick={() => close(false)}
+            onClick={closeWithoutAdd}
           >
             Close
           </button>
@@ -154,14 +184,6 @@ export function AddProviderFlow({ onClose, onAdded }: AddProviderFlowProps) {
             submitError={submitError}
             onBack={() => setStep("picking")}
             onSubmit={submit}
-          />
-        )}
-
-        {step === "result" && addResult?.ok && (
-          <AddResult
-            connectorId={addResult.connector.connectorId}
-            validation={validation}
-            onDone={() => close(true)}
           />
         )}
       </div>
@@ -634,48 +656,10 @@ function Field({
   );
 }
 
-// ── Step 3 — result ────────────────────────────────────────────────────────
-
-function AddResult({
-  connectorId, validation, onDone,
-}: {
-  connectorId: string;
-  validation: ConnectorValidation | null;
-  onDone(): void;
-}) {
-  const status = validation?.status ?? "unknown";
-  const color =
-    status === "valid" ? "#4ade80" : status === "unknown" ? "#fbbf24" : "#f87171";
-  return (
-    <div className="flex flex-col gap-3">
-      <p className="text-[13px]">
-        Added <code>{connectorId}</code>.
-      </p>
-      <div className="panel p-3 flex flex-col gap-1">
-        <div className="flex items-center gap-2 text-[12px] uppercase tracking-wider" style={{ color }}>
-          <span className="w-1.5 h-1.5 rounded-full" style={{ background: color }} />
-          connection test: {status}
-        </div>
-        {validation?.errorCode && (
-          <p className="text-[12px] text-[var(--fg-dim)]">
-            errorCode: <code>{validation.errorCode}</code>
-            {validation.errorCode === "auth-missing" && (
-              <>
-                {" "}
-                — the named env var isn't set in the server process. Set it
-                and restart Agentic OS, then re-test.
-              </>
-            )}
-          </p>
-        )}
-        {validation?.message && (
-          <p className="text-[12px] text-[var(--fg-dim)]">{validation.message}</p>
-        )}
-      </div>
-      <div className="flex justify-end">
-        <button type="button" className="px-3 py-1.5 text-[12px] border rounded-md hover:opacity-80 disabled:opacity-50"
-          style={{ borderColor: "var(--panel-border)", background: "var(--panel)" }} onClick={onDone}>Done</button>
-      </div>
-    </div>
-  );
-}
+// Note: the previous "Step 3 — result" AddResult component (a result
+// screen with Close + Done buttons after a successful add) has been
+// removed. The modal now auto-closes after a successful add and the
+// new connector's testConnection result surfaces on the row itself in
+// ConnectorsPanel via the same ValidationBadge the Test button uses.
+// See the comment on AddProviderFlowProps at the top of this file for
+// the full rationale. Do NOT reintroduce a third step.

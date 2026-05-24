@@ -3,10 +3,24 @@
 // Lists configured connector instances + the Add Provider entry point.
 // The UI surface is a thin renderer over the public projection from
 // GET /api/connectors (no raw settings / authRef / secrets cross the wire).
+//
+// Add Provider flow (post-M4a-5 acceptance UX, this commit):
+// AddProviderFlow auto-closes on a successful add and hands the new
+// connectorId + its testConnection ConnectorValidation back via
+// onAdded(). This panel:
+//   * refreshes the list,
+//   * pre-populates testResults[connectorId] with the validation so the
+//     row's ValidationBadge renders immediately (valid OR non-valid;
+//     auth-missing surfaces here, same as if the operator had clicked
+//     Test), and
+//   * highlights the new row for HIGHLIGHT_MS ms so the operator
+//     visually locates it without scrolling.
+// There is no separate "Added <id>" result screen any more — see the
+// comment on AddProviderFlowProps for the full rationale.
 
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   fetchConnectors,
   testConnector,
@@ -14,6 +28,8 @@ import {
   type ConnectorValidation,
 } from "./api";
 import { AddProviderFlow } from "./AddProviderFlow";
+
+const HIGHLIGHT_MS = 3000;
 
 const TRUST_COLORS = {
   "first-party": "#4ade80",
@@ -29,6 +45,8 @@ export function ConnectorsPanel() {
     Record<string, ConnectorValidation | null>
   >({});
   const [testing, setTesting] = useState<Record<string, boolean>>({});
+  const [highlightedId, setHighlightedId] = useState<string | null>(null);
+  const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const refresh = useCallback(() => {
     void fetchConnectors().then(setConnectors);
@@ -36,11 +54,40 @@ export function ConnectorsPanel() {
 
   useEffect(() => refresh(), [refresh]);
 
+  // Cancel any in-flight highlight timer on unmount so a fast nav-away
+  // doesn't fire setState on a stale component.
+  useEffect(() => {
+    return () => {
+      if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
+    };
+  }, []);
+
   async function onTest(id: string) {
     setTesting((t) => ({ ...t, [id]: true }));
     const v = await testConnector(id);
     setTestResults((r) => ({ ...r, [id]: v }));
     setTesting((t) => ({ ...t, [id]: false }));
+  }
+
+  function onAdded(connectorId: string, validation: ConnectorValidation | null) {
+    refresh();
+    // Pre-populate the test result so the new row's ValidationBadge
+    // renders immediately — valid OR non-valid. This is what replaces
+    // the removed "Added <id>" result screen: the operator sees the
+    // testConnection outcome on the row itself, same surface as the
+    // Test button would produce.
+    if (validation) {
+      setTestResults((r) => ({ ...r, [connectorId]: validation }));
+    }
+    // Brief highlight so the operator visually locates the new row.
+    setHighlightedId(connectorId);
+    if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
+    highlightTimerRef.current = setTimeout(() => {
+      setHighlightedId((current) =>
+        current === connectorId ? null : current,
+      );
+      highlightTimerRef.current = null;
+    }, HIGHLIGHT_MS);
   }
 
   return (
@@ -79,6 +126,7 @@ export function ConnectorsPanel() {
               connector={c}
               testing={testing[c.connectorId] ?? false}
               validation={testResults[c.connectorId] ?? null}
+              highlighted={highlightedId === c.connectorId}
               onTest={() => onTest(c.connectorId)}
             />
           ))}
@@ -88,7 +136,10 @@ export function ConnectorsPanel() {
       {addOpen && (
         <AddProviderFlow
           onClose={() => setAddOpen(false)}
-          onAdded={refresh}
+          onAdded={(connectorId, validation) => {
+            setAddOpen(false);
+            onAdded(connectorId, validation);
+          }}
         />
       )}
     </section>
@@ -96,17 +147,36 @@ export function ConnectorsPanel() {
 }
 
 function ConnectorRow({
-  connector, testing, validation, onTest,
+  connector, testing, validation, highlighted, onTest,
 }: {
   connector: ConnectorListItem;
   testing: boolean;
   validation: ConnectorValidation | null;
+  /** True for HIGHLIGHT_MS after a successful Add Provider flow — the
+   *  row pulses + carries a colored ring so the operator visually
+   *  locates the new connector without scrolling. */
+  highlighted: boolean;
   onTest(): void;
 }) {
   const trustColor = TRUST_COLORS[connector.trust];
   return (
-    <li className="panel p-4 flex flex-col gap-3">
+    <li
+      className={
+        "panel p-4 flex flex-col gap-3 transition-shadow"
+        + (highlighted ? " ring-2 ring-emerald-400 animate-pulse" : "")
+      }
+      style={{
+        transitionDuration: "300ms",
+      }}
+    >
       <div className="flex items-start justify-between gap-3">
+        {/*
+          Add-flow highlight: when `highlighted` is true the row gets
+          ring-2 ring-emerald-400 + animate-pulse for HIGHLIGHT_MS
+          (cleared by the parent timeout in ConnectorsPanel). animate-
+          pulse fades the row opacity twice over ~3s; the ring keeps a
+          steady colored outline so the row stays locatable mid-pulse.
+        */}
         <div className="min-w-0">
           <div className="flex items-center gap-2">
             <span className="text-[14px] font-medium">
@@ -130,12 +200,30 @@ function ConnectorRow({
           </p>
         </div>
         <div className="flex flex-col items-end gap-2 shrink-0">
-          <span
-            className="text-[10px] uppercase tracking-wider"
-            style={{ opacity: connector.enabled ? 1 : 0.5 }}
-          >
-            {connector.enabled ? "enabled" : "disabled"}
-          </span>
+          {/*
+            Right-side status pill (replaces the previous "ENABLED"
+            label per live M4a-5 acceptance feedback). The old badge
+            was meaningless without an enable/disable toggle and just
+            duplicated the per-row trust label on the left. The useful
+            info is the connection-test outcome, glance-readable here:
+
+              - validation present + valid    -> green dot + "valid"
+              - validation present + non-valid -> red/yellow dot +
+                the status word (invalid / unreachable /
+                misconfigured / unknown)
+              - validation absent              -> dimmed "not tested"
+
+            The detail ValidationBadge below the row separator stays
+            and renders the errorCode + auth-missing hint when
+            present. The pill is the glance read; the badge is the
+            detail read.
+
+            An enable/disable toggle is intentionally NOT shipped in
+            this commit (see issue #35 — M4a-FU4 management modal).
+            Until a real toggle exists, surfacing a static "ENABLED"
+            label is worse than no label.
+          */}
+          <StatusPill validation={validation} />
           <button
             type="button"
             onClick={onTest}
@@ -147,34 +235,79 @@ function ConnectorRow({
           </button>
         </div>
       </div>
-      {validation && <ValidationBadge validation={validation} />}
+      {validation && validation.status !== "valid" && (
+        // Live UI review (post-PR-#34-first-commit): a green "valid"
+        // pill on the right AND a green "valid" badge on the bottom
+        // is redundant. The pill is the at-a-glance source of truth
+        // for status; the badge below is only shown when there's
+        // useful detail beyond the status word — errorCode or the
+        // auth-missing hint. Successful tests show NO bottom badge.
+        <ValidationDetail validation={validation} />
+      )}
     </li>
   );
 }
 
-function ValidationBadge({
+/** Compact at-a-glance status pill in the row's right column.
+ *  Reuses the same status -> color mapping as ValidationBadge so the
+ *  pill and the below-row detail badge agree. When `validation` is
+ *  null (the connector has never been tested in this session), a
+ *  subtle "not tested" label renders instead of any colored dot. */
+function StatusPill({
   validation,
 }: {
-  validation: ConnectorValidation;
+  validation: ConnectorValidation | null;
 }) {
-  const { status, errorCode } = validation;
+  if (!validation) {
+    return (
+      <span
+        className="text-[10px] uppercase tracking-wider"
+        style={{ color: "var(--fg-dimmer)" }}
+      >
+        not tested
+      </span>
+    );
+  }
+  const { status } = validation;
   const color =
     status === "valid" ? "#4ade80"
     : status === "unknown" ? "#fbbf24"
     : "#f87171";
   return (
-    <div
-      className="border-t pt-2 flex items-center gap-2 text-[12px]"
-      style={{ borderColor: "var(--panel-border)" }}
+    <span
+      className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider"
+      style={{ color }}
     >
       <span
         className="w-1.5 h-1.5 rounded-full"
         style={{ background: color }}
       />
-      <span style={{ color }}>{status}</span>
+      {status}
+    </span>
+  );
+}
+
+/** Below-row detail for non-valid validations only. Drops the redundant
+ *  status word (the right-side StatusPill already carries it) and
+ *  surfaces only the operator-actionable detail: errorCode + the
+ *  auth-missing hint + any neutral message. For `status === "valid"`
+ *  this component is intentionally NOT rendered — see the gate at
+ *  the ConnectorRow call site. */
+function ValidationDetail({
+  validation,
+}: {
+  validation: ConnectorValidation;
+}) {
+  const { errorCode, message } = validation;
+  if (!errorCode && !message) return null;
+  return (
+    <div
+      className="border-t pt-2 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[12px] text-[var(--fg-dim)]"
+      style={{ borderColor: "var(--panel-border)" }}
+    >
       {errorCode && (
-        <span className="text-[var(--fg-dim)]">
-          · errorCode <code>{errorCode}</code>
+        <span>
+          errorCode <code>{errorCode}</code>
         </span>
       )}
       {errorCode === "auth-missing" && (
@@ -183,6 +316,7 @@ function ValidationBadge({
           restart Agentic OS.
         </span>
       )}
+      {!errorCode && message && <span>{message}</span>}
     </div>
   );
 }

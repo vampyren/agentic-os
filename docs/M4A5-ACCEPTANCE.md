@@ -168,7 +168,74 @@ In the Add Provider form, after Load models has run:
     populate the picker.
 ```
 
-## Step 8 — Save + secret hygiene sweep
+## Step 8 — Successful Add returns to the Connectors list with a highlighted row
+
+This step verifies the post-acceptance UX change: the Add Provider
+modal no longer ends on a separate "Added <id>" result screen with
+Close + Done buttons. After a successful add it auto-closes; the
+new connector's testConnection result surfaces on the row itself.
+
+```text
+[ ] In the Add Provider form, click **Add** on a valid configuration.
+[ ] The modal closes automatically — there is NO result screen with
+    Close + Done in the middle. Three close-related buttons (Close
+    + ← Back + Done) no longer exist; only the modal-header Close
+    and (during the form step) the ← Back affordance.
+[ ] You land back on the Connectors list. The new connector row is
+    present (refresh ran automatically; no manual reload needed).
+[ ] The new row has a brief visual highlight (ring + pulse) for
+    ~3 seconds so it's easy to find. The highlight clears on its
+    own; no manual dismiss.
+[ ] The new row's RIGHT-SIDE STATUS PILL shows the test outcome
+    at a glance — green dot + "valid" / red dot +
+    "invalid"/"unreachable"/"misconfigured" / yellow dot +
+    "unknown". The pill replaces the old "ENABLED" label, which
+    is gone (it had no functional meaning without an
+    enable/disable toggle and duplicated the per-row trust
+    label on the left). Rows that have never been tested in
+    this session show a dimmed "not tested" instead — never
+    "ENABLED".
+[ ] When the test result is **non-valid**, a BELOW-row detail
+    line renders the actionable info — `errorCode <code>` and, for
+    `auth-missing`, the "set the named env var; restart Agentic
+    OS" hint. When the test result is **valid**, the row shows
+    NO below-row detail line (the green pill on the right is the
+    only status surface — no duplicate "valid" badge). This is
+    the live-review fix: previously valid rows had BOTH a green
+    pill on the right AND a green "valid" badge below; the
+    duplicate is gone.
+[ ] If the Add itself FAILS (e.g. duplicate id, blocked-network,
+    settings-invalid), the modal stays open at the form step with a
+    neutral submitError shown inline. The modal only auto-closes on
+    Add success.
+[ ] **Refresh the browser while viewing Connectors.** You stay on
+    Connectors — the URL contains `?section=connectors` and the
+    page hydrates with that section selected. Refresh from the
+    Features tab keeps you on Features (the URL is empty or
+    `?section=features`). Switching tabs updates the URL via
+    `router.replace`; the back button is NOT polluted with one
+    history entry per tab switch.
+[ ] **Known limitation (tracked as M4a-FU5 — issue #36):** after
+    a refresh, validation status on a previously-tested row
+    falls back to "not tested" because validation state is held
+    in transient React state and isn't yet hydrated from the run
+    ledger. The row reappears; the right-side pill reads
+    "not tested" until the operator clicks Test or re-adds. The
+    auto-close + highlight path on a fresh add is unaffected —
+    the pill renders the test result immediately for that row,
+    in-session, and the issue only surfaces after a hard page
+    refresh.
+```
+
+The trade-off: previously the operator saw "Added <id> · connection
+test: <status>" in a dedicated modal step before Done; now they see
+the same status on the new row's right-side status pill (and, for
+non-valid outcomes, on a below-row detail line with the actionable
+errorCode / hint). One source of truth (the row); one fewer click;
+no contradiction between modal status and row status; no duplicate
+"valid" labels.
+
+## Step 9 — Save + secret hygiene sweep
 
 After a successful Save through the picker:
 
@@ -190,7 +257,7 @@ curl http://127.0.0.1:3000/api/runs       | grep "$KEY_PREFIX"  # MUST be empty
     env var NAME's resolved value.
 ```
 
-## Step 9 — RouterErrorCode disjoint from ConnectorErrorCode
+## Step 10 — RouterErrorCode disjoint from ConnectorErrorCode
 
 The router-side errorCode union is closed and disjoint per PR #29.
 Verify via the existing test suite (no live probe needed; this is a
@@ -208,7 +275,7 @@ npm test -- router-error-codes 2>&1 | tail -5
     rate-limited) are explicitly asserted as NOT members.
 ```
 
-## Step 10 — Build / test green
+## Step 11 — Build / test green
 
 ```bash
 cd /path/to/agentic-os
@@ -225,10 +292,10 @@ git checkout -- next-env.d.ts          # build rewrites it; ADR-0014
 [ ] build — succeeds.
 ```
 
-## Step 11 — Sign-off
+## Step 12 — Sign-off
 
 ```text
-[ ] All steps 1–10 pass.
+[ ] All steps 1–11 pass.
 [ ] Recorded in the AutoMem current-state memory file: "M4a-5
     verified".
 [ ] Open follow-ups remain parked: #25 (M4a-FU2 Hermes Kanban test

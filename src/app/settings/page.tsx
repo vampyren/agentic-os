@@ -5,8 +5,16 @@
 // Two sections active in M4a: Features (read-only, M2) and Connectors
 // (M4a-3c). Permissions / Vault / Advanced remain disabled — they fill in
 // with later milestones; the rail layout is final.
+//
+// Section state is mirrored to the URL as `?section=…` so a browser
+// refresh keeps the operator on whatever section they were viewing.
+// Live UI review (post-PR-#34-first-commit) hit this — refresh used to
+// always snap back to "features" because the section lived in transient
+// React state. ACTIVE_SECTIONS validates the param so a stale or
+// hand-typed URL doesn't dump the operator on an empty/inactive section.
 
-import { useState } from "react";
+import { useCallback, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useFeatures } from "@/app/_components/FeaturesProvider";
 import {
   featureSettingsRows,
@@ -16,6 +24,12 @@ import { settingsComponentFor } from "@/app/_components/componentRegistry";
 import { ConnectorsPanel } from "./_connectors/ConnectorsPanel";
 
 type SectionKey = "features" | "connectors" | "permissions" | "vault" | "advanced";
+
+const ACTIVE_SECTIONS = new Set<SectionKey>(["features", "connectors"]);
+
+function isActiveSection(s: string | null): s is SectionKey {
+  return s !== null && ACTIVE_SECTIONS.has(s as SectionKey);
+}
 
 const RAIL: { key: SectionKey; label: string; active: boolean }[] = [
   { key: "features",    label: "Features",    active: true  },
@@ -111,7 +125,30 @@ function FeaturesSection() {
 }
 
 export default function SettingsPage() {
-  const [section, setSection] = useState<SectionKey>("features");
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  // Initial section comes from the URL on first render so refresh /
+  // direct-link to /settings?section=connectors lands correctly. Stale
+  // / inactive section keys fall back to "features".
+  const initialSection: SectionKey = isActiveSection(searchParams.get("section"))
+    ? (searchParams.get("section") as SectionKey)
+    : "features";
+  const [section, setSection] = useState<SectionKey>(initialSection);
+
+  // Selecting a section updates BOTH React state and the URL search
+  // param so a subsequent refresh stays put. `router.replace` (not
+  // `push`) keeps the back button useful — operators rarely want to
+  // step back through their own tab-switches inside Settings.
+  // `scroll: false` keeps the viewport where it is.
+  const selectSection = useCallback(
+    (key: SectionKey) => {
+      setSection(key);
+      const params = new URLSearchParams(searchParams.toString());
+      params.set("section", key);
+      router.replace(`/settings?${params.toString()}`, { scroll: false });
+    },
+    [router, searchParams],
+  );
 
   return (
     <div className="mt-6 flex gap-6">
@@ -137,7 +174,7 @@ export default function SettingsPage() {
             <button
               type="button"
               key={item.key}
-              onClick={() => setSection(item.key)}
+              onClick={() => selectSection(item.key)}
               className="flex items-center justify-between px-3 py-2 rounded-lg text-[13px] text-left"
               style={{
                 background: selected ? "var(--panel)" : "transparent",
