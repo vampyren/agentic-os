@@ -1,34 +1,51 @@
-# M4a-6 Task Spec — Provider Picker + UI-Managed Connector Secrets (v1 draft)
+# M4a-6 Task Spec — Provider Catalog Expansion (6a) + UI-Managed Connector Secrets (6b) (v2 draft)
 
 **Date:** 2026-05-24
-**Version:** v1 — provider-catalog split locked; O8 / O9 / O10 / O11 pinned per Rex (2026-05-24). v0.1 was the broader-catalog pass; v0 was the first design pass. **Committed to the repo as a design-accepted draft** per `docs/MAINTENANCE.md`. No implementation begins until M4a-5 closeout merges, the M4a-5 operator-acceptance tick lands per §0, AND Rex green-lights PR A.
+**Version:** v2 — split into two sequential sub-milestones (M4a-6a provider catalog expansion; M4a-6b UI-managed connector secrets). v1 was the unified spec; v0.1 was the broader-catalog pass; v0 was the first design pass. **Committed to the repo as a design-accepted draft** per `docs/MAINTENANCE.md`. No implementation begins until M4a-5 closeout merges, the M4a-5 operator-acceptance tick lands per §0, AND Rex green-lights M4a-6a PR.
 
-> **v0.1 → v1 (locked decisions):**
-> §1.1 active table unchanged (OpenAI, OpenRouter, Ollama, LM Studio,
-> Custom OpenAI-compatible, **DeepSeek**). §1.1 planned-table Alibaba
-> row clarified — "Alibaba Cloud Coding Plan" is **NOT** the same
-> integration as "Alibaba DashScope / Qwen OpenAI-compatible
-> endpoint"; treat as distinct until product/auth contract is
-> confirmed. §1.2 LOCKED — collapsed "More providers coming later"
+> **v1 → v2 (sub-milestone split):**
+> Spec restructured to make explicit that M4a-6 bundles two distinct
+> concerns. Section 0.5 (NEW) names the two sub-milestones. Part A
+> (M4a-6a — provider catalog expansion) is UI + presets only, with
+> **NO new authRef kind** and **NO secret persistence** — existing
+> env:VAR_NAME flow remains the credential path. Part B (M4a-6b —
+> UI-managed connector secrets) contains the secret store + new
+> authRef kind. M4a-6a ships first as one PR; M4a-6b ships after
+> 6a is merged and operator-accepted. The split keeps blast radius
+> small per the workflow's "one logical change per PR" rule —
+> operators get the polished picker immediately, and the deeper
+> kernel/security change of 6b ships on top of a verified baseline.
+> All v1 locked decisions (O8 / O9 / O10 / O11) preserved unchanged.
+> §10 strengthened with explicit guardrails Rex added for the
+> v1 → v2 split: .gitignore-coverage regression test; SECURITY.md
+> must plainly state that local secret-store files are plaintext
+> on disk and that file permissions + backup hygiene are the
+> security boundary.
+>
+> **v0.1 → v1 (locked decisions, preserved):**
+> §1.1 active table (OpenAI, OpenRouter, Ollama, LM Studio,
+> Custom OpenAI-compatible, **DeepSeek**) and planned table
+> (Anthropic-direct, Gemini, xAI/Grok, AWS Bedrock, Nous, Alibaba
+> Cloud Coding Plan, Custom direct API, Qwen) locked. Alibaba
+> Cloud Coding Plan is **NOT** the same integration as "Alibaba
+> DashScope / Qwen OpenAI-compatible endpoint"; treat as distinct.
+> §1.2 LOCKED — collapsed "More providers coming later"
 > disclosure with static, non-clickable rows + "needs <family>"
-> caption per planned card. §14 O8 / O9 / O10 marked LOCKED with
-> Rex's pinned decisions (DeepSeek stays active with mandatory
-> demote-on-acceptance-failure rule; xAI / Grok stays planned;
-> Alibaba Cloud Coding Plan stays planned and is not silently
-> treated as generic Qwen).
+> caption per planned card. §14 O8 / O9 / O10 / O11 LOCKED with
+> Rex's pinned decisions.
 >
 > Open questions still in play: O1 (encryption), O2 (multi-key per
 > provider), O3 (secret id naming), O4 (PATCH semantics), O5
 > (authRefKind union), O6 (backup docs), O7 (acceptance file).
-> Rex accepting v1 = greenlight to promote to `docs/specs/` AND
-> start PR A — but PR A waits until M4a-5 closeout + operator
-> acceptance per §0.
-**Milestone:** M4a-6 — Provider picker + UI-managed connector secrets (OPTIONAL post-M4a-5 sub-milestone).
-**Status:** **DRAFT v1 — DESIGN ONLY**. Active/planned split locked per Rex (2026-05-24). No branch, no implementation until M4a-5 closeout + operator acceptance ticks AND Rex green-lights PR A.
+> Rex accepting v2 = greenlight to start M4a-6a PR — but only
+> after M4a-5 closeout + operator acceptance per §0.
+
+**Milestone:** M4a-6 — provider catalog + UI-managed connector secrets (OPTIONAL post-M4a-5; split into 6a + 6b per §0.5).
+**Status:** **DRAFT v2 — DESIGN ONLY**. Sub-milestone split locked per Rex (2026-05-24). No branch, no implementation until M4a-5 closeout + operator acceptance ticks AND Rex green-lights M4a-6a PR.
 **Parent design:** `m4-task-spec.md` v2.1 (M4a connector runtime); `m4a-5-task-spec.md` v1.2 (model discovery).
 **Predecessor milestone:** M4a-5 — code complete on `main` (PR #29 + PR #30).
 **Successor milestone:** M5 — Artifacts + approvals.
-**Goal:** Rex picks a provider card, pastes an API key, tests, saves. No terminal. No env-var editing. The repo config still stores **only** an authRef, never the raw key.
+**Goal:** Two sequential sub-milestones. **M4a-6a:** polished provider catalog picker — Rex picks a card, configures via existing env-var auth, tests, saves. No terminal-style list, no fake-active providers. **M4a-6b:** UI-managed local secrets — Rex pastes an API key into the UI, server stores it server-side outside repo/git, the repo config holds only an authRef. Existing env:VAR_NAME flow stays as the Advanced/server mode throughout.
 
 ---
 
@@ -43,8 +60,90 @@
 ```
 
 The closeout + acceptance ticks are not strict blockers for design, but they
-should land **before** PR A implementation starts so M4a-6 builds on a
-verified-and-documented base.
+should land **before** any M4a-6 PR implementation starts so the work
+builds on a verified-and-documented base.
+
+---
+
+## 0.5 Sub-milestone split (v2)
+
+M4a-6 ships as **two sequential sub-milestones**. The split exists
+because the v1 spec bundled two distinct concerns (provider catalog
+UX + local secret store); each is independently reviewable and the
+operator gets value from 6a immediately without committing to 6b yet.
+
+### M4a-6a — Provider catalog expansion
+
+Scope:
+
+- Card-based **provider picker** that replaces the existing
+  terminal-style preset list.
+- Collapsed "More providers coming later" disclosure for planned
+  providers per the LOCKED rules in §1.2 (O8).
+- New first-party presets: **LM Studio local**, **DeepSeek** (DeepSeek
+  subject to demote-on-acceptance-failure per O9).
+- Picker polish: clearer cards, provider-friendly copy, preserved
+  provider order from `/api/connectors/presets`.
+- **Existing `env:VAR_NAME` auth path remains the only credential
+  mechanism in 6a.** No new authRef kind, no secret persistence, no
+  new auth APIs. An operator who hadn't set an env var before still
+  hasn't had to set one — the picker just shows them the
+  Advanced/env-var form when they pick a card that needs a key, same
+  as today.
+- One PR (UI + presets only). Lands first.
+
+Out of scope for 6a:
+
+- Secret store — **lives entirely in M4a-6b**.
+- New `secret:<id>` authRef kind — **6b only**.
+- New routes for secret CRUD or pre-save test-draft — **6b only**.
+- New ADR — **6b ships ADR-0019**.
+
+### M4a-6b — UI-managed connector secrets
+
+Scope:
+
+- New `secret:<id>` authRef kind + local file-backed secret store
+  outside repo/git.
+- API + UI to paste an API key once, store it server-side, test the
+  connector, rotate or clear it later.
+- `authRefKind` projection union widens to include `"secret"` (O5).
+- Existing `env:VAR_NAME` flow stays as the **Advanced/server mode**
+  — the operator picks between "Save key locally" and "Use server
+  env var" inside the now-card-based picker shipped in 6a.
+- 4 PRs (PR A kernel store + authRef extension; PR B routes; PR C
+  UI revisions to add the secret-store path; PR D closeout).
+- Begins only after **M4a-6a merges + M4a-6a acceptance passes +
+  Rex explicitly green-lights 6b PR A**.
+
+Out of scope for 6b:
+
+- Encryption at rest (file permissions only — see §10 for the
+  locked guardrails).
+- OAuth flows.
+- Native vendor families.
+- M5.
+
+### Why this order
+
+6a is contained: UI redesign + two preset files. Reviewable in one
+PR, deployable without operator behaviour change (env-var operators
+keep working unchanged). 6b stacks on 6a's verified base and adds
+the deeper kernel + security surface. If 6b ever has to be reverted,
+6a stays valuable on its own — operators retain the polished picker
+and the two new presets.
+
+---
+
+# Part A — M4a-6a: Provider catalog expansion
+
+The sections below (§1 catalog rules, §2 user stories US-5/US-6/US-7,
+the picker UX in §1.2) and the new presets (LM Studio + DeepSeek)
+constitute M4a-6a's full scope. **No authRef changes. No secret
+persistence. No new routes.** Existing `env:VAR_NAME` flow remains
+the credential path; the picker rendered by 6a uses the
+`PresetForm` already shipped in M4a-5 PR C (with its env-var input)
+when the operator picks a card that needs a key.
 
 ---
 
@@ -186,6 +285,47 @@ US-5  As Rex I add Ollama. The form asks for Base URL (default
 US-6  As an advanced operator I click "Advanced: use server env var". I
       type OPENAI_API_KEY. Existing M4a flow continues to work unchanged.
 ```
+
+US-1 through US-4 (paste-key, rotate, delete-with-secret-cleanup,
+delete-keeping-secret) belong to **M4a-6b** and are framed at the top
+of Part B below.
+
+---
+
+# Part B — M4a-6b: UI-managed connector secrets
+
+Everything below (§3 secret store, §4 authRef extension, §5 API
+changes, §7 audit kinds, §10 security non-leak invariants, §11 ADR
+work, the secret-related portions of §6 file-level changes, and the
+M4a-6b acceptance steps in §13) constitutes M4a-6b's scope. **M4a-6b
+begins only after M4a-6a is merged and operator-accepted.**
+
+### Part B preconditions
+
+```text
+[ ] M4a-6a (provider catalog expansion) merged to main.
+[ ] M4a-6a operator acceptance per docs/M4A6A-ACCEPTANCE.md passed.
+[ ] Rex explicitly green-lights M4a-6b PR A.
+```
+
+### Part B user stories (carried verbatim from v1)
+
+```text
+US-1  As Rex I click the OpenAI card, paste my key, click Test, click
+      Save. The key is gone from the UI after Save. The connector works.
+
+US-2  As Rex I edit a saved OpenAI connector and click "Rotate key". I
+      paste a new key. The old one is replaced; I never see the old one.
+
+US-3  As Rex I delete a connector. The UI asks whether to also delete
+      the saved key. I tick yes. Both are gone.
+
+US-4  As Rex I delete a connector and leave the saved key. Later I
+      add a new connector with the same id; the key is re-attached.
+```
+
+US-5 and US-6 sit under Part A above (Ollama with no key; Advanced
+env-var path).
 
 ---
 
@@ -531,23 +671,91 @@ Deferred per the spec convention (no `@testing-library/react` in the repo); manu
 
 ---
 
-## 10. Security non-leak invariants (locked)
+## 10. Security non-leak invariants (locked — M4a-6b guardrails)
 
-Across every shipped surface, NONE of these may contain the raw secret value:
+**Scope:** these invariants apply to M4a-6b once the secret store
+exists. M4a-6a carries no secret material — it ships only UI
+restructure + presets, so the operator's env-var posture is
+unchanged.
+
+### 10.1 Store location and permissions
+
+- Secret file lives **outside the repo**, at `~/.agentic-os/secrets/store.json`
+  (env override: `AGENTIC_OS_SECRETS`). Never under the repo tree;
+  never under the vault; never under `state.db`.
+- Parent dir `~/.agentic-os/secrets/` created at mode **0700**
+  on first write if missing.
+- Store file written at mode **0600** (owner read/write only) on
+  every write, including the temp-file phase of the atomic-rename
+  pattern.
+- `.gitignore` regression test: a unit test asserts that the
+  default secret-store path AND any value of `AGENTIC_OS_SECRETS`
+  pointing inside the repo tree would be excluded by the repo's
+  `.gitignore`. The test fails CI if a future `.gitignore` change
+  accidentally lets a secrets file land under git.
+
+### 10.2 Non-leak surface list
+
+Across every shipped surface, NONE of these may contain the raw
+secret value (asserted by `tests/secret-non-leak.test.ts` with a
+marker-string sweep):
 
 - API response bodies (`/api/connectors`, `/api/secrets`, `/api/runs`,
   `/api/connectors/[id]/test`, `/api/connectors/models/preview`,
   `/api/connectors/test-draft`, `/api/connectors/[id]` PATCH, …).
+- testConnection result envelopes (validation status, errorCode,
+  duration — never the secret).
 - Audit JSONL (any `kind`).
 - Run records (any field).
-- `console.log/error/warn` lines.
-- `~/.agentic-os/config.yaml`.
-- `~/.agentic-os/state.db`.
+- `console.log` / `console.error` / `console.warn` lines.
+- `~/.agentic-os/config.yaml` (config persists only the authRef,
+  never the value).
+- `~/.agentic-os/state.db` (state DB persists nothing secret-bearing
+  per ADR-0014).
 - Any error message returned from the kernel.
 
-Asserted by `tests/secret-non-leak.test.ts` with a marker-string sweep.
+The new `secret.create` / `secret.update` / `secret.delete` audit
+kinds carry the operator-facing **id** (not sensitive) plus an
+optional **label**, the status, and an optional `errorCode`. They
+do NOT carry the value, the env var name, the Authorization header,
+the `baseUrl`, or `ctx.secret`.
 
-The new `secret.create` / `secret.update` / `secret.delete` audit kinds carry the operator-facing **id** (not sensitive) plus an optional **label** plus the status + optional errorCode.
+### 10.3 `SECURITY.md` plaintext-on-disk statement (REQUIRED in PR D)
+
+`docs/SECURITY.md` MUST state plainly, as part of M4a-6b PR D
+closeout:
+
+> The local secret store (`~/.agentic-os/secrets/store.json`)
+> contains API keys in **plaintext on disk**. File permissions
+> (0600 file / 0700 directory) and backup hygiene are the
+> security boundary for the UI-managed secret flow. The file is
+> protected at the same level as `~/.ssh/id_rsa` or
+> `~/.aws/credentials`; treat it the same way (back it up
+> out-of-band, do not commit it, do not include it in the vault).
+>
+> If stronger guarantees are required (encryption at rest,
+> hardware-backed key storage), use the `env:VAR_NAME` authRef
+> mode and supply the credential via your OS keyring / secret
+> manager / shell environment. The Advanced/env-var flow in the
+> Add Provider UI takes you down that path.
+
+This paragraph is mandatory; the PR D doc-sync is blocked until it
+lands.
+
+### 10.4 What's NOT promised
+
+For honesty:
+
+- The store is NOT encrypted. A process running as the same user
+  can read it. So can a backup tool, a misconfigured share, or a
+  `tar` of the home directory.
+- This is the same posture as the existing env-var flow (env-var
+  contents are visible to any same-user process via `/proc/<pid>/environ`
+  or shell history). M4a-6b does not weaken what M4a already
+  shipped — it gives the operator a UI-friendly alternative at the
+  same security level.
+- Operators who need a stronger boundary should use `env:VAR_NAME`
+  + OS keyring tooling (per §10.3).
 
 ---
 
@@ -569,10 +777,63 @@ ADR-0017 / ADR-0018 do not need amendments — M4a-6 extends them, doesn't chang
 
 ## 12. PR breakdown
 
-Per the workflow's "one logical change per PR" rule, M4a-6 splits cleanly into 4 PRs:
+Restructured for the v2 sub-milestone split. M4a-6 ships in two
+sequential phases: 6a (one PR, UI + presets only) lands first; 6b
+(four PRs, secret-store layer) stacks on top of 6a only after 6a
+is merged and operator-accepted.
+
+### 12.A M4a-6a — one PR
 
 ```text
-PR A — Secret store + authRef extension (kernel only).
+M4a-6a PR — Provider catalog expansion (UI + new presets only).
+  + src/app/settings/_connectors/ProviderPicker.tsx (NEW card grid;
+      replaces the current PresetPicker terminal-style list — that
+      component shipped in M4a-5 PR C and is the immediate
+      predecessor surface).
+  + a hardcoded PLANNED_PROVIDERS constant in the picker module
+    listing the planned cards from §1.1 (Anthropic, Gemini, Grok,
+    Bedrock, Nous, Alibaba Cloud Coding Plan, custom-direct,
+    Qwen-OAuth) each with a "needs <family>" caption per §1.5,
+    rendered inside the collapsed "More providers coming later"
+    disclosure per §1.2 (LOCKED — O8). The list is in code (not
+    config) because no preset exists for planned cards until their
+    family ships.
+  + presets/lm-studio-local.json (NEW).
+  + presets/deepseek.json (NEW; subject to demote-on-acceptance-
+    failure rule per O9).
+  + extend AddProviderFlow.tsx to host the new ProviderPicker;
+    the existing PresetForm + ModelPicker shipped in M4a-5 PR C
+    are reused unchanged. Advanced/env-var input continues to be
+    the credential field.
+  + tests/provider-picker.test.ts — picker render smoke, planned-
+    disclosure visibility, "needs <family>" caption presence per
+    planned card. Manual verification per docs/M4A6A-ACCEPTANCE.md
+    is the primary UX-correctness gate (no @testing-library/react
+    in the repo).
+
+  NO changes in this PR to:
+    - src/kernel/connectors/* (no authRef regex change)
+    - src/kernel/secrets/* (does not exist yet — 6b ships it)
+    - any /api/connectors* route handler
+    - audit kinds
+    - docs/SECURITY.md / ADRs / ARCHITECTURE.md beyond a small
+      ROADMAP/m4a-6-task-spec.md status-table touch in a tiny
+      6a closeout commit (or folded into the same PR if scope
+      stays small).
+
+  DoD: typecheck + tests green; the existing env:VAR_NAME flow is
+  observably unchanged (operators with M4a-5-saved connectors
+  see the same Add Provider experience minus the terminal-style
+  list); the planned-provider disclosure renders honestly per §1.2.
+```
+
+After M4a-6a merge: Rex runs docs/M4A6A-ACCEPTANCE.md against a
+live server. Only after that passes does M4a-6b PR A start.
+
+### 12.B M4a-6b — four PRs
+
+```text
+M4a-6b PR A — Secret store + authRef extension (kernel only).
   + src/kernel/secrets/{store,paths,schema}.ts
   + extend src/kernel/connectors/{authRef,schema}.ts
   + extend src/kernel/audit.ts (auditSecret{Create,Update,Delete})
@@ -580,75 +841,127 @@ PR A — Secret store + authRef extension (kernel only).
   + tests/secrets-store-malformed.test.ts
   + tests/auth-ref-secret.test.ts
   + tests/connector-runtime-secret.test.ts
+  + tests/secrets-gitignore-coverage.test.ts (NEW — §10.1 guardrail)
   DoD: typecheck + tests green; existing env:/none flow unchanged
-  (all current router/test/connector tests still pass).
+  (all current router/test/connector tests still pass); the
+  .gitignore regression test passes against the default store
+  path AND against any AGENTIC_OS_SECRETS path that points into
+  the repo tree.
 
-PR B — Routes + transient test + standalone secrets (no UI).
+M4a-6b PR B — Routes + transient test + standalone secrets (no UI).
   + src/app/api/connectors/test-draft/route.ts
   + src/app/api/connectors/[id]/route.ts (PATCH + DELETE)
   + src/app/api/secrets/route.ts (GET + POST)
   + src/app/api/secrets/[id]/route.ts (DELETE)
-  + extend src/app/api/connectors/route.ts (POST accepts secretValue + atomic
-    secret-then-config write with rollback)
+  + extend src/app/api/connectors/route.ts (POST accepts secretValue
+    + atomic secret-then-config write with rollback)
   + extend src/app/api/connectors/_shared.ts (authRefKind: "secret")
   + tests/api-secrets.test.ts
   + tests/api-connectors-test-draft.test.ts
   + tests/api-connectors-patch.test.ts
   + tests/api-connectors-delete.test.ts
   + tests/api-connectors-secret-value.test.ts
-  + tests/secret-non-leak.test.ts
-  DoD: full marker-string sweep is clean; old env:/none flow untouched;
-  PATCH/DELETE round-trip on a real preset works in-test.
+  + tests/secret-non-leak.test.ts (marker-string sweep per §10.2)
+  DoD: full marker-string sweep is clean; old env:/none flow
+  untouched; PATCH/DELETE round-trip on a real preset works in-test.
 
-PR C — UI: provider picker, key field, row actions.
-  + src/app/settings/_connectors/ProviderPicker.tsx
-  + src/app/settings/_connectors/ProviderForm.tsx
-  + src/app/settings/_connectors/SecretField.tsx
-  + src/app/settings/_connectors/ConnectorRowActions.tsx
-  + presets/lm-studio-local.json
-  + presets/deepseek.json
-  + a hardcoded PLANNED_PROVIDERS constant in the picker module listing
-    the planned cards from §1.1 (Anthropic, Gemini, Grok, Bedrock, Nous,
-    Alibaba, custom-direct, Qwen-OAuth) each with a "needs <family>"
-    caption per §1.5. Rendered inside a collapsed disclosure per §1.2.
-    The list is in code (not config) because none of these cards have a
-    preset until their family ships — see §1.5 promotion path.
-  + extend AddProviderFlow.tsx (host the new picker + form; Advanced env-var
-    path preserved)
+M4a-6b PR C — UI revisions: secret-store path inside the picker.
+  + src/app/settings/_connectors/ProviderForm.tsx (NEW or rewrite
+      of PresetForm — adds the "Save key locally" path alongside
+      the existing "Advanced: use server env var" path; the
+      ProviderPicker from 6a stays the entry point)
+  + src/app/settings/_connectors/SecretField.tsx (password input;
+    never re-displays saved keys; status badge saved/missing/invalid)
+  + src/app/settings/_connectors/ConnectorRowActions.tsx (Edit /
+    Rotate-key / Delete with explicit "Also delete saved key"
+    checkbox)
+  + extend AddProviderFlow.tsx to host the secret-store path
+    inside the existing card-picker host shipped in 6a. Advanced
+    env-var path remains. DoD: manual verification per
+    docs/M4A6B-ACCEPTANCE.md passes locally.
   + extend ConnectorsPanel.tsx (row actions wired)
-  + extend api.ts (testDraft / updateConnector / deleteConnector / listSecrets
-    / deleteSecret client helpers)
-  DoD: manual verification per docs/M4A6-ACCEPTANCE.md passes locally.
+  + extend api.ts (testDraft / updateConnector / deleteConnector /
+    listSecrets / deleteSecret client helpers)
 
-PR D — Closeout.
+M4a-6b PR D — Closeout.
   + docs/decisions/ADR-0019-ui-managed-secret-store.md
   + docs/ARCHITECTURE.md (§8 — new secret-store paragraph + routes update)
-  + docs/SECURITY.md (secret-store path / mode / backup posture paragraph)
-  + docs/ROADMAP.md (M4a-6 status)
-  + docs/specs/expandability-foundation/README.md (status table row)
-  + docs/specs/expandability-foundation/m4a-6-task-spec.md (this spec, finalised)
-  + docs/M4A6-ACCEPTANCE.md (operator checklist; see §13)
-  DoD: per the docs/MAINTENANCE.md milestone-done rule — all eight items
-  ticked (code, tests, ADR, ARCHITECTURE, ROADMAP, spec status, acceptance
-  checklist, live acceptance pass).
+  + docs/SECURITY.md — the §10.3 plaintext-on-disk paragraph
+    (REQUIRED; this PR is blocked until the paragraph lands)
+  + docs/ROADMAP.md (M4a-6 status — both 6a and 6b complete)
+  + docs/specs/expandability-foundation/README.md (status row update)
+  + docs/specs/expandability-foundation/m4a-6-task-spec.md (this
+    spec, status header bumped to "CODE COMPLETE")
+  + docs/M4A6B-ACCEPTANCE.md (operator checklist; see §13)
+  DoD: per the docs/MAINTENANCE.md milestone-done rule — all eight
+  items ticked (code, tests, ADR, ARCHITECTURE, ROADMAP, spec status,
+  acceptance checklist, live acceptance pass).
 ```
 
 ---
 
-## 13. Operator acceptance — `docs/M4A6-ACCEPTANCE.md` (sketch)
+## 13. Operator acceptance
+
+Two separate checklists, one per sub-milestone. Each lands as a
+flat doc under `docs/` parallel to `docs/M4A-ACCEPTANCE.md` /
+`docs/M4A5-ACCEPTANCE.md`. Order: 6a passes first; 6b starts only
+after 6a is operator-accepted and Rex green-lights 6b PR A.
+
+### 13.A `docs/M4A6A-ACCEPTANCE.md` — M4a-6a (catalog) checklist (sketch)
 
 ```text
-Step 1 — Settings → Connectors → Add Provider → OpenAI card.
-Step 2 — Paste a real OpenAI key into the API key field.
+Step 1 — Settings → Connectors → Add Provider. The new card-based
+         picker renders (no terminal-style list).
+Step 2 — Active cards visible: OpenAI · OpenRouter · Ollama local ·
+         LM Studio local · Custom OpenAI-compatible · DeepSeek
+         (six total). Provider order preserved from the catalog.
+Step 3 — Click OpenAI. The PresetForm from M4a-5 PR C opens with the
+         Advanced/env-var field shown by default (6a doesn't ship the
+         secret-store path; that's 6b). The Model field + Load-models
+         button shipped in M4a-5 PR C still works.
+Step 4 — Click Ollama. Base URL editable; no API key field; the
+         allowLocalNetwork toggle is present.
+Step 5 — Click LM Studio. Base URL editable (default
+         http://localhost:1234/v1); no API key field; allowLocalNetwork
+         toggle present.
+Step 6 — Click DeepSeek. Paste a real DEEPSEEK_API_KEY env var name
+         in the Advanced/env-var field. Test connection → valid;
+         chat.generate against `deepseek-chat` returns a real
+         response. **DEMOTE RULE (O9):** if this step fails, DeepSeek
+         moves to the planned list before 6a closeout and
+         presets/deepseek.json is deleted from the diff.
+Step 7 — Picker shows the "More providers coming later" disclosure
+         at the bottom. Default closed.
+Step 8 — Expand the disclosure. Eight planned rows render with
+         "needs <family>" captions per §1.2. Rows are NOT clickable;
+         no form opens.
+Step 9 — Existing env:VAR_NAME connectors saved before 6a still load
+         and still work — no migration, no behaviour change.
+Step 10 — npm run typecheck && npm test && npm run build → all green.
+Step 11 — 6a closeout doc-sync merged (ROADMAP entry + spec status
+          + this checklist's link in the expandability README).
+```
+
+### 13.B `docs/M4A6B-ACCEPTANCE.md` — M4a-6b (secrets) checklist (sketch)
+
+Runs only after 13.A passes.
+
+```text
+Step 1 — Settings → Connectors → Add Provider → OpenAI card. The
+         picker from 6a is unchanged; the form now offers two paths:
+         "Save key locally" (new, default) and "Advanced: use server
+         env var" (preserved).
+Step 2 — Paste a real OpenAI key into the "Save key locally" field.
 Step 3 — Click Test connection → status: valid.
 Step 4 — Click Save → connector appears in the panel; key field is no
          longer visible.
 Step 5 — cat ~/.agentic-os/config.yaml → entry stores
          `authRef: "secret:openai-1"`. NO sk-... value anywhere.
 Step 6 — ls -l ~/.agentic-os/secrets/store.json → file mode 0600.
-         cat the file → contains the secret keyed by id. (One-time
-         inspection; the operator should not need to look in here
-         during normal use.)
+         ls -ld ~/.agentic-os/secrets/ → mode 0700. cat the file →
+         contains the secret keyed by id. (One-time inspection;
+         the operator should not need to look in here during normal
+         use.)
 Step 7 — curl http://127.0.0.1:3000/api/connectors | grep sk-       (empty)
 Step 8 — curl http://127.0.0.1:3000/api/runs       | grep sk-       (empty)
 Step 9 — grep -r sk- ~/.agentic-os/audit/                           (empty)
@@ -656,25 +969,25 @@ Step 10 — Settings → Edit OpenAI → Rotate key. Paste a different key.
           Old key gone from store.json; new key in place.
 Step 11 — Settings → Delete OpenAI with "Also delete saved key" checked.
           Both connector and secret are gone.
-Step 12 — Settings → Add Provider → "Advanced: use server env var" path.
-          Existing env-var flow still works unchanged.
-Step 13 — Settings → Ollama card. Base URL editable; no API key field.
-          allowLocalNetwork toggle present.
-Step 14 — Settings → LM Studio card. Same shape as Ollama.
-Step 15 — Settings → DeepSeek card. Paste a real DeepSeek API key.
-          Test connection → valid; chat.generate against
-          `deepseek-chat` returns a real response. authRef stored as
-          `secret:deepseek-1`; NO key value anywhere on disk / API /
-          audit. If this step fails, DeepSeek MOVES BACK to the
-          planned list and PR D's docs reflect that — we ship M4a-6
-          with the active set we can actually verify.
-Step 16 — Picker shows the "More providers coming later" disclosure.
-          Expanding it shows the planned cards from §1.1 each with its
-          "needs <family>" caption. None of them are clickable; none
-          opens a form.
-Step 17 — npm run typecheck && npm test && npm run build → all green.
-Step 18 — Doc sync (ADR-0019, ARCHITECTURE, ROADMAP, m4a-6 spec status,
-          M4A6-ACCEPTANCE) merged.
+Step 12 — Settings → Delete a different connector WITHOUT the
+          "Also delete saved key" checkbox. Connector gone; secret
+          remains. (The orphaned secret can be removed via
+          /api/secrets/[id] DELETE; verify via curl that
+          /api/secrets returns the id with referencedBy: [].)
+Step 13 — Settings → Add Provider → "Advanced: use server env var"
+          path on a fresh card. Existing env-var flow still works
+          unchanged (regression guard — env-var operators are not
+          forced onto the secret store).
+Step 14 — `.gitignore` regression test: in CI, the secrets-gitignore-
+          coverage test passes — the default store path and any
+          AGENTIC_OS_SECRETS-pointing path inside the repo tree are
+          excluded by .gitignore.
+Step 15 — docs/SECURITY.md contains the §10.3 plaintext-on-disk
+          paragraph verbatim (REQUIRED in PR D).
+Step 16 — npm run typecheck && npm test && npm run build → all green.
+Step 17 — 6b closeout doc-sync merged (ADR-0019, ARCHITECTURE,
+          SECURITY, ROADMAP, m4a-6 spec status → CODE COMPLETE,
+          M4A6B-ACCEPTANCE.md).
 ```
 
 ---
@@ -757,8 +1070,14 @@ O11 [LOCKED — Rex 2026-05-24] Alibaba naming discipline.
 
 ---
 
-**End of M4a-6 task spec (v1 draft, design only).** Active/planned
-split locked per Rex (2026-05-24); O8 / O9 / O10 / O11 pinned (see
-§14). No implementation begins until M4a-5 closeout merges, the
-M4a-5 operator-acceptance tick lands per §0, AND Rex green-lights
-PR A.
+**End of M4a-6 task spec (v2 draft, design only).** Sub-milestone split
+locked per Rex (2026-05-24): M4a-6a (provider catalog expansion — one
+PR, UI + presets only; existing env-var auth path retained) ships
+first; M4a-6b (UI-managed connector secrets — four PRs, kernel store +
+authRef extension + new routes + UI revisions + closeout) ships after
+6a is merged and operator-accepted. v1's locked decisions
+(O8 / O9 / O10 / O11) preserved; §10 strengthened with the
+`.gitignore` regression-test guardrail and the mandatory SECURITY.md
+plaintext-on-disk paragraph (§10.3). No implementation begins until
+M4a-5 closeout merges, the M4a-5 operator-acceptance tick lands per
+§0, AND Rex explicitly green-lights M4a-6a PR.
