@@ -35,7 +35,10 @@ export default function FormFieldsSection() {
         </DemoField>
       </StateRow>
 
-      <StateRow label="env var NAME input" note="pattern attribute restricts to AUTHREF regex">
+      <StateRow
+        label="env var NAME input"
+        note="production restricts input to [A-Za-z_][A-Za-z0-9_]* via the AUTHREF regex; this static demo just shows the visual shape + help text"
+      >
         <DemoField label="Env var name" hint="Letters / digits / underscores. The NAME, not the value.">
           <DemoTextInput placeholder="OPENAI_API_KEY" />
         </DemoField>

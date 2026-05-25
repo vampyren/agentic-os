@@ -1,13 +1,27 @@
-// /dev/ui §4.11 — Modals (M4a-FU6 PR B).
+// /dev/ui §4.11 — Modals (M4a-FU6 PR B + amend).
 //
 // Hand-mirror of the modal shapes from
-// src/app/settings/_connectors/AddProviderFlow.tsx. Renders three
-// modal states side-by-side as static demos (not actually opened
-// over an overlay — that would cover the rest of /dev/ui). Each
-// example shows: header Close (top-right), optional ← Back
-// (top-left), modal body, footer with a SINGLE primary action.
-// Closes are demos only — clicks are inert.
+// src/app/settings/_connectors/AddProviderFlow.tsx. Renders four modal
+// states side-by-side as static demos (no overlay — the rest of
+// /dev/ui stays visible above/below). Each example shows: header
+// (centered title + optional subtitle, optional Back / Close icon
+// buttons), body, footer with primary action.
+//
+// PR B amend (visual polish):
+//   - Use shared DemoButton for primary / secondary / Back / Close
+//     so every button on /dev/ui feels like the same family.
+//   - Back + Close are now icon-only buttons (ChevronLeft + X from
+//     lucide-react) with proper aria-label — cleaner than the rough
+//     "← Back" / "×" text characters.
+//   - Modal header is centered + a touch larger; an optional subtitle
+//     line gives provider context room to breathe.
+//   - The success-carve-out demo now shows `[hidden secret value]`
+//     in a neutral placeholder block, NOT a fake `sk-…` shape. The
+//     real SecretField ships with M4a-6b; this preview must not
+//     suggest a particular key format.
 
+import { ChevronLeft, X } from "lucide-react";
+import DemoButton from "@/app/dev/_lib/DemoButton";
 import StateRow, { Section } from "@/app/dev/_lib/StateRow";
 
 export default function ModalsSection() {
@@ -18,66 +32,48 @@ export default function ModalsSection() {
       title="Modals"
       fileOfRecord="src/app/settings/_connectors/AddProviderFlow.tsx"
     >
-      <StateRow label="header Close (top-right)" note="always present; Escape equivalent">
-        <DemoModal
-          title="Add Provider"
-          showClose
-          primaryLabel="Add"
-        >
-          <p className="text-[13px] text-[var(--fg-dim)]">
-            Pick a preset to start the configuration flow. The
-            preset's defaults pre-fill the form.
-          </p>
-        </DemoModal>
+      <StateRow label="header Close (top-right)" note="always present; Escape equivalent. Icon button, not text '×'.">
+        <DemoModal title="Add Provider" subtitle="Pick a preset to start" showClose primary="Add" />
       </StateRow>
 
-      <StateRow
-        label="← Back (top-left)"
-        note="when mid-flow (step 2 of N). Does NOT duplicate Close."
-      >
+      <StateRow label="← Back + provider name" note="step 2 of a flow. Back is a tidy icon button; provider name reads as the header.">
         <DemoModal
-          title="Configure OpenAI"
+          title="OpenAI"
+          subtitle="openai-compatible-llm · preset openai"
           showBack
           showClose
-          primaryLabel="Add"
-        >
-          <p className="text-[13px] text-[var(--fg-dim)]">
-            Step 2 of 2. ← Back returns to preset picker; Close
-            exits the modal entirely.
-          </p>
-        </DemoModal>
+          primary="Add"
+        />
       </StateRow>
 
-      <StateRow label="footer — single primary action" note="no redundant Cancel button (PR #33)">
+      <StateRow label="primary + secondary footer" note="single-primary rule; secondary only when it serves a non-cancel purpose">
         <DemoModal
           title="Add Provider"
+          subtitle="Pick a preset to start"
           showClose
-          primaryLabel="Add"
-          secondaryLabel="Load models"
-        >
-          <p className="text-[13px] text-[var(--fg-dim)]">
-            Secondary actions only when they serve a non-cancel purpose
-            (here: Load models is a discovery action, not a cancel).
-          </p>
-        </DemoModal>
+          primary="Add"
+          secondary="Load models"
+        />
       </StateRow>
 
       <StateRow label="body — loading skeleton" note="modal-open / preset-load state">
         <DemoModal
           title="Add Provider"
+          subtitle="Loading presets…"
           showClose
-          primaryLabel="Add"
+          primary="Add"
           primaryDisabled
         >
           <DemoSkeleton lines={4} />
         </DemoModal>
       </StateRow>
 
-      <StateRow label="body — inline error" note="neutral message map; no raw provider response">
+      <StateRow label="body — inline error" note="neutral message; no raw provider response">
         <DemoModal
           title="Add Provider"
+          subtitle="Discovery failed"
           showClose
-          primaryLabel="Retry"
+          primary="Retry"
         >
           <div className="text-[13px]" style={{ color: "var(--status-invalid)" }}>
             Could not reach the provider. Check the Base URL.
@@ -85,33 +81,37 @@ export default function ModalsSection() {
         </DemoModal>
       </StateRow>
 
-      <StateRow
-        label="success — auto-close (default)"
-        note="modal closes; new row in the list pulses for 3s; see §4.14"
-      >
-        <p className="text-[12px] text-[var(--fg-dim)]">
+      <StateRow label="success — auto-close (default)" note="no modal rendered after a fresh-create; row pulses in the list (see §4.14)">
+        <p className="text-[12px] text-[var(--fg-dim)] py-2">
           No modal rendered after a successful create — the flow auto-closes
           and the new row pulses in the list (see <code>§4.14</code>).
         </p>
       </StateRow>
 
       <StateRow
-        label="success — carve-out (copy / download / one-time confirmation)"
-        note="round-2 #7. Document each use; default path is auto-close."
+        label="success — carve-out"
+        note="copy / download / one-time-confirmation cases (round-2 #7). Document each use."
       >
         <DemoModal
           title="API key saved"
-          primaryLabel="I've copied it"
+          subtitle="copy now if you need a record"
+          primary="I've copied it"
         >
           <p className="text-[13px] text-[var(--fg-dim)]">
-            Your API key is now stored. <strong>You will not see it again.</strong>
-            Copy it now if you need a record.
+            Your secret is now stored. <strong>You will not see it again.</strong>
           </p>
           <div
-            className="mt-3 px-3 py-2 rounded font-mono text-[12px]"
-            style={{ background: "var(--bg-elevated-hot)", color: "var(--fg-dim)" }}
+            className="mt-3 px-3 py-2 rounded font-mono text-[12px] flex items-center justify-between"
+            style={{
+              background: "var(--bg-elevated-hot)",
+              color: "var(--fg-dim)",
+              border: "1px solid var(--panel-border)",
+            }}
           >
-            sk-•••• (preview only — M4a-6b owns this)
+            <span>[hidden secret value]</span>
+            <span className="text-[10px] uppercase tracking-wider text-[var(--fg-dimmer)]">
+              preview only — M4a-6b
+            </span>
           </div>
         </DemoModal>
       </StateRow>
@@ -121,84 +121,93 @@ export default function ModalsSection() {
 
 function DemoModal({
   title,
+  subtitle,
   children,
-  primaryLabel,
+  primary,
   primaryDisabled = false,
-  secondaryLabel,
+  secondary,
   showClose = false,
   showBack = false,
 }: {
   title: string;
-  children: React.ReactNode;
-  primaryLabel: string;
+  subtitle?: string;
+  children?: React.ReactNode;
+  primary: string;
   primaryDisabled?: boolean;
-  secondaryLabel?: string;
+  secondary?: string;
   showClose?: boolean;
   showBack?: boolean;
 }) {
   return (
     <div
-      className="rounded-lg border w-[420px] flex flex-col"
+      className="rounded-lg border w-[440px] flex flex-col"
       style={{
         background: "var(--bg)",
         borderColor: "var(--panel-border-hot)",
         boxShadow: "0 8px 32px rgba(0,0,0,0.4)",
       }}
     >
+      {/* Three-column header: Back (left) · centered title block · Close (right) */}
       <header
-        className="flex items-center justify-between px-4 py-3 border-b"
+        className="grid grid-cols-[28px_1fr_28px] items-start px-4 py-3 border-b gap-3"
         style={{ borderColor: "var(--panel-border)" }}
       >
-        {showBack ? (
-          <button
-            type="button"
-            className="text-[12px] text-[var(--fg-dim)] cursor-default"
-            aria-label="Back"
-          >
-            ← Back
-          </button>
-        ) : (
-          <span aria-hidden />
-        )}
-        <span className="text-[13px] font-medium">{title}</span>
-        {showClose ? (
-          <button
-            type="button"
-            className="text-[14px] text-[var(--fg-dim)] cursor-default"
-            aria-label="Close"
-          >
-            ×
-          </button>
-        ) : (
-          <span aria-hidden />
-        )}
+        <div className="flex justify-start">
+          {showBack ? (
+            <DemoButton
+              variant="icon"
+              ariaLabel="Back"
+            >
+              <ChevronLeft size={14} aria-hidden />
+            </DemoButton>
+          ) : (
+            <span aria-hidden />
+          )}
+        </div>
+        <div className="flex flex-col items-center text-center min-w-0">
+          <span className="text-[15px] font-medium tracking-tight truncate max-w-full">
+            {title}
+          </span>
+          {subtitle && (
+            <span className="text-[11px] text-[var(--fg-dimmer)] mt-0.5 truncate max-w-full">
+              {subtitle}
+            </span>
+          )}
+        </div>
+        <div className="flex justify-end">
+          {showClose ? (
+            <DemoButton
+              variant="icon"
+              ariaLabel="Close"
+            >
+              <X size={14} aria-hidden />
+            </DemoButton>
+          ) : (
+            <span aria-hidden />
+          )}
+        </div>
       </header>
-      <div className="p-4 flex flex-col gap-2 text-[13px]">{children}</div>
+
+      <div className="p-4 flex flex-col gap-2 text-[13px]">
+        {children ?? (
+          <p className="text-[13px] text-[var(--fg-dim)]">
+            (modal body — fixture text only)
+          </p>
+        )}
+      </div>
+
       <footer
         className="flex items-center justify-end gap-2 px-4 py-3 border-t"
         style={{ borderColor: "var(--panel-border)" }}
       >
-        {secondaryLabel && (
-          <button
-            type="button"
-            className="px-3 py-1.5 text-[12px] rounded-md border cursor-default"
-            style={{ borderColor: "var(--panel-border)" }}
-          >
-            {secondaryLabel}
-          </button>
+        {secondary && (
+          <DemoButton variant="secondary" size="md">
+            {secondary}
+          </DemoButton>
         )}
-        <button
-          type="button"
-          disabled={primaryDisabled}
-          aria-disabled={primaryDisabled || undefined}
-          className="px-3 py-1.5 text-[12px] rounded-md cursor-default disabled:opacity-50"
-          style={{
-            background: "var(--fg)",
-            color: "var(--bg)",
-          }}
-        >
-          {primaryLabel}
-        </button>
+        <DemoButton variant="primary" size="md" disabled={primaryDisabled}>
+          {primary}
+        </DemoButton>
       </footer>
     </div>
   );

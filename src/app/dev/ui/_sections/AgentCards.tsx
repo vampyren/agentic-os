@@ -1,4 +1,4 @@
-// /dev/ui §4.3 — Agent cards (M4a-FU6 PR B).
+// /dev/ui §4.3 — Agent cards (M4a-FU6 PR B + amend).
 //
 // Hand-mirror of the AgentPortal shape from
 // src/components/AgentPortal.tsx. AgentPortal uses framer-motion
@@ -7,9 +7,11 @@
 // dependencies on framer-motion or live data.
 //
 // Tokens used: --panel / --panel-border / --panel-border-hot (card
-// surface + hover border); --accent-* per-agent; status colors from
-// the Mission Control family (--status-live for "ONLINE", etc.).
+// surface + hover border); --accent-* per-agent; the agent status
+// label renders via the shared DemoBadge "status" variant so it
+// matches the §4.8 catalog.
 
+import DemoBadge from "@/app/dev/_lib/DemoBadge";
 import StateRow, { Section } from "@/app/dev/_lib/StateRow";
 
 export default function AgentCardsSection() {
@@ -90,7 +92,7 @@ function DemoAgentCard({
   metrics?: ReadonlyArray<{ label: string; value: string }>;
 }) {
   const statusLabel =
-    status === "ok" ? "ONLINE" : status === "warn" ? "DEGRADED" : status === "err" ? "OFFLINE" : "UNKNOWN";
+    status === "ok" ? "online" : status === "warn" ? "degraded" : status === "err" ? "offline" : "unknown";
   const statusColor =
     status === "ok"
       ? "var(--status-live)"
@@ -123,12 +125,7 @@ function DemoAgentCard({
           </div>
           <p className="text-[12px] text-[var(--fg-dim)] mt-0.5 truncate">{tagline}</p>
         </div>
-        <span
-          className="text-[10px] uppercase tracking-wider shrink-0"
-          style={{ color: statusColor }}
-        >
-          {statusLabel}
-        </span>
+        <DemoBadge variant="status" color={statusColor}>{statusLabel}</DemoBadge>
       </div>
       {metrics && (
         <div className="grid grid-cols-3 gap-2 mt-1">

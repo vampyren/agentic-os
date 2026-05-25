@@ -1,19 +1,30 @@
-// /dev/ui §4.1 — Sidebar navigation items (M4a-FU6 PR B).
+// /dev/ui §4.1 — Sidebar navigation items (M4a-FU6 PR B + amend).
 //
 // Hand-mirror of the NavLink + GroupLabel shapes from
-// src/components/Sidebar.tsx. Imports are NOT possible — Sidebar.tsx
-// only exports the default <Sidebar/> component; NavLink + GroupLabel
-// are internal. Refactoring Sidebar.tsx to export them is OUT OF SCOPE
-// for PR B (no existing component refactors); hand-mirror keeps the
-// shape visually equivalent.
+// src/components/Sidebar.tsx. NavLink + GroupLabel are internal to
+// that file (not exported); refactoring Sidebar.tsx to export them
+// is out of scope for PR B (no existing component refactors).
 //
-// Tokens used: --fg / --fg-dim / --fg-dimmer (text); --panel /
-// --panel-border / --panel-border-hot (surfaces); --status-live etc.
-// (agent dots, when an agent has a live signal).
-//
-// Mock data only — no live `/api/vitals` fetch. Demo agents are
-// fixture-only.
+// PR B amend (visual polish):
+//   - Use the SAME lucide-react icon set the real sidebar uses
+//     (LayoutGrid for Mission Control, Settings for Settings, etc.)
+//     so /dev/ui resembles the actual sidebar.
+//   - Nav items render on a subtle elevated surface so they feel
+//     like polished pill-buttons, not flat text. Selected state is
+//     clearly distinct from hover (filled bg-elevated-hot + brighter
+//     border).
+//   - The Settings-style edged item stays — that's the canonical
+//     active-route look we want everywhere.
 
+import {
+  LayoutGrid,
+  Target,
+  BookOpen,
+  Brain,
+  Settings as SettingsIcon,
+  Clock,
+} from "lucide-react";
+import type { ReactNode } from "react";
 import StateRow, { Section } from "@/app/dev/_lib/StateRow";
 
 export default function SidebarNavSection() {
@@ -24,47 +35,78 @@ export default function SidebarNavSection() {
       title="Sidebar navigation items"
       fileOfRecord="src/components/Sidebar.tsx"
     >
-      <StateRow label="default">
-        <DemoNavItem label="Mission Control" accent="#94a3b8" />
+      <StateRow label="default" note="idle item; subtle elevated surface so it reads as a button, not flat text">
+        <DemoNavItem icon={<LayoutGrid size={14} />} label="Mission Control" />
       </StateRow>
 
-      <StateRow label="hover" note="border-opacity bump on hover">
-        <DemoNavItem label="Settings" accent="#94a3b8" hovered />
+      <StateRow label="hover" note="bg shifts to --bg-elevated-hot; border to --panel-border-hot">
+        <DemoNavItem icon={<SettingsIcon size={14} />} label="Settings" hovered />
       </StateRow>
 
-      <StateRow label="selected / active" note="current route — distinct from hover">
-        <DemoNavItem label="Agents" accent="#94a3b8" active />
+      <StateRow label="selected / active" note="filled bg + brighter border + accent left edge — unmissable">
+        <DemoNavItem icon={<Target size={14} />} label="Agents" active />
       </StateRow>
 
-      <StateRow label="agent — live" note="status dot uses --status-live (green)">
-        <DemoNavItem label="Claude Code" accent="var(--accent-claude-code)" agentTone="live" />
+      <StateRow label="agent — live" note="--status-live dot on the right (small, glance-readable)">
+        <DemoNavItem
+          icon={<AgentChip accent="var(--accent-claude-code)" />}
+          label="Claude Code"
+          agentTone="live"
+        />
       </StateRow>
 
       <StateRow label="agent — degraded" note="--status-degraded (amber)">
-        <DemoNavItem label="Hermes" accent="var(--accent-hermes)" agentTone="degraded" />
+        <DemoNavItem
+          icon={<AgentChip accent="var(--accent-hermes)" />}
+          label="Hermes"
+          agentTone="degraded"
+        />
       </StateRow>
 
       <StateRow label="agent — offline" note="--status-offline (rose)">
-        <DemoNavItem label="OpenClaw" accent="var(--accent-openclaw)" agentTone="offline" />
+        <DemoNavItem
+          icon={<AgentChip accent="var(--accent-openclaw)" />}
+          label="OpenClaw"
+          agentTone="offline"
+        />
       </StateRow>
 
-      <StateRow label="agent — unknown" note="--status-unknown (grey — Mission Control 'no signal')">
-        <DemoNavItem label="ChatGPT" accent="var(--accent-chatgpt)" agentTone="unknown" />
+      <StateRow label="agent — unknown" note="--status-unknown (GREY — silent, no alarm)">
+        <DemoNavItem
+          icon={<AgentChip accent="var(--accent-chatgpt)" />}
+          label="ChatGPT"
+          agentTone="unknown"
+        />
       </StateRow>
 
-      <StateRow label="group label" note="non-interactive sub-header">
-        <div className="text-[10px] uppercase tracking-[0.18em] text-[var(--fg-dimmer)] py-1">
-          Operator
+      <StateRow label="group label" note="non-interactive sub-header; spaced caps; no surface treatment">
+        <div className="px-3 py-2">
+          <span className="text-[10px] uppercase tracking-[0.2em] text-[var(--fg-dimmer)]">
+            Self
+          </span>
         </div>
       </StateRow>
 
-      <StateRow label="disabled" note="future / behind-feature-flag nav item">
-        <DemoNavItem label="Scheduler" accent="#94a3b8" disabled />
+      <StateRow label="self items" note="Goals / Journal / Memory — same NavLink shape">
+        <div className="flex flex-col gap-1.5 w-[240px]">
+          <DemoNavItem icon={<Target size={14} />} label="Goals" />
+          <DemoNavItem icon={<BookOpen size={14} />} label="Journal" />
+          <DemoNavItem icon={<Brain size={14} />} label="Memory" />
+        </div>
       </StateRow>
 
-      <StateRow label="footer / version" note="version pill only">
-        <div className="text-[10px] uppercase tracking-wider text-[var(--fg-dimmer)] py-1 px-2 rounded border w-fit"
-             style={{ borderColor: "var(--panel-border)" }}>
+      <StateRow label="disabled" note="future / feature-flagged route; dimmed, no hover, aria-disabled">
+        <DemoNavItem icon={<Clock size={14} />} label="Scheduler" disabled />
+      </StateRow>
+
+      <StateRow label="footer / version" note="version pill only — settled UI shell decision">
+        <div
+          className="text-[10px] uppercase tracking-wider text-[var(--fg-dimmer)] px-2 py-1 rounded-md border w-fit"
+          style={{
+            borderColor: "var(--panel-border)",
+            background: "var(--bg-elevated)",
+          }}
+        >
           v0.3.0
         </div>
       </StateRow>
@@ -73,29 +115,24 @@ export default function SidebarNavSection() {
 }
 
 /** Hand-mirror of the NavLink shape from src/components/Sidebar.tsx.
- *  Renders a single nav item with the same visual structure (icon-
- *  pad + label + optional agent status dot) but as a non-interactive
- *  demo — no Link href, no usePathname, no React state. */
+ *  Renders an idle / hover / active / disabled nav item with a
+ *  subtle raised surface so it visually feels like a button. */
 function DemoNavItem({
+  icon,
   label,
-  accent,
   hovered = false,
   active = false,
   disabled = false,
   agentTone,
 }: {
+  icon: ReactNode;
   label: string;
-  accent: string;
   hovered?: boolean;
   active?: boolean;
   disabled?: boolean;
   agentTone?: "live" | "degraded" | "offline" | "unknown";
 }) {
-  // Border opacity matches Sidebar's hover/active states.
-  const borderColor = active || hovered
-    ? "var(--panel-border-hot)"
-    : "var(--panel-border)";
-  const opacity = disabled ? 0.4 : 1;
+  const isHot = hovered || active;
   const toneColor = agentTone
     ? agentTone === "live"
       ? "var(--status-live)"
@@ -109,19 +146,40 @@ function DemoNavItem({
   return (
     <div
       aria-disabled={disabled || undefined}
-      className="inline-flex items-center gap-3 px-3 py-2 rounded-md border w-[220px]"
+      className="inline-flex items-center gap-2.5 px-3 py-2 rounded-md border w-[240px] relative"
       style={{
-        borderColor,
-        background: active ? "var(--bg-elevated-hot)" : "var(--bg-elevated)",
-        opacity,
+        borderColor: active
+          ? "var(--panel-border-hot)"
+          : isHot
+          ? "var(--panel-border-hot)"
+          : "var(--panel-border)",
+        background: active
+          ? "var(--bg-elevated-hot)"
+          : isHot
+          ? "var(--bg-elevated-hot)"
+          : "var(--bg-elevated)",
+        opacity: disabled ? 0.45 : 1,
       }}
     >
+      {/* Accent left-edge appears only on the active state — strongest
+          cue that "this is the current route." */}
+      {active && (
+        <span
+          aria-hidden
+          className="absolute left-0 top-1.5 bottom-1.5 w-[2px] rounded-r"
+          style={{ background: "var(--fg)" }}
+        />
+      )}
       <span
-        className="w-2 h-2 rounded-full shrink-0"
-        style={{ background: accent }}
-      />
-      <span className="text-[13px] flex-1 min-w-0 truncate"
-            style={{ color: active ? "var(--fg)" : "var(--fg-dim)" }}>
+        className="shrink-0 inline-flex"
+        style={{ color: active ? "var(--fg)" : "var(--fg-dim)" }}
+      >
+        {icon}
+      </span>
+      <span
+        className="text-[13px] flex-1 min-w-0 truncate"
+        style={{ color: active ? "var(--fg)" : "var(--fg-dim)" }}
+      >
         {label}
       </span>
       {toneColor && (
@@ -132,5 +190,17 @@ function DemoNavItem({
         />
       )}
     </div>
+  );
+}
+
+/** Per-agent accent chip used in place of the generic icon. Mirrors
+ *  the production sidebar where each agent has its own accent dot. */
+function AgentChip({ accent }: { accent: string }) {
+  return (
+    <span
+      className="w-2.5 h-2.5 rounded-full"
+      style={{ background: accent }}
+      aria-hidden
+    />
   );
 }

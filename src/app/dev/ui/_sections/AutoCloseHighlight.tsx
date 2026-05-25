@@ -9,6 +9,7 @@
 // a reviewer can see each stage. No actual timer / hooks — pure
 // static demo (server component).
 
+import DemoBadge from "@/app/dev/_lib/DemoBadge";
 import StateRow, { Section } from "@/app/dev/_lib/StateRow";
 
 export default function AutoCloseHighlightSection() {
@@ -92,21 +93,13 @@ function DemoHighlightRow({
       <div className="min-w-0">
         <div className="flex items-center gap-2">
           <span className="text-[13px] font-medium">openrouter-prod</span>
-          <span className="text-[10px] uppercase tracking-wider" style={{ color: "var(--trust-first-party)" }}>
-            first-party
-          </span>
+          <DemoBadge variant="trust" color="var(--trust-first-party)">first-party</DemoBadge>
         </div>
         <p className="text-[11px] text-[var(--fg-dim)] mt-0.5">
           openai-compatible-llm · preset openrouter · auth env
         </p>
       </div>
-      <span
-        className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider"
-        style={{ color: "var(--status-valid)" }}
-      >
-        <span className="w-1.5 h-1.5 rounded-full" style={{ background: "var(--status-valid)" }} />
-        valid
-      </span>
+      <DemoBadge variant="status" color="var(--status-valid)">valid</DemoBadge>
     </div>
   );
 }

@@ -1,16 +1,26 @@
-// /dev/ui §4.7 — Connector rows (M4a-FU6 PR B).
+// /dev/ui §4.7 — Connector rows (M4a-FU6 PR B + amend).
 //
 // Hand-mirror of the ConnectorRow + StatusPill + ValidationDetail
 // shapes from src/app/settings/_connectors/ConnectorsPanel.tsx.
-// Those components are inline (not exported); refactoring them to
-// export is out of scope for PR B (no existing component refactors).
-// Hand-mirror copies the JSX shape verbatim and references the new
-// `--status-*` / `--trust-*` tokens instead of the production inline
-// hex. PR C is what migrates the production component to match.
+// Those components are inline (not exported); refactoring is out of
+// scope for PR B (no existing component refactors). Hand-mirror
+// references the new --status-* / --trust-* tokens; PR C will
+// migrate production to match.
 //
-// All connector data here is fixture-only — no live `/api/connectors`
-// fetch (§3.4 / §9).
+// PR B amend (visual polish):
+//   - Test button now uses the shared DemoButton (canonical secondary
+//     variant). Same family as every other button on /dev/ui.
+//   - Status pill + trust badge use the shared DemoBadge component
+//     so the row matches §4.8 / §4.9.
+//   - The trust badge is rendered as an outlined chip (rounded
+//     square), the status pill as a tinted rounded-full pill with a
+//     dot — the shape difference makes "trust ≠ status" visually
+//     obvious at a glance.
+//
+// All fixture inputs are illustrative — no live /api/connectors fetch.
 
+import DemoBadge from "@/app/dev/_lib/DemoBadge";
+import DemoButton from "@/app/dev/_lib/DemoButton";
 import StateRow, { Section } from "@/app/dev/_lib/StateRow";
 
 export default function ConnectorRowsSection() {
@@ -21,7 +31,7 @@ export default function ConnectorRowsSection() {
       title="Connector rows"
       fileOfRecord="src/app/settings/_connectors/ConnectorsPanel.tsx"
     >
-      <StateRow label="normal" note="idle row; right-side StatusPill carries glance status">
+      <StateRow label="normal" note="idle row; trust chip on the left, status pill on the right">
         <DemoConnectorRow
           connectorId="openai-live"
           typeFamily="openai-compatible-llm"
@@ -32,7 +42,7 @@ export default function ConnectorRowsSection() {
         />
       </StateRow>
 
-      <StateRow label="not tested" note="dimmed text on the right; no dot; no below-row detail">
+      <StateRow label="not tested" note="meta badge on the right (no dot); no below-row detail">
         <DemoConnectorRow
           connectorId="openrouter-prod"
           typeFamily="openai-compatible-llm"
@@ -43,7 +53,7 @@ export default function ConnectorRowsSection() {
         />
       </StateRow>
 
-      <StateRow label="invalid + auth-failed" note="red pill + below-row errorCode">
+      <StateRow label="invalid + auth-failed" note="--status-invalid pill + below-row errorCode">
         <DemoConnectorRow
           connectorId="ollama-local"
           typeFamily="openai-compatible-llm"
@@ -66,7 +76,7 @@ export default function ConnectorRowsSection() {
         />
       </StateRow>
 
-      <StateRow label="unreachable" note="red dot; same color family as invalid (aliased)">
+      <StateRow label="unreachable" note="--status-unreachable (aliased to --status-invalid today)">
         <DemoConnectorRow
           connectorId="claude-sandbox"
           typeFamily="cli-acp-agent"
@@ -86,7 +96,7 @@ export default function ConnectorRowsSection() {
         />
       </StateRow>
 
-      <StateRow label="testing…" note="Test button flips to 'Testing…' and is disabled">
+      <StateRow label="testing…" note="Test button flips to 'Testing…' (canonical loading verb) and is disabled">
         <DemoConnectorRow
           connectorId="openai-live"
           typeFamily="openai-compatible-llm"
@@ -113,14 +123,7 @@ export default function ConnectorRowsSection() {
   );
 }
 
-// ── Hand-mirrored row + pill + detail components ────────────────────
-
-const TRUST_COLOR: Record<TrustKind, string> = {
-  "first-party": "var(--trust-first-party)",
-  community: "var(--trust-community)",
-  untrusted: "var(--trust-untrusted)",
-  unknown: "var(--trust-unknown)",
-};
+// ── Hand-mirrored row + status pill + detail components ─────────────
 
 type TrustKind = "first-party" | "community" | "untrusted" | "unknown";
 type AuthKind = "env" | "none" | "unset";
@@ -135,6 +138,21 @@ interface DemoValidation {
   status: ValidationStatus;
   errorCode?: string;
 }
+
+const TRUST_TOKEN: Record<TrustKind, string> = {
+  "first-party": "var(--trust-first-party)",
+  community: "var(--trust-community)",
+  untrusted: "var(--trust-untrusted)",
+  unknown: "var(--trust-unknown)",
+};
+
+const STATUS_TOKEN: Record<ValidationStatus, string> = {
+  valid: "var(--status-valid)",
+  invalid: "var(--status-invalid)",
+  unreachable: "var(--status-unreachable)",
+  misconfigured: "var(--status-misconfigured)",
+  unknown: "var(--status-test-unknown)",
+};
 
 function DemoConnectorRow({
   connectorId,
@@ -161,26 +179,24 @@ function DemoConnectorRow({
     <div
       className={
         "panel p-4 flex flex-col gap-3 transition-shadow w-full max-w-[560px]"
-        + (highlighted
-          ? " ring-2 motion-safe:animate-pulse"
-          : "")
+        + (highlighted ? " ring-2 motion-safe:animate-pulse" : "")
       }
       style={{
-        borderColor: "var(--panel-border)",
-        // ring color via Tailwind arbitrary value referencing the new token.
-        ...(highlighted ? { ["--tw-ring-color" as never]: "var(--status-valid)" } : {}),
+        borderColor: highlighted
+          ? "var(--panel-border-hot)"
+          : "var(--panel-border)",
+        ...(highlighted
+          ? { ["--tw-ring-color" as never]: "var(--status-valid)" }
+          : {}),
       }}
     >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
             <span className="text-[14px] font-medium">{connectorId}</span>
-            <span
-              className="text-[10px] uppercase tracking-wider"
-              style={{ color: TRUST_COLOR[trust] }}
-            >
+            <DemoBadge variant="trust" color={TRUST_TOKEN[trust]}>
               {trust}
-            </span>
+            </DemoBadge>
           </div>
           <p className="text-[12px] text-[var(--fg-dim)] mt-0.5">
             {typeFamily}
@@ -192,16 +208,10 @@ function DemoConnectorRow({
           </p>
         </div>
         <div className="flex flex-col items-end gap-2 shrink-0">
-          <DemoStatusPill validation={validation} />
-          <button
-            type="button"
-            disabled={testing}
-            aria-disabled={testing || undefined}
-            className="px-2 py-1 text-[11px] border rounded-md hover:opacity-80 disabled:opacity-50 cursor-default"
-            style={{ borderColor: "var(--panel-border)" }}
-          >
+          <DemoTestStatusBadge validation={validation} />
+          <DemoButton variant="secondary" size="sm" disabled={testing} loading={testing}>
             {testing ? "Testing…" : "Test"}
-          </button>
+          </DemoButton>
         </div>
       </div>
       {validation && validation.status !== "valid" && (
@@ -211,47 +221,21 @@ function DemoConnectorRow({
   );
 }
 
-/** Hand-mirror of ConnectorsPanel.StatusPill. Uses the new connector-
- *  test status tokens (--status-valid / --status-invalid / etc.) rather
- *  than the inline hex production currently carries; PR C ports
- *  production to match. */
-function DemoStatusPill({ validation }: { validation: DemoValidation | null }) {
+function DemoTestStatusBadge({
+  validation,
+}: {
+  validation: DemoValidation | null;
+}) {
   if (!validation) {
-    return (
-      <span
-        className="text-[10px] uppercase tracking-wider"
-        style={{ color: "var(--status-not-tested)" }}
-      >
-        not tested
-      </span>
-    );
+    return <DemoBadge variant="meta">not tested</DemoBadge>;
   }
-  const { status } = validation;
-  const color =
-    status === "valid"
-      ? "var(--status-valid)"
-      : status === "unknown"
-      ? "var(--status-test-unknown)"
-      : status === "unreachable"
-      ? "var(--status-unreachable)"
-      : status === "misconfigured"
-      ? "var(--status-misconfigured)"
-      : "var(--status-invalid)";
-
   return (
-    <span
-      className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider"
-      style={{ color }}
-    >
-      <span className="w-1.5 h-1.5 rounded-full" style={{ background: color }} />
-      {status}
-    </span>
+    <DemoBadge variant="status" color={STATUS_TOKEN[validation.status]}>
+      {validation.status}
+    </DemoBadge>
   );
 }
 
-/** Hand-mirror of ConnectorsPanel.ValidationDetail — non-valid only;
- *  renders errorCode + auth-missing hint. Production already uses
- *  neutral message helpers (§9 non-leak); this demo is consistent. */
 function DemoValidationDetail({ validation }: { validation: DemoValidation }) {
   const { errorCode } = validation;
   if (!errorCode) return null;

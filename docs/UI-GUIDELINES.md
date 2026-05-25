@@ -153,7 +153,105 @@ These rules were extracted from PR #33 / PR #34 regressions and the issue #37 bo
 - **Use the same color / status mapping everywhere.** Mission Control: `--status-*`. Connector tests: `--status-{valid,invalid,unreachable,misconfigured,test-unknown,not-tested}`. Trust: `--trust-*`. Do not mix families. Do not introduce a parallel "feature-status" or "agent-status" token family.
 - **Reuse existing components before creating new styles.** Search `/dev/ui` first; ask before adding a new variant.
 
-## 5. UI non-leak rule (locked)
+## 5. Visual primitives — buttons, badges, sidebar, rail, modal header
+
+The rules below tighten the "look + feel" of the recurring primitives so future UI work doesn't drift back into flat-text buttons or ambiguous badge styles. Each rule is demonstrated live on `/dev/ui` under the §4.x anchor named in the link.
+
+### 5.1 Buttons — depth + clarity
+
+Live reference: `/dev/ui#interaction-states` (variants + states catalog).
+
+Buttons must look like buttons, not flat text. The canonical primitive is `src/app/dev/_lib/DemoButton.tsx` — every button in `/dev/ui` flows through it, and production buttons should match the same visual contract:
+
+- **Subtle elevated surface.** Idle background is `var(--bg-elevated)`. Hover / focus / selected shifts to `var(--bg-elevated-hot)`. Never transparent unless the variant is explicitly `ghost`.
+- **Visible border.** Idle uses `var(--panel-border)`. Hover / focus / selected uses `var(--panel-border-hot)`. A 1px border is enough to lift the button against the dark page.
+- **Distinct focus ring.** `box-shadow: 0 0 0 2px color-mix(in srgb, var(--fg) 18%, transparent)`. Keyboard users always see where focus lands.
+- **Clear disabled state.** `opacity: 0.5` + `cursor: not-allowed` + `aria-disabled`. No hover effect when disabled.
+- **Loading state uses the canonical `—ing` verb** ("Loading…", "Testing…", "Saving…"). The button stays the same shape; only the label changes and the trigger disables.
+
+Variants (apply to every existing button — Test / Retry / Back / Add / Close / rail items):
+
+| Variant | When | Look |
+|---|---|---|
+| `primary` | Affirmative action (Add, Save) | Filled `--fg` background, `--bg` text |
+| `secondary` | Surface action (Test, Retry, Load models) | Elevated bg + border (the default) |
+| `ghost` | Low-emphasis action (text-only Back, Cancel) | Transparent until hovered |
+| `danger` | Destructive action (Delete) | Filled `--status-invalid` |
+| `icon` | Square 28×28 icon-only (Close, Back-as-chevron) | Secondary style; `aria-label` mandatory |
+
+### 5.2 Status pills vs trust badges — shape carries the meaning
+
+Live reference: `/dev/ui#status-pills` + `/dev/ui#trust-badges`.
+
+Status and trust labels are NOT plain colored text. They render as two visually distinct families so a contributor can tell them apart even when the colors overlap.
+
+- **Status pills** — rounded-FULL, with a colored leading dot, a soft tinted background, and a matching colored border. The dot signals "live signal." Used for Mission Control health, agent online/offline, and connector-test outcomes. Primitive: `DemoBadge variant="status"`.
+- **Trust chips** — rounded-SQUARE (3px), outlined, no dot, no background fill. Just colored text with a thin matching border. Used for connector provenance (`first-party` / `community` / `untrusted` / `unknown`). Primitive: `DemoBadge variant="trust"`.
+- **Meta badges** — neutral grey chip with no dot and no fill. Used for "not tested" and similar absence-of-data states. Primitive: `DemoBadge variant="meta"`.
+
+The shape difference (full pill vs square chip) is the visual cue that **trust ≠ status**, even where the colors overlap (e.g. first-party green ≈ valid green). Do not collapse the two into one shape.
+
+Tinting:
+
+- Status pill background: `color-mix(in srgb, <token> 12%, transparent)`.
+- Status pill border: `color-mix(in srgb, <token> 28%, transparent)`.
+- Trust chip border: `color-mix(in srgb, <token> 40%, transparent)`.
+
+`color-mix` is the standard CSS function (modern browser support). It lets the tint live as a single source of truth (the token) without spinning up a parallel "tinted token" family.
+
+### 5.3 Sidebar items — premium depth, consistent active cue
+
+Live reference: `/dev/ui#sidebar-nav`.
+
+Sidebar nav items must look like polished pill-buttons, not flat text rows.
+
+- **Idle:** `bg-elevated` background + `panel-border` 1px border + dimmed text (`--fg-dim`).
+- **Hover:** bg shifts to `bg-elevated-hot`; border to `panel-border-hot`. Text brightens to `--fg`.
+- **Selected / active:** filled `bg-elevated-hot` + `panel-border-hot` border + a 2px accent left edge (`var(--fg)` rounded right). The accent edge is the strongest "this is the current route" cue.
+- **Disabled (soon / feature-flagged):** `opacity: 0.45`; no hover effect; `aria-disabled`.
+- **Icons:** use the same `lucide-react` icon family as the real sidebar (`LayoutGrid`, `Target`, `BookOpen`, `Brain`, `Settings`, `Clock`, etc.). Don't introduce a parallel icon set.
+- **Agent items:** the icon slot carries a colored accent chip (per-agent `--accent-*` dot). A small status dot may render on the right (live / degraded / offline / unknown) — that's the Mission Control color family, not the connector-test family.
+
+### 5.4 Settings rail — polished tabs, obvious selected state
+
+Live reference: `/dev/ui#settings-layout`.
+
+Settings rail items share the sidebar primitives but use a clearer "tab" treatment:
+
+- **Idle:** `bg-elevated` + `panel-border` (same as a sidebar item).
+- **Hover:** `bg-elevated-hot` + `panel-border-hot`.
+- **Selected:** `bg-elevated-hot` + `panel-border-hot` + the same 2px accent left edge as the sidebar + a trailing `ChevronRight` icon on the right. The chevron signals "this section is active and you're inside it now."
+- **Soon / disabled:** `opacity: 0.65`; a small `soon` chip on the right (DemoBadge `meta`); `aria-disabled`.
+
+The accent left edge and the trailing chevron together make the active item unmissable.
+
+### 5.5 Modal header — centered title, larger, with a subtitle slot
+
+Live reference: `/dev/ui#modals`.
+
+Modal headers use a three-column grid: `[28px_1fr_28px]` (Back · centered title · Close). The middle column is where the title block lives:
+
+- **Title** at `text-[15px] font-medium tracking-tight` — visibly larger than body text; centered.
+- **Subtitle slot** at `text-[11px] text-[var(--fg-dimmer)]`, one line, truncated. Used for short context like the provider name (`"OpenAI"`) on a configure-flow step, the typeFamily + presetId summary, or a status hint (`"Discovery failed"`, `"Loading presets…"`).
+- **Back** is an icon-only `DemoButton variant="icon"` rendering `<ChevronLeft />`. Do not use the literal `←` character — the icon looks intentional; the character looks rough.
+- **Close** is an icon-only `DemoButton variant="icon"` rendering `<X />`. Same rule as Back.
+
+The centered title block makes the provider name (`"OpenAI"`, `"OpenRouter"`, etc.) read as the header — the modal feels like a polished form, not a PoC scratchpad.
+
+### 5.6 Consistency — every primitive feels related
+
+The single visual-language rule:
+
+- Buttons (Test / Retry / Back / Add / Close / rail items) all flow through `DemoButton` variants. They share borders, surfaces, focus rings, and disabled treatment.
+- Badges (status / trust / meta) all flow through `DemoBadge` variants. Same tint formula, same height, same uppercase tracking.
+- Selected states across sidebar nav, settings rail, and tabs all use the same combination: `bg-elevated-hot` + `panel-border-hot` + 2px accent left edge.
+- Disabled states across all primitives use the same combination: `opacity: 0.5`, `cursor: not-allowed`, `aria-disabled`.
+- Loading states across buttons use the same combination: `—ing` verb + disabled trigger + (optional) skeleton bars in the body.
+- Reduced-motion downgrades apply consistently: `motion-safe:animate-pulse` is the suppression hook; static dim or static ring is the fallback. Demonstrated side-by-side in `/dev/ui#interaction-states` and `/dev/ui#auto-close-highlight`.
+
+If a new UI surface wants a primitive that doesn't fit one of these molds, add to the canonical set first (extend `DemoButton` / `DemoBadge` / the rules here), don't fork.
+
+## 6. UI non-leak rule (locked)
 
 > **No raw provider data, env var values, baseUrl, Authorization headers, raw fetch errors, raw stack traces, or raw provider responses are rendered in UI. Use canned / neutral message maps.**
 
@@ -164,7 +262,7 @@ Codified across three surfaces:
    - A `ValidationDetail` example renders `errorCode auth-missing` + the `discoveryMessageFor`-style hint. Never the raw fetch error string.
    - The preview-only API-key field shows a placeholder value (`••••••••`). Never an example real key shape.
    - The connector row examples never carry an env var NAME in the visible columns.
-3. **The reviewer checklist below (§6)** prompts each UI-touching PR to self-attest.
+3. **The reviewer checklist below (§7)** prompts each UI-touching PR to self-attest.
 
 Prior art:
 
@@ -172,7 +270,7 @@ Prior art:
 - M4a-5 PR #30 review fix `cf97971` — added the closed-set pattern.
 - M4a-FU5 PR A's `testConnection.neutralMessage` — kernel-side re-derivation of `message` from `(status, errorCode)`. Never passes through a family-provided string.
 
-## 6. Reviewer checklist for UI-touching PRs
+## 7. Reviewer checklist for UI-touching PRs
 
 No `PULL_REQUEST_TEMPLATE.md` file exists in this repo (FU6 task spec O10 — keeping it lightweight). Reviewers of UI-touching PRs reference the checklist below directly when leaving review comments.
 
@@ -186,7 +284,7 @@ For any PR that touches UI surfaces, confirm:
 
 The reviewer is expected to link this section in a PR comment when the rule is broken.
 
-## 7. Component index — links into `/dev/ui`
+## 8. Component index — links into `/dev/ui`
 
 | § | Category | `/dev/ui` anchor |
 |---|---|---|
@@ -207,7 +305,7 @@ The reviewer is expected to link this section in a PR comment when the rule is b
 
 Each anchor renders a live state-matrix demo of its canonical component. Walk `/dev/ui` to see them; reference the same anchor URL when leaving review feedback.
 
-## 8. Successful-create-flow rule (softened)
+## 9. Successful-create-flow rule (softened)
 
 > **Successful create flows should return to the list and highlight the created row, not leave redundant success modals — UNLESS the success state requires user action such as copy, download, or confirming a one-time value.**
 
@@ -223,7 +321,7 @@ Default behaviour:
 6. Reduced-motion downgrade: ring is static (no pulse) for the 3-second window.
 7. Carve-out: if the success requires user action, the modal stays open at a confirmation step with the explicit action.
 
-## 9. Reduced-motion
+## 10. Reduced-motion
 
 Every pulse / glow / highlight state MUST respect `prefers-reduced-motion: reduce`. Per-category downgrades:
 
@@ -235,7 +333,7 @@ Every pulse / glow / highlight state MUST respect `prefers-reduced-motion: reduc
 
 `/dev/ui` demonstrates the reduced-motion downgrade for the pulse / highlight states (§4.13 + §4.14 anchors). To verify on the running app: browser devtools → Rendering panel → Emulate CSS media feature → `prefers-reduced-motion: reduce`.
 
-## 10. Out of scope
+## 11. Out of scope
 
 What FU6 does NOT promise:
 

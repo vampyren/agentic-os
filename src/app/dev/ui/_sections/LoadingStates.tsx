@@ -1,4 +1,4 @@
-// /dev/ui §4.12 — Loading / skeleton states (M4a-FU6 PR B).
+// /dev/ui §4.12 — Loading / skeleton states (M4a-FU6 PR B + amend).
 //
 // Demonstrates the canonical loading visuals: button labels that
 // flip to "—ing" verbs (Loading / Testing / Saving), skeleton bars
@@ -6,7 +6,11 @@
 // `prefers-reduced-motion: reduce` via Tailwind's `motion-safe:`
 // modifier — under reduced motion the pulse drops to static
 // dimming.
+//
+// PR B amend: button examples use the shared DemoButton primitive so
+// they look like the same family as every other button on /dev/ui.
 
+import DemoButton from "@/app/dev/_lib/DemoButton";
 import StateRow, { Section } from "@/app/dev/_lib/StateRow";
 
 export default function LoadingStatesSection() {
@@ -18,13 +22,13 @@ export default function LoadingStatesSection() {
       fileOfRecord="various (ModelPicker.tsx, ConnectorsPanel.tsx, AddProviderFlow.tsx)"
     >
       <StateRow label="button — Loading…" note="ModelPicker's Load-models pattern (PR #30)">
-        <DemoButton label="Loading…" disabled />
+        <DemoButton variant="secondary" loading>Loading…</DemoButton>
       </StateRow>
       <StateRow label="button — Testing…" note="ConnectorsPanel.tsx — Test flow">
-        <DemoButton label="Testing…" disabled />
+        <DemoButton variant="secondary" loading>Testing…</DemoButton>
       </StateRow>
       <StateRow label="button — Saving…" note="future Save flows">
-        <DemoButton label="Saving…" disabled />
+        <DemoButton variant="primary" size="md" loading>Saving…</DemoButton>
       </StateRow>
 
       <StateRow
@@ -70,20 +74,6 @@ export default function LoadingStatesSection() {
         </div>
       </StateRow>
     </Section>
-  );
-}
-
-function DemoButton({ label, disabled = false }: { label: string; disabled?: boolean }) {
-  return (
-    <button
-      type="button"
-      disabled={disabled}
-      aria-disabled={disabled || undefined}
-      className="px-3 py-1.5 text-[12px] rounded-md border cursor-default disabled:opacity-50"
-      style={{ borderColor: "var(--panel-border)" }}
-    >
-      {label}
-    </button>
   );
 }
 
