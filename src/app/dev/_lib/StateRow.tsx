@@ -34,20 +34,52 @@ export default function StateRow({ label, note, children }: Props) {
 
 /** Outer wrapper for a §4.X section in /dev/ui. Carries the anchor id
  *  that docs/UI-GUIDELINES.md links into, plus the section title + the
- *  "file of record" sub-label. */
+ *  production-source / alignment-status sub-label.
+ *
+ *  The `kind` prop documents the relationship between this section's
+ *  rendering and production:
+ *
+ *    "import"      — section imports the production component
+ *                    directly (e.g. /dev/ui#status-pills imports
+ *                    src/components/Pill.tsx). What you see IS what
+ *                    production renders today.
+ *    "hand-mirror" — section hand-mirrors an inline-only production
+ *                    shape because the production component is not
+ *                    exported and refactoring would violate PR scope.
+ *                    Visual essence matches; the styling on /dev/ui
+ *                    is the CANONICAL TARGET the production
+ *                    component should converge toward.
+ *    "target"      — section defines a NEW canonical target that
+ *                    production has not yet implemented (e.g. modal
+ *                    header centering). Production alignment lands
+ *                    in a later scoped PR; until then production
+ *                    deliberately lags.
+ *
+ *  The sub-label rendering reflects the kind so reviewers do not
+ *  assume production already matches /dev/ui byte-for-byte. */
+export type SectionKind = "import" | "hand-mirror" | "target";
+
 export function Section({
   anchor,
   number,
   title,
   fileOfRecord,
+  kind = "hand-mirror",
   children,
 }: {
   anchor: string;
   number: string;
   title: string;
   fileOfRecord: string;
+  kind?: SectionKind;
   children: ReactNode;
 }) {
+  const kindLabel =
+    kind === "import"
+      ? "Direct production import"
+      : kind === "target"
+      ? "Canonical target (production alignment pending)"
+      : "Hand-mirror of inline production shape (canonical target)";
   return (
     <li
       id={anchor}
@@ -59,7 +91,11 @@ export function Section({
           §{number} {title}
         </h2>
         <p className="text-[11px] text-[var(--fg-dimmer)]">
-          File of record: <code className="text-[var(--fg-dim)]">{fileOfRecord}</code>
+          Production source / alignment reference:{" "}
+          <code className="text-[var(--fg-dim)]">{fileOfRecord}</code>
+        </p>
+        <p className="text-[10px] uppercase tracking-wider text-[var(--fg-dimmer)] mt-0.5">
+          {kindLabel}
         </p>
       </header>
       <div className="flex flex-col gap-0">{children}</div>

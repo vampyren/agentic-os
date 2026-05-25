@@ -30,6 +30,7 @@ export default function ConnectorRowsSection() {
       number="4.7"
       title="Connector rows"
       fileOfRecord="src/app/settings/_connectors/ConnectorsPanel.tsx"
+      kind="hand-mirror"
     >
       <StateRow label="normal" note="idle row; trust chip on the left, status pill on the right">
         <DemoConnectorRow

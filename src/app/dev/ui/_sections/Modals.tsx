@@ -1,26 +1,23 @@
-// /dev/ui §4.11 — Modals (M4a-FU6 PR B + amend).
+// /dev/ui §4.11 — Modals (M4a-FU6 PR B + amend / Rex review #2).
 //
-// Hand-mirror of the modal shapes from
-// src/app/settings/_connectors/AddProviderFlow.tsx. Renders four modal
-// states side-by-side as static demos (no overlay — the rest of
-// /dev/ui stays visible above/below). Each example shows: header
-// (centered title + optional subtitle, optional Back / Close icon
-// buttons), body, footer with primary action.
+// CANONICAL TARGET (not a strict mirror) — see FU6 spec §3.2 and
+// UI-GUIDELINES.md §5.5. AddProviderFlow.tsx production today renders
+// its modal header differently (no centered title block, raw `×`
+// character close, etc.); the goal here is the TARGET that production
+// can converge toward in a later alignment PR.
 //
-// PR B amend (visual polish):
-//   - Use shared DemoButton for primary / secondary / Back / Close
-//     so every button on /dev/ui feels like the same family.
-//   - Back + Close are now icon-only buttons (ChevronLeft + X from
-//     lucide-react) with proper aria-label — cleaner than the rough
-//     "← Back" / "×" text characters.
-//   - Modal header is centered + a touch larger; an optional subtitle
-//     line gives provider context room to breathe.
-//   - The success-carve-out demo now shows `[hidden secret value]`
-//     in a neutral placeholder block, NOT a fake `sk-…` shape. The
-//     real SecretField ships with M4a-6b; this preview must not
-//     suggest a particular key format.
+// PR B amend review #2:
+//   - Back / Close render with TEXT LABELS via DemoButton ghost size sm,
+//     not lucide-react icon-only buttons. The earlier icon-only round
+//     rendered as empty boxes inside the modal header on at least one
+//     reviewer's environment; reliable text-labels are the durable
+//     solution and read more clearly without aria-label.
+//   - Modal header still uses the three-column [auto · centered title
+//     block · auto] grid so the provider name and subtitle slot remain
+//     prominent.
+//   - Success-carve-out demo shows `[hidden secret value]` (neutral),
+//     NOT a fake `sk-…` shape — the real SecretField is M4a-6b scope.
 
-import { ChevronLeft, X } from "lucide-react";
 import DemoButton from "@/app/dev/_lib/DemoButton";
 import StateRow, { Section } from "@/app/dev/_lib/StateRow";
 
@@ -31,12 +28,13 @@ export default function ModalsSection() {
       number="4.11"
       title="Modals"
       fileOfRecord="src/app/settings/_connectors/AddProviderFlow.tsx"
+      kind="target"
     >
-      <StateRow label="header Close (top-right)" note="always present; Escape equivalent. Icon button, not text '×'.">
+      <StateRow label="header Close (top-right)" note="always present; Escape equivalent. Clean text label, not the raw '×' character.">
         <DemoModal title="Add Provider" subtitle="Pick a preset to start" showClose primary="Add" />
       </StateRow>
 
-      <StateRow label="← Back + provider name" note="step 2 of a flow. Back is a tidy icon button; provider name reads as the header.">
+      <StateRow label="Back + provider name" note="step 2 of a flow. Back is a clean text-label button; provider name reads as the header.">
         <DemoModal
           title="OpenAI"
           subtitle="openai-compatible-llm · preset openai"
@@ -147,21 +145,22 @@ function DemoModal({
         boxShadow: "0 8px 32px rgba(0,0,0,0.4)",
       }}
     >
-      {/* Three-column header: Back (left) · centered title block · Close (right) */}
+      {/* Three-column header: Back (left, text-label) · centered
+          title block · Close (right, text-label). Auto-width side
+          columns so the text-label buttons size to their content; the
+          centered title block stays visually centered because the
+          left + right columns balance on equal-flex distribution. */}
       <header
-        className="grid grid-cols-[28px_1fr_28px] items-start px-4 py-3 border-b gap-3"
+        className="grid grid-cols-[auto_1fr_auto] items-center px-4 py-3 border-b gap-3"
         style={{ borderColor: "var(--panel-border)" }}
       >
-        <div className="flex justify-start">
+        <div className="flex justify-start min-w-[60px]">
           {showBack ? (
-            <DemoButton
-              variant="icon"
-              ariaLabel="Back"
-            >
-              <ChevronLeft size={14} aria-hidden />
+            <DemoButton variant="ghost" size="sm">
+              Back
             </DemoButton>
           ) : (
-            <span aria-hidden />
+            <span aria-hidden className="inline-block min-w-[60px]" />
           )}
         </div>
         <div className="flex flex-col items-center text-center min-w-0">
@@ -174,16 +173,13 @@ function DemoModal({
             </span>
           )}
         </div>
-        <div className="flex justify-end">
+        <div className="flex justify-end min-w-[60px]">
           {showClose ? (
-            <DemoButton
-              variant="icon"
-              ariaLabel="Close"
-            >
-              <X size={14} aria-hidden />
+            <DemoButton variant="ghost" size="sm">
+              Close
             </DemoButton>
           ) : (
-            <span aria-hidden />
+            <span aria-hidden className="inline-block min-w-[60px]" />
           )}
         </div>
       </header>

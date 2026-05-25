@@ -19,6 +19,7 @@ export default function AutoCloseHighlightSection() {
       number="4.14"
       title="Auto-close + highlighted-row pattern"
       fileOfRecord="src/app/settings/_connectors/ConnectorsPanel.tsx (onAdded; PR #34 pattern)"
+      kind="hand-mirror"
     >
       <p className="text-[12px] text-[var(--fg-dim)] pb-2">
         Five-frame lifecycle. Times are illustrative; actual constant is{" "}

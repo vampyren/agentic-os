@@ -23,6 +23,7 @@ export default function InteractionStatesSection() {
       number="4.13"
       title="Interaction states (cross-cutting)"
       fileOfRecord="every interactive primitive (DemoButton is the canonical reference)"
+      kind="target"
     >
       <StateRow label="default">
         <DemoButton variant="secondary">Test</DemoButton>

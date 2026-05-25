@@ -21,6 +21,7 @@ export default function MissionControlCardsSection() {
       number="4.2"
       title="Mission Control top status cards"
       fileOfRecord="src/components/Vitals.tsx + src/app/page.tsx"
+      kind="hand-mirror"
     >
       <StateRow label="live" note="service up; --status-live (green) with soft glow">
         <DemoTile label="Vault" primary="ready" tone="live" />

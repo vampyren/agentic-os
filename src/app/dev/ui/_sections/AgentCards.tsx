@@ -21,6 +21,7 @@ export default function AgentCardsSection() {
       number="4.3"
       title="Agent cards"
       fileOfRecord="src/components/AgentPortal.tsx / AgentRoom.tsx / src/app/agents/page.tsx"
+      kind="hand-mirror"
     >
       <StateRow label="normal" note="idle card; subtle border">
         <DemoAgentCard

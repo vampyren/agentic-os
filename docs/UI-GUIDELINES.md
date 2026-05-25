@@ -4,7 +4,11 @@ Written rules companion to the live `/dev/ui` design-system reference. Lives nex
 
 **This file is the source of truth for UI consistency rules.** The live React examples render at `/dev/ui` (an unadvertised internal route — type the URL; not in the operator sidebar). When the rules below say "see `/dev/ui#anchor`", the anchor exists on the page; if a link is broken, that's a real bug.
 
-> **PR B status (current):** `/dev/ui` now renders the live component examples that the rules in this file describe — every §4 category anchor links to a live state matrix. The tightly-bounded inline-hex → token swap in existing components (`ConnectorsPanel.StatusPill`, `TRUST_COLORS`, etc.) still lands in **PR C**; until then, the production components carry inline hex while `/dev/ui` references the new tokens, so the two render byte-for-byte identical today (the new tokens map to the same hex values).
+> **PR B status (current).** `/dev/ui` now renders the live component examples that the rules in this file describe — every §4 anchor links to a live state matrix. After the visual-polish amend, **`/dev/ui` defines the canonical visual target** and production may lag until alignment PRs land.
+>
+> Each section on `/dev/ui` is labelled with its alignment status: `direct production import` (what you see IS what production renders today), `hand-mirror of inline production shape (canonical target)` (visual essence preserved; production should converge toward the polish on the demo), or `canonical target (production alignment pending)` (a new shape that production has not yet implemented).
+>
+> **PR C scope stays narrow.** PR C is **color-token replacement only** — porting inline hex in existing production components (`ConnectorsPanel.StatusPill`, `TRUST_COLORS`, etc.) to reference the new `--status-*` / `--trust-*` tokens. PR C is **NOT** full component-shape alignment. Bringing production button shells, modal headers, sidebar treatment, and so on into line with `/dev/ui` is the job of future scoped alignment PRs (M4a-6a UI work for the consumers it touches, and standalone alignment passes for the rest), not PR C.
 
 See the M4a-FU6 task spec ([`docs/specs/expandability-foundation/m4a-fu6-task-spec.md`](specs/expandability-foundation/m4a-fu6-task-spec.md)) for the design rationale and the per-PR breakdown.
 
@@ -209,8 +213,8 @@ Sidebar nav items must look like polished pill-buttons, not flat text rows.
 - **Hover:** bg shifts to `bg-elevated-hot`; border to `panel-border-hot`. Text brightens to `--fg`.
 - **Selected / active:** filled `bg-elevated-hot` + `panel-border-hot` border + a 2px accent left edge (`var(--fg)` rounded right). The accent edge is the strongest "this is the current route" cue.
 - **Disabled (soon / feature-flagged):** `opacity: 0.45`; no hover effect; `aria-disabled`.
-- **Icons:** use the same `lucide-react` icon family as the real sidebar (`LayoutGrid`, `Target`, `BookOpen`, `Brain`, `Settings`, `Clock`, etc.). Don't introduce a parallel icon set.
-- **Agent items:** the icon slot carries a colored accent chip (per-agent `--accent-*` dot). A small status dot may render on the right (live / degraded / offline / unknown) — that's the Mission Control color family, not the connector-test family.
+- **Module icons:** lucide-react family (`LayoutGrid`, `Target`, `BookOpen`, `Brain`, `Settings`, `Clock`, etc.) — same set the real sidebar uses. Wrap the icon in a 32×32 neutral tile so it carries the same visual weight as an agent avatar. Tint the tile with the route accent when active.
+- **Agent items:** the icon slot is the **canonical `AgentAvatar`** treatment from `src/components/AgentAvatar.tsx` — a 32×32 circular tile with a per-agent accent-gradient background and either the known-agent brand glyph (Claude Code / Hermes / etc.) or the first-letter fallback for unknown agents. Inner highlight ring; outer accent glow when active. **Agent identity is the avatar; do NOT reduce it to a generic small colored dot.** A small status dot may render separately on the FAR RIGHT of the row (live / degraded / offline / unknown — Mission Control family) — that's the live-signal cue, distinct from agent identity.
 
 ### 5.4 Settings rail — polished tabs, obvious selected state
 
@@ -229,12 +233,11 @@ The accent left edge and the trailing chevron together make the active item unmi
 
 Live reference: `/dev/ui#modals`.
 
-Modal headers use a three-column grid: `[28px_1fr_28px]` (Back · centered title · Close). The middle column is where the title block lives:
+Modal headers use a three-column grid: `[auto_1fr_auto]` (Back-or-spacer · centered title block · Close-or-spacer). The middle column is where the title block lives:
 
 - **Title** at `text-[15px] font-medium tracking-tight` — visibly larger than body text; centered.
 - **Subtitle slot** at `text-[11px] text-[var(--fg-dimmer)]`, one line, truncated. Used for short context like the provider name (`"OpenAI"`) on a configure-flow step, the typeFamily + presetId summary, or a status hint (`"Discovery failed"`, `"Loading presets…"`).
-- **Back** is an icon-only `DemoButton variant="icon"` rendering `<ChevronLeft />`. Do not use the literal `←` character — the icon looks intentional; the character looks rough.
-- **Close** is an icon-only `DemoButton variant="icon"` rendering `<X />`. Same rule as Back.
+- **Back** and **Close** render as clean text-label buttons via `DemoButton variant="ghost" size="sm"`. Plain `Back` and `Close` labels are durable: they read clearly without `aria-label`, do not depend on an icon library rendering in every host environment, and avoid the "empty icon box" failure mode seen with `<ChevronLeft />` / `<X />` in some browser + bundler combinations. The literal `←` / `×` characters are NOT used — they look rough; the button shape is what carries the affordance.
 
 The centered title block makes the provider name (`"OpenAI"`, `"OpenRouter"`, etc.) read as the header — the modal feels like a polished form, not a PoC scratchpad.
 

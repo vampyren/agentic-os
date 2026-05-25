@@ -28,6 +28,7 @@ export default function TrustBadgesSection() {
       number="4.9"
       title="Trust badges"
       fileOfRecord="src/app/settings/_connectors/ConnectorsPanel.tsx (TRUST_COLORS)"
+      kind="hand-mirror"
     >
       <StateRow label="first-party" note="ships with the binary; --trust-first-party (green)">
         <DemoBadge variant="trust" color={TRUST_TOKEN["first-party"]}>first-party</DemoBadge>

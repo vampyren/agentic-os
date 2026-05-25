@@ -17,14 +17,29 @@
 // Import strategy (per the FU6 spec §3.2 + this PR's hard limits):
 //
 //   - WHERE PRACTICAL: import directly from production source paths
-//     (e.g. src/components/Pill.tsx, exported as default).
+//     (e.g. src/components/Pill.tsx, exported as default). These
+//     sections carry `kind="import"` in the Section header — what
+//     you see IS what production renders today.
 //   - WHERE INLINE-ONLY: hand-mirror the JSX in this directory.
 //     Production components like ConnectorsPanel.StatusPill /
 //     ConnectorRow / ValidationDetail and AddProviderFlow's
 //     Field / modal pieces are NOT exported. Refactoring those
 //     files to export them is OUT OF SCOPE for PR B (hard limit:
-//     no existing component refactors). Each hand-mirror carries
-//     a `// HAND-MIRROR — source: …` comment naming its origin.
+//     no existing component refactors). These sections carry
+//     `kind="hand-mirror"`. The /dev/ui rendering is the CANONICAL
+//     TARGET the production shape should converge toward — visual
+//     essence is preserved but the demo MAY have polish that
+//     production lacks until an alignment PR lands.
+//   - SOME SECTIONS DEFINE A NEW CANONICAL TARGET that production
+//     has not yet implemented (e.g. the centered modal header in
+//     §4.11; the canonical DemoButton variants in §4.13). These
+//     sections carry `kind="target"`. Production deliberately lags
+//     until a scoped alignment PR catches up; PR C scope stays
+//     LIMITED to color-token replacement, NOT full component-shape
+//     alignment.
+//
+// See UI-GUIDELINES.md §5 for the visual-primitive rules the
+// hand-mirrors and targets adhere to.
 //
 // Data safety (§3.4 / §9 non-leak):
 //
@@ -100,6 +115,14 @@ function Header(): ReactNode {
         Every example below uses mock / demo data. The written rules
         companion lives at <code>docs/UI-GUIDELINES.md</code> and
         links into the anchors on this page.
+      </p>
+      <p className="text-[12px] text-[var(--fg-dimmer)]">
+        Each section is labelled with its alignment status:{" "}
+        <strong>direct production import</strong>,{" "}
+        <strong>hand-mirror of inline production shape (canonical target)</strong>, or{" "}
+        <strong>canonical target (production alignment pending)</strong>.
+        Where the section is a target, production has not yet caught
+        up to /dev/ui — alignment lands in scoped follow-up PRs.
       </p>
     </header>
   );

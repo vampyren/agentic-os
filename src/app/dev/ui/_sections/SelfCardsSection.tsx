@@ -12,6 +12,25 @@
 
 import StateRow, { Section } from "@/app/dev/_lib/StateRow";
 
+// Self-card accent fixtures. Production currently sources these as
+// inline hex inside src/app/{goals,journal,memory}/page.tsx — they
+// are NOT yet in `globals.css :root`. Documenting them in a named
+// constant here makes the /dev/ui examples deliberate (not
+// scattered hex) and gives a future hardening pass a single place
+// to read from when extracting --self-* tokens into the global
+// vocabulary. That extraction is out of scope for FU6 (per the
+// FU6 spec §1.2 — additive only; tokens land when M4a-6a or
+// another consumer demands them).
+//
+// Memory's teal happens to match --accent-hermes (#22d3ee); kept
+// here as a Self-card-specific reference so a future palette
+// change to either family doesn't accidentally bleed across.
+const SELF_ACCENT = {
+  goals: "#a78bfa",
+  journal: "#fbbf24",
+  memory: "#22d3ee",
+} as const;
+
 export default function SelfCardsSection() {
   return (
     <Section
@@ -19,12 +38,13 @@ export default function SelfCardsSection() {
       number="4.5"
       title="Self cards"
       fileOfRecord="src/components/SelfCard.tsx + src/app/{goals,journal,memory}/page.tsx"
+      kind="hand-mirror"
     >
       <StateRow label="Goals" note="violet accent + bottom-right halo">
         <DemoSelfCard
           title="Goals"
           tagline="What I'm working towards"
-          accent="#a78bfa"
+          accent={SELF_ACCENT.goals}
           stat="3 active · 1 due this week"
         />
       </StateRow>
@@ -33,7 +53,7 @@ export default function SelfCardsSection() {
         <DemoSelfCard
           title="Journal"
           tagline="What I noticed today"
-          accent="#fbbf24"
+          accent={SELF_ACCENT.journal}
           stat="last entry 2h ago"
         />
       </StateRow>
@@ -42,7 +62,7 @@ export default function SelfCardsSection() {
         <DemoSelfCard
           title="Memory"
           tagline="What persists across sessions"
-          accent="#22d3ee"
+          accent={SELF_ACCENT.memory}
           stat="142 entries · 4 surfaced this week"
         />
       </StateRow>
@@ -51,7 +71,7 @@ export default function SelfCardsSection() {
         <DemoSelfCard
           title="Goals"
           tagline="What I'm working towards"
-          accent="#a78bfa"
+          accent={SELF_ACCENT.goals}
           stat="3 active · 1 due this week"
           hovered
         />

@@ -16,6 +16,7 @@ export default function FormFieldsSection() {
       number="4.10"
       title="Form fields (incl. preview-only API key)"
       fileOfRecord="src/app/settings/_connectors/AddProviderFlow.tsx + future FU4 (#35)"
+      kind="hand-mirror"
     >
       <StateRow label="text input — idle">
         <DemoField label="Connector id">

@@ -24,6 +24,7 @@ export default function SettingsLayoutSection() {
       number="4.6"
       title="Settings layout"
       fileOfRecord="src/app/settings/page.tsx"
+      kind="hand-mirror"
     >
       <StateRow label="rail + section panel" note="full layout: nav rail on the left, active section panel on the right">
         <div className="grid grid-cols-[180px_1fr] gap-4 w-full max-w-[640px]">

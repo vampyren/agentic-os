@@ -17,6 +17,7 @@ export default function FeatureCardsSection() {
       number="4.4"
       title="Feature dashboard cards"
       fileOfRecord="src/app/page.tsx + feature-card components"
+      kind="hand-mirror"
     >
       <StateRow label="Scheduler card" note="big-card pattern; status dot + label + sub-label">
         <DemoFeatureCard

@@ -133,7 +133,11 @@ function computeStyles({
   if (variant === "danger") {
     return {
       background: "var(--status-invalid)",
-      color: "#0a0a0c",
+      // Use the page bg token for danger-button text instead of a
+      // baked hex — keeps the token vocabulary the single source of
+      // truth. AA contrast against --status-invalid (#f87171) holds
+      // for --bg (#08090b) the same way it would for a near-black hex.
+      color: "var(--bg)",
       borderColor: "var(--status-invalid)",
       opacity: disabled ? 0.5 : hovered ? 0.92 : 1,
       ...ringStyle,

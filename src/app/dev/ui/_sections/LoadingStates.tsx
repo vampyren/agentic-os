@@ -20,6 +20,7 @@ export default function LoadingStatesSection() {
       number="4.12"
       title="Loading / skeleton states"
       fileOfRecord="various (ModelPicker.tsx, ConnectorsPanel.tsx, AddProviderFlow.tsx)"
+      kind="target"
     >
       <StateRow label="button — Loading…" note="ModelPicker's Load-models pattern (PR #30)">
         <DemoButton variant="secondary" loading>Loading…</DemoButton>

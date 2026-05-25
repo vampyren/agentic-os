@@ -27,7 +27,8 @@ export default function StatusPillsSection() {
       anchor="status-pills"
       number="4.8"
       title="Status pills (canonical)"
-      fileOfRecord="src/components/Pill.tsx (Mission Control) + ConnectorsPanel.StatusPill inline (connector-test)"
+      fileOfRecord="src/components/Pill.tsx (Mission Control — imported) + ConnectorsPanel.StatusPill inline (connector-test — hand-mirrored)"
+      kind="hand-mirror"
     >
       <header className="text-[11px] uppercase tracking-wider text-[var(--fg-dim)] pt-1">
         Mission Control family — <code>src/components/Pill.tsx</code>
