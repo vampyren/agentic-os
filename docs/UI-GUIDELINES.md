@@ -4,7 +4,7 @@ Written rules companion to the live `/dev/ui` design-system reference. Lives nex
 
 **This file is the source of truth for UI consistency rules.** The live React examples render at `/dev/ui` (an unadvertised internal route — type the URL; not in the operator sidebar). When the rules below say "see `/dev/ui#anchor`", the anchor exists on the page; if a link is broken, that's a real bug.
 
-> **PR A status (current):** this is the first-draft skeleton companion to the `/dev/ui` skeleton route shell. Live component examples land in **PR B**; the tightly-bounded inline-hex → token swap lands in **PR C**. Until PR B / PR C ship, the `/dev/ui` anchors render placeholder sections and the rules below describe the intent rather than the current observable state. The intent and the rules are stable; the inventory under each anchor fills in next.
+> **PR B status (current):** `/dev/ui` now renders the live component examples that the rules in this file describe — every §4 category anchor links to a live state matrix. The tightly-bounded inline-hex → token swap in existing components (`ConnectorsPanel.StatusPill`, `TRUST_COLORS`, etc.) still lands in **PR C**; until then, the production components carry inline hex while `/dev/ui` references the new tokens, so the two render byte-for-byte identical today (the new tokens map to the same hex values).
 
 See the M4a-FU6 task spec ([`docs/specs/expandability-foundation/m4a-fu6-task-spec.md`](specs/expandability-foundation/m4a-fu6-task-spec.md)) for the design rationale and the per-PR breakdown.
 
@@ -38,7 +38,7 @@ The boundaries below are deliberate. They keep the rules in this file enforceabl
 - **Do NOT introduce Storybook, shadcn/ui, Radix, or another UI / component library** in FU6 (or any FU6-adjacent PR) without explicit Rex approval. The whole point of FU6 is to reduce drift; adding a third-party component layer adds drift in a different direction. The `/dev/ui` page is the inventory; the canonical components live in `src/components/` and per-feature `_components/` directories.
 - **Do NOT swap the design-token vocabulary for a Tailwind theme extension** without explicit Rex approval. Tokens stay as CSS custom properties so they can vary at runtime if a future "high-contrast mode" or similar lands; Tailwind theme values are baked at build time.
 
-**Practical examples** (PR B will demonstrate these on `/dev/ui` once it lands):
+**Practical examples** (demonstrated on `/dev/ui` — see the per-section examples there):
 
 ```tsx
 // ✅ Tailwind + token reference
@@ -160,7 +160,7 @@ These rules were extracted from PR #33 / PR #34 regressions and the issue #37 bo
 Codified across three surfaces:
 
 1. **This file** carries the rule verbatim above (the heading you just read).
-2. **`/dev/ui` examples** (filled in PR B) demonstrate the neutral-message pattern explicitly:
+2. **`/dev/ui` examples** demonstrate the neutral-message pattern explicitly:
    - A `ValidationDetail` example renders `errorCode auth-missing` + the `discoveryMessageFor`-style hint. Never the raw fetch error string.
    - The preview-only API-key field shows a placeholder value (`••••••••`). Never an example real key shape.
    - The connector row examples never carry an env var NAME in the visible columns.
@@ -205,7 +205,7 @@ The reviewer is expected to link this section in a PR comment when the rule is b
 | 4.13 | Interaction states (cross-cutting) | `/dev/ui#interaction-states` |
 | 4.14 | Auto-close + highlight pattern | `/dev/ui#auto-close-highlight` |
 
-Until PR B ships, each anchor renders a placeholder section. PR B fills each with live React component examples.
+Each anchor renders a live state-matrix demo of its canonical component. Walk `/dev/ui` to see them; reference the same anchor URL when leaving review feedback.
 
 ## 8. Successful-create-flow rule (softened)
 
@@ -233,7 +233,7 @@ Every pulse / glow / highlight state MUST respect `prefers-reduced-motion: reduc
 - **Card hover lift:** keep (the lift is a discrete 1px transform on hover, not a continuous animation; harmless under reduced motion).
 - **Status dot glow:** keep static; the glow is not animated.
 
-`/dev/ui` MUST demonstrate the reduced-motion downgrade for the pulse / highlight states (lands in PR B). To verify on the running app: browser devtools → Rendering panel → Emulate CSS media feature → `prefers-reduced-motion: reduce`.
+`/dev/ui` demonstrates the reduced-motion downgrade for the pulse / highlight states (§4.13 + §4.14 anchors). To verify on the running app: browser devtools → Rendering panel → Emulate CSS media feature → `prefers-reduced-motion: reduce`.
 
 ## 10. Out of scope
 
@@ -252,7 +252,7 @@ What FU6 does NOT promise:
 
 - [`docs/specs/expandability-foundation/m4a-fu6-task-spec.md`](specs/expandability-foundation/m4a-fu6-task-spec.md) — full task spec.
 - `src/app/globals.css` — token definitions.
-- `src/app/dev/ui/page.tsx` — the live reference page (skeleton in PR A; filled in PR B).
+- `src/app/dev/ui/page.tsx` — the live reference page (composer; per-section files under `src/app/dev/ui/_sections/`).
 - ADR-0017 (connector runtime + authRef — informs the preview-only API-key field).
 - ADR-0018 (preset catalog + trust clamp — informs the trust badge family).
 - ADR-0020 (connector_health projection — informs the connector-test status discriminant).
